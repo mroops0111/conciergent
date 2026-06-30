@@ -8,4 +8,4 @@ This package is in the Planning stage — see docs/ (local-only) for the design
 and extraction roadmap. Public API is not yet stable.
 """
 
-__version__ = '0.0.0'
+__version__ = '0.0.1'

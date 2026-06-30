@@ -1,6 +1,6 @@
 [project]
 name = "conciergent"
-version = "0.0.0"
+version = "0.0.1"
 description = "Give your MCP tools a chat face — Slack, LINE and more — with in-chat OAuth, human-in-the-loop approval and surface-agnostic rich replies."
 authors = [
     {name = "Yun-Tai Yang"},
