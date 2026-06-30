@@ -444,7 +444,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.27.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
     { name = "openapi-mcp-gateway", marker = "extra == 'gateway'", specifier = ">=0.5.1" },
     { name = "pydantic", specifier = ">=2.13.0" },
     { name = "pydantic-ai-slim", extras = ["google", "mcp"], specifier = ">=2.1.0" },
