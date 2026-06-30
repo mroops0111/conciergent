@@ -1,0 +1,137 @@
+[project]
+name = "conciergent"
+version = "0.0.0"
+description = "Give your MCP tools a chat face — Slack, LINE and more — with in-chat OAuth, human-in-the-loop approval and surface-agnostic rich replies."
+authors = [
+    {name = "Yun-Tai Yang"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+keywords = ["mcp", "chat", "agent", "slack", "line", "llm", "chatbot"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Communications :: Chat",
+]
+
+dependencies = [
+    "fastapi>=0.136.0",
+    "uvicorn[standard]>=0.47.0",
+    "pydantic>=2.13.0",
+    "pydantic-settings>=2.14.0",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0.3",
+    "click>=8.4.0",
+    "pydantic-ai-slim[google,mcp]>=2.1.0",
+    "mcp[cli]>=1.27.0",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=7.4.0"]
+postgres = [
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+]
+# Optional sister project — turn any OpenAPI spec into the MCP tools conciergent fronts.
+gateway = ["openapi-mcp-gateway>=0.5.1"]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+    "fakeredis>=2.35.0",
+    "httpx>=0.28.1",
+    "basedpyright>=1.39.0",
+    "ruff>=0.15.0",
+]
+
+[project.scripts]
+conciergent = "conciergent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mroops0111/conciergent"
+Repository = "https://github.com/mroops0111/conciergent"
+Issues = "https://github.com/mroops0111/conciergent/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conciergent"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "S",    # flake8-bandit
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+    "RUF",  # Ruff-specific rules
+]
+
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "S104",   # use of binding
+    "T201",   # print statements
+    "B008",   # do not perform function calls in argument defaults
+    "RUF012", # mutable class attributes should be annotated with ClassVar
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+exclude = [
+    ".git",
+    ".venv",
+    "node_modules",
+    "venv",
+]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S603", "S607"]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["conciergent"]
+force-single-line = false
+lines-after-imports = 2
+split-on-trailing-comma = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-m 'not smoke'"
+markers = [
+    "smoke: external-dependency smoke tests (live Slack/LINE/MCP endpoints); skipped by default. Run explicitly with `pytest -m smoke`.",
+]
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingImports = "warning"
