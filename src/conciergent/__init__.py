@@ -1,11 +1,27 @@
-"""conciergent — give your MCP tools a chat face.
+from .identity import ChatSurface, make_principal, parse_principal
+from .reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
+from .runtime import AgentResult, ChatAgent, OAuthBridge, PendingApproval, run_turn
+from .stores import MemoryStore, Store
 
-A concierge + agent for chat surfaces: front your MCP tools to users over Slack,
-LINE and more, with in-chat OAuth, human-in-the-loop approval, and a
-surface-agnostic structured reply model.
-
-This package is in the Planning stage — see docs/ (local-only) for the design
-and extraction roadmap. Public API is not yet stable.
-"""
 
 __version__ = '0.0.1'
+
+__all__ = [
+    'AgentResult',
+    'Card',
+    'Carousel',
+    'ChatAgent',
+    'ChatSurface',
+    'Link',
+    'MemoryStore',
+    'OAuthBridge',
+    'PendingApproval',
+    'Reply',
+    'ReplySurface',
+    'Section',
+    'Store',
+    'Suggestion',
+    'make_principal',
+    'parse_principal',
+    'run_turn',
+]

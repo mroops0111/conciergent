@@ -40,7 +40,6 @@ postgres = [
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
 ]
-# Optional sister project — turn any OpenAPI spec into the MCP tools conciergent fronts.
 gateway = ["openapi-mcp-gateway>=0.5.1"]
 dev = [
     "pytest>=9.0.0",
