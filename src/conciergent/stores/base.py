@@ -41,3 +41,20 @@ class Store(abc.ABC):
     async def take_approval(self, principal: str) -> dict[str, Any] | None:
         """Return and clear any parked approval state for ``principal``."""
         ...
+
+    # --- MCP OAuth credentials, per (server, principal) ---
+    #
+    # Stored as JSON-serialisable dicts so any backend can persist them without
+    # depending on the MCP SDK's model types.
+
+    @abc.abstractmethod
+    async def get_mcp_client_info(self, server: str, principal: str) -> dict[str, Any] | None: ...
+
+    @abc.abstractmethod
+    async def set_mcp_client_info(self, server: str, principal: str, info: Mapping[str, Any]) -> None: ...
+
+    @abc.abstractmethod
+    async def get_mcp_token(self, server: str, principal: str) -> dict[str, Any] | None: ...
+
+    @abc.abstractmethod
+    async def set_mcp_token(self, server: str, principal: str, token: Mapping[str, Any]) -> None: ...
