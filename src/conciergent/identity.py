@@ -12,9 +12,15 @@ def make_principal(surface: ChatSurface | str, *parts: str) -> str:
     """Build a stable principal that uniquely identifies a user on a surface.
 
     For example, ``make_principal(ChatSurface.slack, team_id, user_id)`` yields ``'slack:T1:U1'``.
+
+    Segments are joined with ``':'``, so a segment containing a colon is rejected to keep
+    ``parse_principal`` an exact inverse.
     """
     surface_value = surface.value if isinstance(surface, ChatSurface) else surface
-    return ':'.join([surface_value, *parts])
+    segments = [surface_value, *parts]
+    if any(':' in segment for segment in segments):
+        raise ValueError(f'principal segments must not contain ":", got {segments!r}')
+    return ':'.join(segments)
 
 
 def parse_principal(principal: str) -> tuple[str, tuple[str, ...]]:

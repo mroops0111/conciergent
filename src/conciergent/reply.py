@@ -26,8 +26,8 @@ class Suggestion(pydantic.BaseModel):
         bool,
         pydantic.Field(
             description=(
-                'If true, selecting this suggestion consumes the whole message, for example a pick-one '
-                'choice, and the other suggestions on the message stop accepting input.'
+                'If true, selecting this suggestion consumes the whole message, for example a pick-one choice, '
+                'and the other suggestions on the message stop accepting input.'
             ),
         ),
     ] = False
@@ -70,7 +70,7 @@ class Carousel(pydantic.BaseModel):
     ]
 
 
-# The terminal output of a turn: plain text, a single card, or a carousel of cards.
+# The terminal output of a turn, either plain text, a single card, or a carousel of cards.
 Reply = str | Card | Carousel
 
 

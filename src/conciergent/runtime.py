@@ -20,7 +20,7 @@ class PendingApproval:
 
 @dataclasses.dataclass
 class AgentResult:
-    """The outcome of one agent run: what to reply, and the message history to persist."""
+    """The outcome of one agent run, carrying the reply to send and the message history to persist."""
 
     output: Reply | PendingApproval
     history: list[typing.Any] = dataclasses.field(default_factory=list)
@@ -38,20 +38,6 @@ class ChatAgent(abc.ABC):
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
     ) -> AgentResult: ...
-
-    async def bootstrap(self, *, principal: str) -> None:
-        """Run optional per-user setup before the first turn, for example priming credentials."""
-        return None
-
-    @property
-    def input_token_limit(self) -> int | None:
-        """Return the model's input token limit when known, used to trigger history compaction."""
-        return None
-
-    @property
-    def history_invalidating_tools(self) -> set[str]:
-        """Return the tools whose use makes prior history stale and should trigger a reset."""
-        return set()
 
 
 class OAuthBridge(abc.ABC):
@@ -71,11 +57,11 @@ async def run_turn(
     surface: ReplySurface,
     store: Store,
     approval_ttl_seconds: int = 3600,
-) -> Reply | PendingApproval:
+) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
-    The reply is also returned, which is convenient for tests.
-    The side effects are the surface sends and the persisted history.
+    This is side-effect only, the surface sends and the persisted history.
+    Tests observe it through the fake surface and store.
     """
     history = await store.load_history(principal)
     pending = await store.take_approval(principal)
@@ -85,9 +71,14 @@ async def run_turn(
 
     output = result.output
     if isinstance(output, PendingApproval):
+        # The turn is only paused, not finished. The in-flight messages ride on ``output.state`` and are
+        # replayed via ``pending`` on resume, so committing ``result.history`` here would either wipe the
+        # conversation (empty default) or orphan the tool-call turn from its later result.
         await store.park_approval(principal, output.state, ttl_seconds=approval_ttl_seconds)
         await surface.send_card(output.card, destructive=True)
-    elif isinstance(output, Carousel):
+        return
+
+    if isinstance(output, Carousel):
         await surface.send_carousel(output.cards)
     elif isinstance(output, Card):
         await surface.send_card(output)
@@ -95,4 +86,3 @@ async def run_turn(
         await surface.send_text(output)
 
     await store.save_history(principal, result.history)
-    return output

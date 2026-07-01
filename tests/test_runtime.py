@@ -49,43 +49,35 @@ class ScriptedAgent(ChatAgent):
         return AgentResult(output=self.output, history=self.new_history)
 
 
-async def _drive(output: typing.Any):
+async def _drive_turn(output: typing.Any):
     surface = RecordingSurface()
     store = MemoryStore()
-    result = await run_turn(
+    await run_turn(
         'hi',
         principal='slack:T:U',
         agent=ScriptedAgent(output=output),
         surface=surface,
         store=store,
     )
-    return surface, store, result
+    return surface, store
 
 
 async def test_text_reply_is_dispatched():
-    surface, _, result = await _drive('hello')
+    surface, _ = await _drive_turn('hello')
     assert ('processing', None) in surface.calls
     assert ('text', 'hello') in surface.calls
-    assert result == 'hello'
 
 
 async def test_card_reply_is_dispatched_non_destructive():
     card = Card(title='t', sections=[Section(text='b')])
-    surface, _, _ = await _drive(card)
+    surface, _ = await _drive_turn(card)
     assert any(kind == 'card' and payload[0] is card and payload[1] is False for kind, payload in surface.calls)
 
 
 async def test_carousel_reply_is_dispatched():
     cards = [Card(title='a'), Card(title='b')]
-    surface, _, _ = await _drive(Carousel(cards=cards))
+    surface, _ = await _drive_turn(Carousel(cards=cards))
     assert ('carousel', cards) in surface.calls
-
-
-async def test_pending_approval_parks_and_renders_destructive():
-    card = Card(title='Delete everything?')
-    surface, store, _ = await _drive(PendingApproval(card=card, state={'resume': 'x'}))
-    assert any(kind == 'card' and payload[1] is True for kind, payload in surface.calls)
-    assert await store.take_approval('slack:T:U') == {'resume': 'x'}
 
 
 async def test_history_is_persisted():
@@ -94,3 +86,19 @@ async def test_history_is_persisted():
     agent = ScriptedAgent(output='ok', new_history=[{'role': 'user'}, {'role': 'assistant'}])
     await run_turn('hi', principal='p', agent=agent, surface=surface, store=store)
     assert await store.load_history('p') == [{'role': 'user'}, {'role': 'assistant'}]
+
+
+async def test_pending_approval_parks_and_renders_destructive():
+    card = Card(title='Delete everything?')
+    surface, store = await _drive_turn(PendingApproval(card=card, state={'resume': 'x'}))
+    assert any(kind == 'card' and payload[1] is True for kind, payload in surface.calls)
+    assert await store.take_approval('slack:T:U') == {'resume': 'x'}
+
+
+async def test_pending_approval_does_not_overwrite_history():
+    surface = RecordingSurface()
+    store = MemoryStore()
+    await store.save_history('slack:T:U', [{'role': 'user'}, {'role': 'assistant'}])
+    agent = ScriptedAgent(output=PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
+    await run_turn('hi', principal='slack:T:U', agent=agent, surface=surface, store=store)
+    assert await store.load_history('slack:T:U') == [{'role': 'user'}, {'role': 'assistant'}]

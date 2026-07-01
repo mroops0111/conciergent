@@ -17,10 +17,11 @@ class Store(abc.ABC):
     async def save_history(self, principal: str, history: list[typing.Any]) -> None: ...
 
     @abc.abstractmethod
-    async def seen(self, key: str, *, ttl_seconds: int) -> bool:
-        """Record ``key`` and report whether it had already been recorded.
+    async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
+        """Record ``key`` and report whether it had already been recorded within the ttl window.
 
-        Returns True if this is a duplicate and False if it is new, which makes webhook delivery idempotent.
+        Returns True when ``key`` is a repeat and False when it is new, which lets a caller drop
+        duplicate work such as a redelivered webhook. Recording the key is a side effect of the check.
         """
         ...
 
