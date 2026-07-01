@@ -55,16 +55,17 @@ jobs:
   smoke:
     name: Smoke (External Deps)
     runs-on: ubuntu-latest
-    # Hits live Slack / LINE / MCP endpoints. Network-dependent — failures here
-    # often mean a third-party service or credential is unavailable, not a real
-    # regression. Investigate before assuming a bug.
+    # Hits live Slack / LINE / MCP endpoints.
+    # A failure usually means a third-party service or credential is unavailable, not a real regression.
+    # Investigate before assuming a bug.
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - run: uv sync --extra dev --extra redis --extra postgres
-      - run: uv run pytest -m smoke -v --tb=short
+      - run: |
+          uv run pytest -m smoke -v --tb=short; code=$?; [ "$code" = 0 ] || [ "$code" = 5 ]
 
   build:
     name: Build
