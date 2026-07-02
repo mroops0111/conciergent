@@ -8,7 +8,7 @@ import typing
 import fastapi
 
 from ...identity import ChatSurface, make_principal
-from ...oauth import OAuthHandoffExpiredError
+from ...oauth_handoff import is_handoff_expiry
 from ...runtime import ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
 from .surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
@@ -25,6 +25,7 @@ class LineWebhookSettings(typing.NamedTuple):
     channel_secret: str
     channel_access_token: str
     welcome_text: str = 'Hi! Send me a message to get started.'
+    ready_text: str = 'You are all set. Send me a message to get started.'
 
 
 def build_router(
@@ -75,18 +76,18 @@ async def _dispatch_event(
     user_id = source.get('userId')
     if source.get('type') != 'user' or not user_id:
         return
+    principal = make_principal(ChatSurface.line, user_id)
     async with LineMessenger(settings.channel_access_token) as messenger:
         slot = ReplyTokenSlot(messenger, user_id=user_id, reply_token=event.get('replyToken'))
+        bridge = LineOAuthBridge(store, slot)
         if event.get('type') == 'follow':
-            await slot.send({'type': 'text', 'text': settings.welcome_text})
+            await _greet_follower(settings=settings, agent=agent, principal=principal, bridge=bridge, slot=slot)
             return
         message = event.get('message') or {}
         user_text = message.get('text', '')
         if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
             return
-        principal = make_principal(ChatSurface.line, user_id)
         surface = LineReplySurface(slot)
-        bridge = LineOAuthBridge(store, slot)
         try:
             await run_turn(
                 user_text,
@@ -97,10 +98,30 @@ async def _dispatch_event(
                 bridge=bridge,
                 compactor=compactor,
             )
-        except OAuthHandoffExpiredError:
-            return
-        except Exception:
-            logger.exception('LINE turn failed for %s', principal)
+        except Exception as error:
+            # An unfinished authorization is an expected ending, anything else is a real failure.
+            if not is_handoff_expiry(error):
+                logger.exception('LINE turn failed for %s', principal)
+
+
+async def _greet_follower(
+    *,
+    settings: LineWebhookSettings,
+    agent: ChatAgent,
+    principal: str,
+    bridge: LineOAuthBridge,
+    slot: ReplyTokenSlot,
+) -> None:
+    """Fire any pending OAuth at add time and greet according to what happened."""
+    try:
+        just_authorized = await agent.bootstrap(principal, bridge=bridge)
+    except Exception as error:
+        # The user got the authorization link but walked away, greeting can wait for their message.
+        if not is_handoff_expiry(error):
+            logger.exception('LINE follow bootstrap failed for %s', principal)
+        return
+    text = settings.ready_text if just_authorized else settings.welcome_text
+    await slot.send({'type': 'text', 'text': text})
 
 
 def _signature_is_valid(channel_secret: str, body: bytes, *, signature: str | None) -> bool:

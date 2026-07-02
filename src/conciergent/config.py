@@ -13,7 +13,7 @@ class AgentSettings(pydantic.BaseModel):
     model: str
     system_prompt: str
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
-    token_limit: int | None = None
+    input_token_limit: int | None = None
 
 
 class SlackSettings(pydantic.BaseModel):

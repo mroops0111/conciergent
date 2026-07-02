@@ -1,7 +1,7 @@
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from ..stores.base import Store
+from ..stores.base import CredentialStore
 
 
 class OAuthTokenStorage(TokenStorage):
@@ -11,7 +11,7 @@ class OAuthTokenStorage(TokenStorage):
     tokens are keyed by both server and principal.
     """
 
-    def __init__(self, store: Store, *, server: str, principal: str) -> None:
+    def __init__(self, store: CredentialStore, *, server: str, principal: str) -> None:
         self._store = store
         self._server = server
         self._principal = principal

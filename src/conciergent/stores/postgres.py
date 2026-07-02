@@ -24,7 +24,7 @@ class HistoryTurn(Base):
     __tablename__ = 'conciergent_history_turns'
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    principal: Mapped[str] = mapped_column(sqlalchemy.String(255), index=True)
+    conversation: Mapped[str] = mapped_column(sqlalchemy.String(255), index=True)
     messages: Mapped[list[typing.Any]] = mapped_column(sqlalchemy.JSON)
     expires_at: Mapped[float] = mapped_column(sqlalchemy.Float)
 
@@ -32,7 +32,7 @@ class HistoryTurn(Base):
 class Approval(Base):
     __tablename__ = 'conciergent_approvals'
 
-    principal: Mapped[str] = mapped_column(sqlalchemy.String(255), primary_key=True)
+    conversation: Mapped[str] = mapped_column(sqlalchemy.String(255), primary_key=True)
     state: Mapped[dict[str, typing.Any]] = mapped_column(sqlalchemy.JSON)
     expires_at: Mapped[float] = mapped_column(sqlalchemy.Float)
 
@@ -96,25 +96,29 @@ class PostgresStore(Store):
         async with self._engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 
-    async def load_history(self, principal: str) -> list[typing.Any]:
+    async def load_history(self, conversation: str) -> list[typing.Any]:
         async with self._sessions() as session:
             rows = await session.scalars(
                 sqlalchemy.select(HistoryTurn)
-                .where(HistoryTurn.principal == principal, HistoryTurn.expires_at > time.time())
+                .where(HistoryTurn.conversation == conversation, HistoryTurn.expires_at > time.time())
                 .order_by(HistoryTurn.id)
             )
             return [message for row in rows for message in row.messages]
 
-    async def append_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+    async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         async with self._sessions.begin() as session:
-            session.add(HistoryTurn(principal=principal, messages=list(messages), expires_at=time.time() + ttl_seconds))
+            session.add(
+                HistoryTurn(conversation=conversation, messages=list(messages), expires_at=time.time() + ttl_seconds)
+            )
             await session.flush()
-            await self._trim_turns(session, principal)
+            await self._trim_turns(session, conversation)
 
-    async def replace_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+    async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         async with self._sessions.begin() as session:
-            await session.execute(sqlalchemy.delete(HistoryTurn).where(HistoryTurn.principal == principal))
-            session.add(HistoryTurn(principal=principal, messages=list(messages), expires_at=time.time() + ttl_seconds))
+            await session.execute(sqlalchemy.delete(HistoryTurn).where(HistoryTurn.conversation == conversation))
+            session.add(
+                HistoryTurn(conversation=conversation, messages=list(messages), expires_at=time.time() + ttl_seconds)
+            )
 
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         try:
@@ -132,17 +136,19 @@ class PostgresStore(Store):
             return True
 
     async def park_approval(
-        self, principal: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
+        self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None:
         async with self._sessions.begin() as session:
-            await session.merge(Approval(principal=principal, state=dict(state), expires_at=time.time() + ttl_seconds))
+            await session.merge(
+                Approval(conversation=conversation, state=dict(state), expires_at=time.time() + ttl_seconds)
+            )
 
-    async def take_approval(self, principal: str) -> dict[str, typing.Any] | None:
+    async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
         # A single DELETE with RETURNING hands the row to exactly one concurrent taker.
         async with self._sessions.begin() as session:
             result = await session.execute(
                 sqlalchemy.delete(Approval)
-                .where(Approval.principal == principal)
+                .where(Approval.conversation == conversation)
                 .returning(Approval.state, Approval.expires_at)
             )
             row = result.first()
@@ -201,11 +207,11 @@ class PostgresStore(Store):
                 return None
             await asyncio.sleep(min(_OAUTH_POLL_INTERVAL_SECONDS, timeout_seconds))
 
-    async def _trim_turns(self, session: typing.Any, principal: str) -> None:
+    async def _trim_turns(self, session: typing.Any, conversation: str) -> None:
         ids = list(
             await session.scalars(
                 sqlalchemy.select(HistoryTurn.id)
-                .where(HistoryTurn.principal == principal)
+                .where(HistoryTurn.conversation == conversation)
                 .order_by(HistoryTurn.id.desc())
             )
         )

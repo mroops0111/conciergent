@@ -9,7 +9,7 @@ import urllib.parse
 import fastapi
 
 from ...identity import ChatSurface, make_principal
-from ...oauth import OAuthHandoffExpiredError
+from ...oauth_handoff import is_handoff_expiry
 from ...runtime import ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
 from . import render
@@ -133,6 +133,8 @@ async def _dispatch_turn(
     if not bot_token or not user_text:
         return
     principal = make_principal(ChatSurface.slack, team_id, user_id)
+    # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
+    conversation = f'{principal}:{thread_ts}' if thread_ts else principal
     async with SlackMessenger(bot_token) as messenger:
         surface = SlackReplySurface(
             messenger,
@@ -149,13 +151,14 @@ async def _dispatch_turn(
                 agent=agent,
                 surface=surface,
                 store=store,
+                conversation=conversation,
                 bridge=bridge,
                 compactor=compactor,
             )
-        except OAuthHandoffExpiredError:
-            return
-        except Exception:
-            logger.exception('Slack turn failed for %s', principal)
+        except Exception as error:
+            # An unfinished authorization is an expected ending, anything else is a real failure.
+            if not is_handoff_expiry(error):
+                logger.exception('Slack turn failed for %s', principal)
 
 
 def _signature_is_valid(secret: str, body: bytes, *, timestamp: str | None, signature: str | None) -> bool:

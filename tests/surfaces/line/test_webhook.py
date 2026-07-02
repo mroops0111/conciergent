@@ -42,6 +42,12 @@ class FakeMessenger:
 class EchoAgent(ChatAgent):
     def __init__(self) -> None:
         self.inputs: list[str] = []
+        self.bootstrapped: list[str] = []
+        self.bootstrap_result = False
+
+    async def bootstrap(self, principal: str, *, bridge: typing.Any = None) -> bool:
+        self.bootstrapped.append(principal)
+        return self.bootstrap_result
 
     async def run(
         self,
@@ -133,15 +139,28 @@ def test_event_without_id_still_dispatches(harness) -> None:
     assert agent.inputs == ['no id', 'no id']
 
 
-def test_follow_event_sends_the_welcome(harness) -> None:
-    client, agent = harness
+def _follow_body() -> bytes:
     event = {
         'type': 'follow',
         'webhookEventId': 'ev-follow',
         'replyToken': 'rt2',
         'source': {'type': 'user', 'userId': 'U1'},
     }
-    body = json.dumps({'events': [event]}).encode()
+    return json.dumps({'events': [event]}).encode()
+
+
+def test_follow_event_bootstraps_and_sends_the_welcome(harness) -> None:
+    client, agent = harness
+    body = _follow_body()
     client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
-    assert FakeMessenger.replies and 'message' in FakeMessenger.replies[0]['text']
+    assert agent.bootstrapped == ['line:U1']
+    assert FakeMessenger.replies and 'get started' in FakeMessenger.replies[0]['text']
+
+
+def test_follow_greets_ready_after_a_fresh_authorization(harness) -> None:
+    client, agent = harness
+    agent.bootstrap_result = True
+    body = _follow_body()
+    client.post('/line/events', content=body, headers=_signed_headers(body))
+    assert FakeMessenger.replies and FakeMessenger.replies[0]['text'].startswith('You are all set')

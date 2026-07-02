@@ -28,21 +28,21 @@ class MemoryStore(Store):
         self._bot_tokens: dict[tuple[str, str], str] = {}
         self._oauth_codes: dict[str, tuple[asyncio.Future[str], float]] = {}
 
-    async def load_history(self, principal: str) -> list[typing.Any]:
-        turns = self._live_turns(principal)
+    async def load_history(self, conversation: str) -> list[typing.Any]:
+        turns = self._live_turns(conversation)
         return [message for _, messages in turns for message in messages]
 
-    async def append_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
-        turns = self._live_turns(principal)
+    async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+        turns = self._live_turns(conversation)
         turns.append((time.monotonic() + ttl_seconds, list(messages)))
-        self._history[principal] = turns[-self._max_turns :]
+        self._history[conversation] = turns[-self._max_turns :]
 
-    async def replace_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
-        self._history[principal] = [(time.monotonic() + ttl_seconds, list(messages))]
+    async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+        self._history[conversation] = [(time.monotonic() + ttl_seconds, list(messages))]
 
-    def _live_turns(self, principal: str) -> list[tuple[float, list[typing.Any]]]:
+    def _live_turns(self, conversation: str) -> list[tuple[float, list[typing.Any]]]:
         now = time.monotonic()
-        return [turn for turn in self._history.get(principal, []) if turn[0] > now]
+        return [turn for turn in self._history.get(conversation, []) if turn[0] > now]
 
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         now = time.monotonic()
@@ -53,12 +53,12 @@ class MemoryStore(Store):
         return False
 
     async def park_approval(
-        self, principal: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
+        self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None:
-        self._approvals[principal] = (dict(state), time.monotonic() + ttl_seconds)
+        self._approvals[conversation] = (dict(state), time.monotonic() + ttl_seconds)
 
-    async def take_approval(self, principal: str) -> dict[str, typing.Any] | None:
-        entry = self._approvals.pop(principal, None)
+    async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
+        entry = self._approvals.pop(conversation, None)
         if entry is None:
             return None
         state, expiry = entry

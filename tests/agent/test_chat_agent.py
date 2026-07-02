@@ -103,3 +103,15 @@ async def test_confirm_runs_all_deferred_tools():
     resumed = await agent.run(_CONFIRM, principal='p', history=[], pending=parked.output.state)
     assert not isinstance(resumed.output, PendingApproval)
     assert sorted(calls) == ['a', 'b']  # one confirm ran every deferred tool
+
+
+async def test_bootstrap_without_servers_reports_no_authorization():
+    agent = PydanticAIAgent(model=TestModel(), system_prompt='x')
+    assert await agent.bootstrap('p') is False
+
+
+async def test_bootstrap_opens_mcp_context_without_running_the_agent():
+    calls: list[int] = []
+    agent = _agent(_destructive_server(calls))
+    assert await agent.bootstrap('p') is False
+    assert calls == []

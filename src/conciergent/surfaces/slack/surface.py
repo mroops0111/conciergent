@@ -3,9 +3,9 @@ import typing
 
 import httpx
 
-from ...oauth import StatefulOAuthBridge
 from ...reply import Card, Link, ReplySurface
-from ...stores.base import Store
+from ...runtime import StatefulOAuthBridge
+from ...stores.base import OAuthCodeStore
 from . import render
 
 
@@ -98,7 +98,7 @@ class SlackOAuthBridge(StatefulOAuthBridge):
 
     def __init__(
         self,
-        store: Store,
+        store: OAuthCodeStore,
         messenger: SlackMessenger,
         *,
         channel: str,
