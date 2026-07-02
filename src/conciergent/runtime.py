@@ -10,8 +10,9 @@ from .stores.base import Store
 class PendingApproval:
     """A request for the user to approve one or more sensitive actions before they run.
 
-    This is framework-neutral on purpose, so the agent library's own suspension types are not exposed here.
-    An agent that cannot pause simply never returns one.
+    The card renders the confirmation.
+    The ``state`` is an opaque JSON-serializable dict that the store parks and hands back on resume.
+    Only the agent adapter that produced it reads it back, so payload compatibility is handled in one place.
     """
 
     card: Card
@@ -20,7 +21,7 @@ class PendingApproval:
 
 @dataclasses.dataclass
 class AgentResult:
-    """The outcome of one agent run, carrying the reply to send and the message history to persist."""
+    """The outcome of one agent run, carrying the reply to send and this turn's new messages to append."""
 
     output: Reply | PendingApproval
     history: list[typing.Any] = dataclasses.field(default_factory=list)
@@ -56,11 +57,12 @@ async def run_turn(
     agent: ChatAgent,
     surface: ReplySurface,
     store: Store,
-    approval_ttl_seconds: int = 3600,
+    approval_ttl_seconds: int = 600,
+    history_ttl_seconds: int = 604800,
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
-    This is side-effect only, the surface sends and the persisted history.
+    This is side-effect only, the surface sends and the appended history turn.
     Tests observe it through the fake surface and store.
     """
     history = await store.load_history(principal)
@@ -71,18 +73,19 @@ async def run_turn(
 
     output = result.output
     if isinstance(output, PendingApproval):
-        # The turn is only paused, not finished. The in-flight messages ride on ``output.state`` and are
-        # replayed via ``pending`` on resume, so committing ``result.history`` here would either wipe the
-        # conversation (empty default) or orphan the tool-call turn from its later result.
+        # The turn is only paused, not finished.
+        # The in-flight messages ride on ``output.state`` and are replayed via ``pending`` on resume,
+        # so committing ``result.history`` here would either wipe the conversation with the empty default,
+        # or orphan the tool-call turn from its later result.
         await store.park_approval(principal, output.state, ttl_seconds=approval_ttl_seconds)
         await surface.send_card(output.card, destructive=True)
         return
 
     if isinstance(output, Carousel):
-        await surface.send_carousel(output.cards)
+        await surface.send_carousel([*output.options, output.fallback])
     elif isinstance(output, Card):
         await surface.send_card(output)
     else:
         await surface.send_text(output)
 
-    await store.save_history(principal, result.history)
+    await store.append_history(principal, result.history, ttl_seconds=history_ttl_seconds)

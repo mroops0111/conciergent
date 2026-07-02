@@ -11,10 +11,18 @@ class Store(abc.ABC):
     """
 
     @abc.abstractmethod
-    async def load_history(self, principal: str) -> list[typing.Any]: ...
+    async def load_history(self, principal: str) -> list[typing.Any]:
+        """Return the still-live turns for ``principal``, flattened into one message list."""
+        ...
 
     @abc.abstractmethod
-    async def save_history(self, principal: str, history: list[typing.Any]) -> None: ...
+    async def append_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+        """Append one turn of messages, which ages out on its own after ``ttl_seconds``.
+
+        Backends also keep only a bounded number of recent turns,
+        so history behaves identically on the in-memory default and on networked implementations.
+        """
+        ...
 
     @abc.abstractmethod
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
@@ -34,3 +42,21 @@ class Store(abc.ABC):
     async def take_approval(self, principal: str) -> dict[str, typing.Any] | None:
         """Return and clear any parked approval state for ``principal``."""
         ...
+
+    @abc.abstractmethod
+    async def get_mcp_token(self, server: str, principal: str) -> dict[str, typing.Any] | None:
+        """Return the stored OAuth token for one user of one MCP server, as an opaque dict."""
+        ...
+
+    @abc.abstractmethod
+    async def set_mcp_token(
+        self, server: str, principal: str, token: collections.abc.Mapping[str, typing.Any]
+    ) -> None: ...
+
+    @abc.abstractmethod
+    async def get_mcp_client(self, server: str) -> dict[str, typing.Any] | None:
+        """Return the dynamically registered OAuth client for one MCP server, shared across users."""
+        ...
+
+    @abc.abstractmethod
+    async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None: ...
