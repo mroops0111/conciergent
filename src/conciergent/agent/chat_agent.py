@@ -13,7 +13,7 @@ from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDen
 from ..mcp.client import _DEFAULT_CLIENT_NAME, ApprovalPredicate, build_toolset, needs_approval
 from ..reply import Card, Carousel, Reply, Section, Suggestion
 from ..runtime import AgentResult, ChatAgent, OAuthBridge, PendingApproval
-from ..stores.base import Store
+from ..stores.base import CredentialStore
 
 
 _DEFAULT_CONFIRM_LABEL = 'Confirm'
@@ -41,7 +41,7 @@ class PydanticAIAgent(ChatAgent):
         model: Model | str,
         system_prompt: str,
         mcp_servers: collections.abc.Sequence[MCPToolsetClient] = (),
-        store: Store | None = None,
+        store: CredentialStore | None = None,
         redirect_uri: str | None = None,
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = _DEFAULT_CLIENT_NAME,

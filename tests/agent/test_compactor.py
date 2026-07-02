@@ -23,8 +23,10 @@ def _history(*, latest_input_tokens: int) -> list[typing.Any]:
     return list(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
 
 
-def _compactor(token_limit: int = 1000) -> PydanticAICompactor:
-    return PydanticAICompactor(TestModel(call_tools=[], custom_output_text='the summary'), token_limit=token_limit)
+def _compactor(input_token_limit: int = 1000) -> PydanticAICompactor:
+    return PydanticAICompactor(
+        TestModel(call_tools=[], custom_output_text='the summary'), input_token_limit=input_token_limit
+    )
 
 
 async def test_below_threshold_keeps_history():

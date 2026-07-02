@@ -66,8 +66,8 @@ class App:
             redirect_uri=redirect_uri,
         )
         compactor = None
-        if config.agent.token_limit is not None:
-            compactor = PydanticAICompactor(config.agent.model, token_limit=config.agent.token_limit)
+        if config.agent.input_token_limit is not None:
+            compactor = PydanticAICompactor(config.agent.model, input_token_limit=config.agent.input_token_limit)
         surfaces: list[Surface] = []
         if config.slack is not None:
             surfaces.append(

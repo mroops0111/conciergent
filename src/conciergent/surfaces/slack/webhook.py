@@ -9,7 +9,7 @@ import urllib.parse
 import fastapi
 
 from ...identity import ChatSurface, make_principal
-from ...oauth import is_handoff_expiry
+from ...oauth_handoff import is_handoff_expiry
 from ...runtime import ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
 from . import render

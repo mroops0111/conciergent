@@ -2,7 +2,15 @@ from .app import App
 from .config import AppConfig
 from .identity import ChatSurface, make_principal, parse_principal
 from .reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
-from .runtime import AgentResult, ChatAgent, HistoryCompactor, OAuthBridge, PendingApproval, run_turn
+from .runtime import (
+    AgentResult,
+    ChatAgent,
+    HistoryCompactor,
+    OAuthBridge,
+    PendingApproval,
+    StatefulOAuthBridge,
+    run_turn,
+)
 from .stores import MemoryStore, Store
 
 
@@ -24,6 +32,7 @@ __all__ = [
     'Reply',
     'ReplySurface',
     'Section',
+    'StatefulOAuthBridge',
     'Store',
     'Suggestion',
     'make_principal',

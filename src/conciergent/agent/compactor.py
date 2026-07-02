@@ -18,10 +18,10 @@ from pydantic_ai.models import Model
 from ..runtime import HistoryCompactor
 
 
-_TRIGGER_RATIO = 0.80
-_TARGET_RATIO = 0.20
-_MIN_TARGET_CHARS = 200
-_SUMMARY_STUB = '(Earlier conversation summary)'
+_COMPACTION_TRIGGER_RATIO = 0.80
+_COMPACTION_TARGET_RATIO = 0.20
+_SUMMARY_MIN_TARGET_CHARS = 200
+_COMPACTION_SUMMARY_STUB = '(Earlier conversation summary)'
 _INSTRUCTIONS = (
     'You compact prior chat history into a pickup summary for the assistant. '
     'Capture who the user is, what they asked, and what the assistant did or discovered. '
@@ -43,11 +43,11 @@ class PydanticAICompactor(HistoryCompactor):
         self,
         model: Model | str,
         *,
-        token_limit: int,
-        trigger_ratio: float = _TRIGGER_RATIO,
-        target_ratio: float = _TARGET_RATIO,
+        input_token_limit: int,
+        trigger_ratio: float = _COMPACTION_TRIGGER_RATIO,
+        target_ratio: float = _COMPACTION_TARGET_RATIO,
     ) -> None:
-        self._token_limit = token_limit
+        self._input_token_limit = input_token_limit
         self._trigger_ratio = trigger_ratio
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
@@ -57,16 +57,16 @@ class PydanticAICompactor(HistoryCompactor):
             messages = ModelMessagesTypeAdapter.validate_python(history)
         except pydantic.ValidationError:
             return None
-        if _latest_input_tokens(messages) < int(self._token_limit * self._trigger_ratio):
+        if _latest_input_tokens(messages) < int(self._input_token_limit * self._trigger_ratio):
             return None
         to_compact, to_keep = _split_before_last_exchange(messages)
         if not to_compact:
             return None
         transcript = _render_transcript(to_compact)
-        target_chars = max(int(len(transcript) * self._target_ratio), _MIN_TARGET_CHARS)
+        target_chars = max(int(len(transcript) * self._target_ratio), _SUMMARY_MIN_TARGET_CHARS)
         result = await self._agent.run(f'Target length: under {target_chars} characters.\n\nTranscript:\n{transcript}')
         summary_pair: list[ModelMessage] = [
-            ModelRequest(parts=[UserPromptPart(_SUMMARY_STUB)]),
+            ModelRequest(parts=[UserPromptPart(_COMPACTION_SUMMARY_STUB)]),
             ModelResponse(parts=[TextPart(result.output)]),
         ]
         replacement = ModelMessagesTypeAdapter.dump_python([*summary_pair, *to_keep], mode='json')

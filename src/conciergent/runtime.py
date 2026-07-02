@@ -1,9 +1,11 @@
 import abc
 import dataclasses
 import typing
+import urllib.parse
 
+from .oauth_handoff import WAIT_TIMEOUT_SECONDS, OAuthHandoffExpiredError
 from .reply import Card, Carousel, Reply, ReplySurface
-from .stores.base import Store
+from .stores.base import OAuthCodeStore, Store
 
 
 @dataclasses.dataclass
@@ -33,6 +35,35 @@ class OAuthBridge(abc.ABC):
     @abc.abstractmethod
     async def request_authorization(self, authorize_url: str) -> str:
         """Show the user the authorize URL and return the code once they complete the flow."""
+        ...
+
+
+class StatefulOAuthBridge(OAuthBridge):
+    """Complete an in-chat OAuth authorization by round-tripping the ``state`` through the store.
+
+    ``request_authorization`` extracts the state from the authorize URL, lets the surface render the
+    link to the user, then blocks until the callback route delivers the code for that state.
+    Subclasses implement only the rendering.
+    """
+
+    def __init__(self, store: OAuthCodeStore, *, wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS) -> None:
+        self._store = store
+        self._wait_timeout_seconds = wait_timeout_seconds
+
+    async def request_authorization(self, authorize_url: str) -> str:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(authorize_url).query)
+        states = query.get('state')
+        if not states:
+            raise ValueError('the authorization URL carries no state parameter')
+        await self._render_authorization_ui(authorize_url)
+        code = await self._store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
+        if code is None:
+            raise OAuthHandoffExpiredError
+        return code
+
+    @abc.abstractmethod
+    async def _render_authorization_ui(self, authorize_url: str) -> None:
+        """Show the authorize URL to the user, for example as a button in the conversation."""
         ...
 
 

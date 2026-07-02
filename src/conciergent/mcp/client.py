@@ -10,7 +10,7 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
 from ..runtime import OAuthBridge
-from ..stores.base import Store
+from ..stores.base import CredentialStore
 from .storage import OAuthTokenStorage
 
 
@@ -34,7 +34,7 @@ def build_toolset(
     client: MCPToolsetClient,
     *,
     principal: str,
-    store: Store | None = None,
+    store: CredentialStore | None = None,
     bridge: OAuthBridge | None = None,
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
@@ -69,9 +69,9 @@ def build_toolset(
 
 
 def _oauth_provider(
-    url: str, *, store: Store, principal: str, bridge: OAuthBridge, redirect_uri: str, client_name: str
+    url: str, *, store: CredentialStore, principal: str, bridge: OAuthBridge, redirect_uri: str, client_name: str
 ) -> OAuthClientProvider:
-    handoff = _BridgeHandoff(bridge)
+    callbacks = _BridgeCallbacks(bridge)
     return OAuthClientProvider(
         server_url=url,
         client_metadata=OAuthClientMetadata(
@@ -81,13 +81,17 @@ def _oauth_provider(
             response_types=['code'],
         ),
         storage=OAuthTokenStorage(store, server=url, principal=principal),
-        redirect_handler=handoff.redirect_handler,
-        callback_handler=handoff.callback_handler,
+        redirect_handler=callbacks.redirect_handler,
+        callback_handler=callbacks.callback_handler,
     )
 
 
-class _BridgeHandoff:
-    """Adapt the neutral one-call ``OAuthBridge`` onto the SDK's separate redirect and callback handlers."""
+class _BridgeCallbacks:
+    """Present one ``OAuthBridge`` as the pair of callbacks the SDK's ``OAuthClientProvider`` takes.
+
+    The SDK calls ``redirect_handler`` with the authorize URL and then ``callback_handler`` for the code,
+    this class stores the URL from the first call and delegates the second to the bridge.
+    """
 
     def __init__(self, bridge: OAuthBridge) -> None:
         self._bridge = bridge

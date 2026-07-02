@@ -3,7 +3,8 @@ import asyncio
 import pytest
 
 from conciergent import MemoryStore
-from conciergent.oauth import OAuthHandoffExpiredError, StatefulOAuthBridge
+from conciergent.oauth_handoff import OAuthHandoffExpiredError
+from conciergent.runtime import StatefulOAuthBridge
 
 
 class RecordingBridge(StatefulOAuthBridge):
@@ -43,7 +44,7 @@ async def test_timeout_raises_expiry():
 
 
 def test_handoff_expiry_detection_unwraps_groups():
-    from conciergent.oauth import is_handoff_expiry
+    from conciergent.oauth_handoff import is_handoff_expiry
 
     plain = OAuthHandoffExpiredError()
     assert is_handoff_expiry(plain)

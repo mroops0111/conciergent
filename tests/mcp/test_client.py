@@ -9,7 +9,7 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.toolsets import AbstractToolset
 
 from conciergent import MemoryStore, OAuthBridge
-from conciergent.mcp.client import _BridgeHandoff, build_toolset, needs_approval
+from conciergent.mcp.client import _BridgeCallbacks, build_toolset, needs_approval
 
 
 class _FakeBridge(OAuthBridge):
@@ -68,18 +68,18 @@ def test_build_toolset_with_oauth_constructs():
 
 async def test_bridge_handoff_delegates_to_bridge():
     bridge = _FakeBridge('the-code')
-    handoff = _BridgeHandoff(bridge)
-    await handoff.redirect_handler('https://example.com/authorize?state=abc')
-    code, state = await handoff.callback_handler()
+    callbacks = _BridgeCallbacks(bridge)
+    await callbacks.redirect_handler('https://example.com/authorize?state=abc')
+    code, state = await callbacks.callback_handler()
     assert code == 'the-code'
     assert state is None
     assert bridge.seen_url == 'https://example.com/authorize?state=abc'
 
 
 async def test_bridge_handoff_requires_redirect_first():
-    handoff = _BridgeHandoff(_FakeBridge('c'))
+    callbacks = _BridgeCallbacks(_FakeBridge('c'))
     try:
-        await handoff.callback_handler()
+        await callbacks.callback_handler()
     except RuntimeError:
         return
     raise AssertionError('callback before redirect should raise')
