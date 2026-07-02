@@ -35,6 +35,42 @@ class LineSettings(pydantic.BaseModel):
     channel_access_token: str
 
 
+class StoreSettings(pydantic.BaseModel):
+    """Which state backend to run on, the in-memory default needs no infrastructure.
+
+    The composite type splits by sensitivity, message-bearing state (history, approvals, dedupe,
+    OAuth handoff) goes to ``messages`` and long-lived credentials go to ``credentials``,
+    so conversations stay on expiring storage while tokens survive restarts.
+    """
+
+    type: typing.Literal['memory', 'redis', 'postgres', 'composite'] = 'memory'
+    url: str = ''
+    messages: str = ''
+    credentials: str = ''
+
+    @pydantic.model_validator(mode='after')
+    def _require_backend_urls(self) -> typing.Self:
+        if self.type in ('redis', 'postgres') and not self.url:
+            raise ValueError(f'store.url is required for the {self.type} backend')
+        if self.type == 'composite' and (not self.messages or not self.credentials):
+            raise ValueError('the composite store needs both store.messages and store.credentials URLs')
+        return self
+
+
+class GatewaySpec(pydantic.BaseModel):
+    """One OpenAPI spec to expose as MCP tools through the embedded gateway."""
+
+    name: str
+    spec: str
+    base_url: str | None = None
+
+
+class GatewaySettings(pydantic.BaseModel):
+    """Embed openapi-mcp-gateway in process, so a spec file becomes MCP tools without a separate server."""
+
+    specs: list[GatewaySpec]
+
+
 class ServerSettings(pydantic.BaseModel):
     """Where the webhook app listens, and the public URL external services reach it at."""
 
@@ -56,6 +92,8 @@ class AppConfig(pydantic.BaseModel):
     agent: AgentSettings
     slack: SlackSettings | None = None
     line: LineSettings | None = None
+    store: StoreSettings = pydantic.Field(default_factory=StoreSettings)
+    gateway: GatewaySettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
 
 

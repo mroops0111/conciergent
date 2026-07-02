@@ -73,6 +73,11 @@ class PydanticAIAgent(ChatAgent):
             retries=3,
         )
 
+    @property
+    def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
+        """The MCP servers this agent connects to, exposed for assembly-time introspection."""
+        return tuple(self._mcp_servers)
+
     async def run(
         self,
         user_input: str,

@@ -10,6 +10,10 @@ class Store(abc.ABC):
     The interface grows as surfaces are added, so this defines only the parts the core runtime depends on.
     """
 
+    async def prepare(self) -> None:
+        """Set the backend up before serving, for example creating tables; a no-op by default."""
+        return None
+
     @abc.abstractmethod
     async def load_history(self, principal: str) -> list[typing.Any]:
         """Return the still-live turns for ``principal``, flattened into one message list."""
