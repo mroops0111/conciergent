@@ -1,4 +1,5 @@
 import collections.abc
+import contextlib
 import typing
 
 import fastapi
@@ -6,7 +7,7 @@ import fastapi.responses
 import uvicorn
 
 from .agent import PydanticAIAgent, PydanticAICompactor
-from .config import AppConfig, build_app_config, yaml_layer
+from .config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
 from .runtime import ChatAgent, HistoryCompactor
 from .stores.base import Store
 from .stores.memory import MemoryStore
@@ -29,6 +30,7 @@ class App:
         store: Store | None = None,
         surfaces: collections.abc.Sequence[Surface] = (),
         compactor: HistoryCompactor | None = None,
+        gateway: GatewaySettings | None = None,
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
@@ -37,6 +39,7 @@ class App:
         self.agent = agent
         self._surfaces = list(surfaces)
         self._compactor = compactor
+        self._gateway = gateway
         self.host = host
         self.port = port
         self.base_url = base_url or f'http://{host}:{port}'
@@ -49,12 +52,16 @@ class App:
     @classmethod
     def from_app_config(cls, config: AppConfig) -> 'App':
         """Build the application from a validated config, mapping each configured section to its surface."""
-        store = MemoryStore()
+        store = _build_store(config.store)
         redirect_uri = f'{config.server.url.rstrip("/")}/oauth/mcp/callback'
+        mcp_servers = list(config.agent.mcp_servers)
+        if config.gateway is not None:
+            # Each embedded spec is served by this same process, so the agent dials back into itself.
+            mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
         agent = PydanticAIAgent(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
-            mcp_servers=list(config.agent.mcp_servers),
+            mcp_servers=mcp_servers,
             store=store,
             redirect_uri=redirect_uri,
         )
@@ -84,13 +91,29 @@ class App:
             store=store,
             surfaces=surfaces,
             compactor=compactor,
+            gateway=config.gateway,
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
         )
 
     def build_asgi(self) -> fastapi.FastAPI:
-        app = fastapi.FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        gateway = _build_gateway(self._gateway) if self._gateway is not None else None
+
+        @contextlib.asynccontextmanager
+        async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None]:
+            await self.store.prepare()
+            async with contextlib.AsyncExitStack() as stack:
+                if gateway is not None:
+                    # The mounted MCP sub-apps only serve while their session managers run,
+                    # which the gateway enters in its own app factory only.
+                    for handle in gateway._servers:
+                        await stack.enter_async_context(handle.mcp.session_manager.run())
+                yield
+
+        app = fastapi.FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+        if gateway is not None:
+            gateway.mount(app)
 
         @app.get('/healthz')
         async def healthz() -> dict[str, typing.Any]:
@@ -113,3 +136,44 @@ class App:
     def run(self) -> None:
         """Serve the webhook application."""
         uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
+
+
+def _build_store(settings: StoreSettings) -> Store:
+    if settings.type == 'redis':
+        return _store_from_url(settings.url)
+    if settings.type == 'postgres':
+        return _store_from_url(settings.url)
+    if settings.type == 'composite':
+        from .stores.composite import CompositeStore
+
+        return CompositeStore(
+            messages=_store_from_url(settings.messages), credentials=_store_from_url(settings.credentials)
+        )
+    return MemoryStore()
+
+
+def _store_from_url(url: str) -> Store:
+    # The networked backends import lazily, so the core works without their optional extras installed.
+    if url.startswith('redis'):
+        try:
+            from .stores.redis import RedisStore
+        except ImportError as error:
+            raise RuntimeError('the redis backend needs the extra: pip install conciergent[redis]') from error
+        return RedisStore.from_url(url)
+    try:
+        from .stores.postgres import PostgresStore
+    except ImportError as error:
+        raise RuntimeError('the postgres backend needs the extra: pip install conciergent[postgres]') from error
+    return PostgresStore.from_url(url)
+
+
+def _build_gateway(settings: GatewaySettings) -> typing.Any:
+    # Same lazy-import rule as the store backends, the gateway is an optional extra.
+    try:
+        import openapi_mcp_gateway
+    except ImportError as error:
+        raise RuntimeError('the embedded gateway needs the extra: pip install conciergent[gateway]') from error
+    gateway = openapi_mcp_gateway.Gateway()
+    for spec in settings.specs:
+        gateway.add_server(spec.name, spec.spec, base_url=spec.base_url)
+    return gateway

@@ -44,3 +44,26 @@ def test_later_layers_win(tmp_path: pathlib.Path):
     config = build_app_config(yaml_layer(path), {'server': {'port': 9999}})
     assert config.server.port == 9999
     assert config.server.host == '127.0.0.1'
+
+
+def test_networked_store_requires_a_url():
+    with pytest.raises(ValueError, match=r'store\.url'):
+        build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'type': 'redis'}})
+
+
+def test_composite_store_requires_both_urls():
+    with pytest.raises(ValueError, match='composite'):
+        build_app_config(
+            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'type': 'composite', 'messages': 'redis://x'}}
+        )
+
+
+def test_gateway_specs_parse():
+    config = build_app_config(
+        {
+            'agent': {'model': 'm', 'system_prompt': 'p'},
+            'gateway': {'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
+        }
+    )
+    assert config.gateway is not None
+    assert config.gateway.specs[0].name == 'petstore'

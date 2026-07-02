@@ -70,6 +70,46 @@ def test_surfaces_absent_when_not_configured():
     assert client.post('/line/events', content=b'{}').status_code == 404
 
 
+def test_gateway_urls_join_the_agent_mcp_servers():
+    config = AppConfig.model_validate(
+        {
+            'agent': {'model': 'test', 'system_prompt': 'x', 'mcp_servers': ['https://example.com/mcp']},
+            'gateway': {'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
+            'server': {'url': 'https://example.com'},
+        }
+    )
+    app = App.from_app_config(config)
+    from conciergent.agent import PydanticAIAgent
+
+    assert isinstance(app.agent, PydanticAIAgent)
+    assert app.agent.mcp_servers == ('https://example.com/mcp', 'https://example.com/petstore/mcp')
+
+
+def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_gateway(name, *args, **kwargs):
+        if name == 'openapi_mcp_gateway':
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', no_gateway)
+    from conciergent.config import GatewaySettings, GatewaySpec
+
+    app = App(
+        agent=SilentAgent(),
+        gateway=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]),
+    )
+    try:
+        app.build_asgi()
+    except RuntimeError as error:
+        assert 'conciergent[gateway]' in str(error)
+    else:
+        raise AssertionError('a missing gateway extra should raise')
+
+
 def test_a_custom_surface_mounts_without_touching_app():
     import fastapi as fastapi_module
 
