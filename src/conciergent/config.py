@@ -17,9 +17,13 @@ class AgentSettings(pydantic.BaseModel):
 
 
 class SlackSettings(pydantic.BaseModel):
-    """Slack app credentials, created once in the Slack app dashboard."""
+    """Slack app credentials, created once in the Slack app dashboard.
 
-    signing_secret: str
+    An empty secret would make every webhook signature forgeable, so required fields reject it,
+    catching an unset environment variable at startup instead.
+    """
+
+    signing_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
     client_id: str = ''
     client_secret: str = ''
     scopes: list[str] = pydantic.Field(
@@ -29,10 +33,14 @@ class SlackSettings(pydantic.BaseModel):
 
 
 class LineSettings(pydantic.BaseModel):
-    """LINE Messaging API channel credentials, created once in the LINE developers console."""
+    """LINE Messaging API channel credentials, created once in the LINE developers console.
 
-    channel_secret: str
-    channel_access_token: str
+    An empty secret would make every webhook signature forgeable, so both fields reject it,
+    catching an unset environment variable at startup instead.
+    """
+
+    channel_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
+    channel_access_token: typing.Annotated[str, pydantic.Field(min_length=1)]
 
 
 class StoreSettings(pydantic.BaseModel):

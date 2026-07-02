@@ -62,6 +62,16 @@ def test_carousel_renders_bubbles_with_button_suggestions():
     assert first['footer']['contents'][0]['action']['text'] == 'Pick A'
 
 
+def test_labels_are_clamped_to_line_action_caps():
+    long_label = 'x' * 50
+    chips = render.build_quick_reply([Suggestion(label=long_label, prompt='p')])
+    assert chips is not None
+    assert len(chips['items'][0]['action']['label']) == 20
+    card = Card(links=[Link(text=long_label, url='https://example.com')])
+    footer = render.build_card_bubble(card, suggestion_placement='button')['footer']['contents']
+    assert len(footer[0]['action']['label']) == 40
+
+
 def test_alt_text_truncates_to_forty():
     card = Card(title='x' * 40)
     assert render.alt_text(card) == 'x' * 40

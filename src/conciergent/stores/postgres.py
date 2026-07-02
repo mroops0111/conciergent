@@ -4,6 +4,7 @@ import time
 import typing
 
 import sqlalchemy
+import sqlalchemy.exc
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -116,15 +117,19 @@ class PostgresStore(Store):
             session.add(HistoryTurn(principal=principal, messages=list(messages), expires_at=time.time() + ttl_seconds))
 
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
-        async with self._sessions.begin() as session:
-            existing = await session.get(DedupeKey, key)
-            if existing is not None and existing.expires_at > time.time():
-                return True
-            if existing is not None:
-                existing.expires_at = time.time() + ttl_seconds
-            else:
-                session.add(DedupeKey(key=key, expires_at=time.time() + ttl_seconds))
-            return False
+        try:
+            async with self._sessions.begin() as session:
+                existing = await session.get(DedupeKey, key)
+                if existing is not None and existing.expires_at > time.time():
+                    return True
+                if existing is not None:
+                    existing.expires_at = time.time() + ttl_seconds
+                else:
+                    session.add(DedupeKey(key=key, expires_at=time.time() + ttl_seconds))
+                return False
+        except sqlalchemy.exc.IntegrityError:
+            # A concurrent insert of the same key won the race, which is exactly a duplicate delivery.
+            return True
 
     async def park_approval(
         self, principal: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
@@ -133,12 +138,18 @@ class PostgresStore(Store):
             await session.merge(Approval(principal=principal, state=dict(state), expires_at=time.time() + ttl_seconds))
 
     async def take_approval(self, principal: str) -> dict[str, typing.Any] | None:
+        # A single DELETE with RETURNING hands the row to exactly one concurrent taker.
         async with self._sessions.begin() as session:
-            row = await session.get(Approval, principal)
+            result = await session.execute(
+                sqlalchemy.delete(Approval)
+                .where(Approval.principal == principal)
+                .returning(Approval.state, Approval.expires_at)
+            )
+            row = result.first()
             if row is None:
                 return None
-            await session.delete(row)
-            return dict(row.state) if row.expires_at > time.time() else None
+            state, expires_at = row
+            return dict(state) if expires_at > time.time() else None
 
     async def get_mcp_token(self, server: str, principal: str) -> dict[str, typing.Any] | None:
         async with self._sessions() as session:
@@ -175,11 +186,17 @@ class PostgresStore(Store):
         deadline = time.monotonic() + timeout_seconds
         while True:
             async with self._sessions.begin() as session:
-                row = await session.get(OAuthCode, state)
+                # A single DELETE with RETURNING claims the code for exactly one waiter.
+                result = await session.execute(
+                    sqlalchemy.delete(OAuthCode)
+                    .where(OAuthCode.state == state)
+                    .returning(OAuthCode.code, OAuthCode.expires_at)
+                )
+                row = result.first()
                 if row is not None:
-                    await session.delete(row)
-                    if row.expires_at > time.time():
-                        return row.code
+                    code, expires_at = row
+                    if expires_at > time.time():
+                        return code
             if time.monotonic() >= deadline:
                 return None
             await asyncio.sleep(min(_OAUTH_POLL_INTERVAL_SECONDS, timeout_seconds))

@@ -1,3 +1,4 @@
+import logging
 import typing
 
 import httpx
@@ -7,6 +8,8 @@ from ...reply import Card, Link, ReplySurface
 from ...stores.base import Store
 from . import render
 
+
+logger = logging.getLogger(__name__)
 
 _API_BASE_URL = 'https://slack.com/api'
 _TIMEOUT_SECONDS = 30.0
@@ -82,8 +85,12 @@ class SlackReplySurface(ReplySurface):
         """Patch the interacted message to disable its buttons, a no-op on plain message events."""
         if self._response_url is None or self._interacted_message is None:
             return
-        patch = render.build_processing_patch(self._interacted_message, self._processing_text)
-        await self._messenger.respond_via_response_url(self._response_url, patch)
+        # The patch is cosmetic and must never abort the turn.
+        try:
+            patch = render.build_processing_patch(self._interacted_message, self._processing_text)
+            await self._messenger.respond_via_response_url(self._response_url, patch)
+        except Exception:
+            logger.warning('Slack processing patch failed', exc_info=True)
 
 
 class SlackOAuthBridge(StatefulOAuthBridge):

@@ -58,6 +58,16 @@ def test_composite_store_requires_both_urls():
         )
 
 
+def test_empty_secret_fails_fast():
+    # An unset env var resolves to an empty string, which must not silently become a forgeable secret.
+    with pytest.raises(ValueError):
+        build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'slack': {'signing_secret': ''}})
+    with pytest.raises(ValueError):
+        build_app_config(
+            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'line': {'channel_secret': '', 'channel_access_token': 't'}}
+        )
+
+
 def test_gateway_specs_parse():
     config = build_app_config(
         {

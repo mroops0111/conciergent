@@ -20,6 +20,7 @@ class RedisStore(Store):
     History keeps one key per turn with its own expiry plus an index list,
     so old turns age out without a read-time cutoff.
     The OAuth handoff rides a blocking list pop, which bridges processes.
+    Requires a Redis server of 6.2 or newer for GETDEL.
     """
 
     def __init__(self, client: redis.asyncio.Redis, *, max_turns: int = _DEFAULT_MAX_TURNS) -> None:
@@ -105,6 +106,10 @@ class RedisStore(Store):
         await pipeline.execute()
 
     async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
+        if timeout_seconds <= 0:
+            # BLPOP treats a zero timeout as block-forever, so a non-positive wait checks once instead.
+            popped_now = await self._redis.lpop(f'{_PREFIX}:oauth-code:{state}')
+            return _text(popped_now) if isinstance(popped_now, (bytes, str)) else None
         popped = await self._redis.blpop([f'{_PREFIX}:oauth-code:{state}'], timeout=timeout_seconds)
         if popped is None:
             return None

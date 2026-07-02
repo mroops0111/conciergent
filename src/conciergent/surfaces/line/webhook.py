@@ -50,7 +50,10 @@ def build_router(
     ) -> dict[str, typing.Any]:
         payload = json.loads(body)
         for event in payload.get('events') or []:
-            if await store.dedupe(f'line:event:{event.get("webhookEventId")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
+            event_id = event.get('webhookEventId')
+            # Without an id there is nothing to deduplicate on, and a shared placeholder key
+            # would swallow every later id-less event for a day.
+            if event_id and await store.dedupe(f'line:event:{event_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
                 continue
             background.add_task(
                 _dispatch_event, settings=settings, store=store, agent=agent, compactor=compactor, event=event

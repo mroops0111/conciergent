@@ -80,6 +80,14 @@ async def test_processing_failure_is_swallowed():
     await surface.show_processing()
 
 
+async def test_long_text_is_sent_in_slices():
+    messenger = FakeMessenger()
+    surface = LineReplySurface(_slot(messenger))
+    await surface.send_text('x' * 5001)
+    sent = [*messenger.replies, *messenger.pushes]
+    assert [len(message['text']) for message in sent] == [5000, 1]
+
+
 async def test_oauth_bridge_renders_a_link_bubble():
     messenger = FakeMessenger()
     slot = _slot(messenger)

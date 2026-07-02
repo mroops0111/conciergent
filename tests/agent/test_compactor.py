@@ -47,5 +47,36 @@ async def test_above_threshold_summarizes_older_turns_and_keeps_the_last_exchang
     assert question_part.content == 'second question'
 
 
+async def test_split_never_orphans_a_tool_return():
+    from pydantic_ai.messages import ToolCallPart, ToolReturnPart
+
+    tool_turn = [
+        ModelResponse(
+            parts=[ToolCallPart(tool_name='t', args={}, tool_call_id='c1')], usage=RequestUsage(input_tokens=900)
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name='t', content='ok', tool_call_id='c1'), UserPromptPart('and?')]),
+        ModelResponse(parts=[TextPart('done')], usage=RequestUsage(input_tokens=950)),
+    ]
+
+    # With an earlier clean exchange, the split lands there and the call stays with its return.
+    messages = [
+        ModelRequest(parts=[UserPromptPart('old question')]),
+        ModelResponse(parts=[TextPart('old answer')], usage=RequestUsage(input_tokens=10)),
+        ModelRequest(parts=[UserPromptPart('do it')]),
+        *tool_turn,
+    ]
+    history = list(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
+    replacement = await _compactor().compact(history)
+    assert replacement is not None
+    decoded = ModelMessagesTypeAdapter.validate_python(replacement)
+    kept_kinds = [type(part).__name__ for message in decoded for part in message.parts]
+    assert 'ToolCallPart' in kept_kinds and 'ToolReturnPart' in kept_kinds
+
+    # With no clean boundary before the tool turn, compaction declines instead of orphaning.
+    unsplittable = [ModelRequest(parts=[UserPromptPart('do it')]), *tool_turn]
+    history = list(ModelMessagesTypeAdapter.dump_python(unsplittable, mode='json'))
+    assert await _compactor().compact(history) is None
+
+
 async def test_undecodable_history_is_left_alone():
     assert await _compactor().compact([{'not': 'a message'}]) is None

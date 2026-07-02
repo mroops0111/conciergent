@@ -61,6 +61,18 @@ def test_callback_stores_the_bot_token(harness, monkeypatch: pytest.MonkeyPatch)
     assert asyncio.run(store.resolve_bot_token(ChatSurface.slack, 'T77')) == 'xoxb-77'
 
 
+def test_exchange_failure_renders_the_failure_page(harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, _ = harness
+
+    async def failing_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
+        raise RuntimeError('invalid_code')
+
+    monkeypatch.setattr(install, '_exchange_code', failing_exchange)
+    state = _issued_state(client)
+    response = client.get('/oauth/slack/callback', params={'code': 'stale', 'state': state})
+    assert response.status_code == 400
+
+
 def test_state_is_single_use(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = harness
 

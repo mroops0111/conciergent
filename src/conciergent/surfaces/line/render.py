@@ -10,6 +10,11 @@ _MUTED_COLOR = '#888888'
 # LINE caps a message's alt text at 400, kept at 40 to match the card title budget.
 _ALT_TEXT_MAX = 40
 
+# LINE caps quick-reply action labels at 20 characters and button action labels at 40,
+# both below the reply model's 50-character label budget.
+_CHIP_LABEL_MAX = 20
+_BUTTON_LABEL_MAX = 40
+
 # Where a card's suggestions land.
 # Chips ride the message envelope as quick replies and vanish after the next message,
 # buttons live in the bubble footer (a carousel bubble cannot carry chips),
@@ -47,7 +52,10 @@ def build_quick_reply(suggestions: list[Suggestion]) -> dict[str, typing.Any] | 
         return None
     return {
         'items': [
-            {'type': 'action', 'action': {'type': 'message', 'label': item.label, 'text': item.prompt}}
+            {
+                'type': 'action',
+                'action': {'type': 'message', 'label': item.label[:_CHIP_LABEL_MAX], 'text': item.prompt},
+            }
             for item in suggestions
         ]
     }
@@ -99,7 +107,7 @@ def _link_button(link: Link, *, primary: bool) -> dict[str, typing.Any]:
         'type': 'button',
         'height': 'sm',
         'style': 'primary' if primary else 'secondary',
-        'action': {'type': 'uri', 'label': link.text, 'uri': link.url},
+        'action': {'type': 'uri', 'label': link.text[:_BUTTON_LABEL_MAX], 'uri': link.url},
     }
     if primary:
         button['color'] = BRAND_COLOR
@@ -111,7 +119,7 @@ def _suggestion_button(suggestion: Suggestion, *, emphasized: bool) -> dict[str,
         'type': 'button',
         'height': 'sm',
         'style': 'primary' if emphasized else 'link',
-        'action': {'type': 'message', 'label': suggestion.label, 'text': suggestion.prompt},
+        'action': {'type': 'message', 'label': suggestion.label[:_BUTTON_LABEL_MAX], 'text': suggestion.prompt},
     }
     if emphasized:
         button['color'] = DESTRUCTIVE_COLOR
