@@ -45,6 +45,7 @@ class ScriptedAgent(ChatAgent):
         principal: str,
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
+        bridge: typing.Any = None,
     ) -> AgentResult:
         return AgentResult(output=self.output, history=self.new_history)
 

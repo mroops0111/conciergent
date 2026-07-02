@@ -41,7 +41,6 @@ class PydanticAIAgent(ChatAgent):
         system_prompt: str,
         mcp_servers: collections.abc.Sequence[MCPToolsetClient] = (),
         store: Store | None = None,
-        bridge: OAuthBridge | None = None,
         redirect_uri: str | None = None,
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = _DEFAULT_CLIENT_NAME,
@@ -54,7 +53,6 @@ class PydanticAIAgent(ChatAgent):
             raise ValueError('store is required when mcp_servers are configured')
         self._mcp_servers = list(mcp_servers)
         self._store = store
-        self._bridge = bridge
         self._redirect_uri = redirect_uri
         self._approval_predicate = approval_predicate
         self._client_name = client_name
@@ -82,13 +80,14 @@ class PydanticAIAgent(ChatAgent):
         principal: str,
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
+        bridge: OAuthBridge | None = None,
     ) -> AgentResult:
         toolsets = [
             build_toolset(
                 server,
                 principal=principal,
                 store=self._store,
-                bridge=self._bridge,
+                bridge=bridge,
                 redirect_uri=self._redirect_uri,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
@@ -108,8 +107,8 @@ class PydanticAIAgent(ChatAgent):
         output = result.output
         new_messages = [*held, *ModelMessagesTypeAdapter.dump_python(result.new_messages(), mode='json')]
         if isinstance(output, DeferredToolRequests):
-            # The in-flight messages ride on the approval, so the tool call and its later result land in
-            # one stored turn instead of aging out separately.
+            # The in-flight messages ride on the approval,
+            # so the tool call and its later result land in one stored turn instead of aging out separately.
             return AgentResult(output=self._park(output.approvals, held_messages=new_messages))
         return AgentResult(output=output, history=new_messages)
 

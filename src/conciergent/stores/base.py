@@ -25,6 +25,14 @@ class Store(abc.ABC):
         ...
 
     @abc.abstractmethod
+    async def replace_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+        """Replace every stored turn with ``messages`` as one fresh turn, used by history compaction.
+
+        Callers must serialize turns per principal, a concurrent append between load and replace is lost.
+        """
+        ...
+
+    @abc.abstractmethod
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         """Record ``key`` and report whether it had already been recorded within the ttl window.
 
@@ -60,3 +68,25 @@ class Store(abc.ABC):
 
     @abc.abstractmethod
     async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None: ...
+
+    @abc.abstractmethod
+    async def resolve_bot_token(self, surface: str, tenant: str) -> str | None:
+        """Return the bot credential installed for one tenant of one surface, for example a Slack team."""
+        ...
+
+    @abc.abstractmethod
+    async def set_bot_token(self, surface: str, tenant: str, token: str) -> None: ...
+
+    @abc.abstractmethod
+    async def deliver_oauth_code(self, state: str, code: str) -> None:
+        """Hand an OAuth authorization code to whoever awaits ``state``, called by the callback route."""
+        ...
+
+    @abc.abstractmethod
+    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
+        """Block until the code for ``state`` arrives and return it, or None when the wait times out.
+
+        The in-memory default only bridges coroutines inside one process,
+        multi-process deployments need a networked backend for this handoff.
+        """
+        ...

@@ -67,6 +67,41 @@ async def test_mcp_client_round_trips_per_server():
     assert await store.get_mcp_client('other') is None
 
 
+async def test_replace_history_collapses_all_turns():
+    store = MemoryStore()
+    await store.append_history('p', [1], ttl_seconds=60)
+    await store.append_history('p', [2], ttl_seconds=60)
+    await store.replace_history('p', ['summary', 2], ttl_seconds=60)
+    assert await store.load_history('p') == ['summary', 2]
+
+
+async def test_bot_token_round_trips_per_surface_and_tenant():
+    store = MemoryStore()
+    assert await store.resolve_bot_token('slack', 'T1') is None
+    await store.set_bot_token('slack', 'T1', 'xoxb-1')
+    assert await store.resolve_bot_token('slack', 'T1') == 'xoxb-1'
+    assert await store.resolve_bot_token('slack', 'T2') is None
+
+
+async def test_oauth_code_is_delivered_to_the_waiter():
+    import asyncio
+
+    store = MemoryStore()
+
+    async def deliver() -> None:
+        await asyncio.sleep(0)
+        await store.deliver_oauth_code('s1', 'code-1')
+
+    task = asyncio.create_task(deliver())
+    assert await store.await_oauth_code('s1', timeout_seconds=5) == 'code-1'
+    await task
+
+
+async def test_oauth_code_wait_times_out_to_none():
+    store = MemoryStore()
+    assert await store.await_oauth_code('nobody', timeout_seconds=0.01) is None
+
+
 async def test_mcp_token_is_copied_not_aliased():
     store = MemoryStore()
     token = {'access_token': 'a'}
