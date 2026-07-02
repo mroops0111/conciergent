@@ -28,6 +28,13 @@ class SlackSettings(pydantic.BaseModel):
     bot_token: str = ''
 
 
+class LineSettings(pydantic.BaseModel):
+    """LINE Messaging API channel credentials, created once in the LINE developers console."""
+
+    channel_secret: str
+    channel_access_token: str
+
+
 class ServerSettings(pydantic.BaseModel):
     """Where the webhook app listens, and the public URL external services reach it at."""
 
@@ -48,6 +55,7 @@ class AppConfig(pydantic.BaseModel):
 
     agent: AgentSettings
     slack: SlackSettings | None = None
+    line: LineSettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
 
 
