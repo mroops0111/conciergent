@@ -101,7 +101,7 @@ class App:
         gateway = _build_gateway(self._gateway) if self._gateway is not None else None
 
         @contextlib.asynccontextmanager
-        async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None]:
+        async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self.store.prepare()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
