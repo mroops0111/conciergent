@@ -52,7 +52,7 @@ class PydanticAICompactor(HistoryCompactor):
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
 
-    async def compact(self, history: list[typing.Any]) -> list[typing.Any] | None:
+    async def compact_if_needed(self, history: list[typing.Any]) -> list[typing.Any] | None:
         try:
             messages = ModelMessagesTypeAdapter.validate_python(history)
         except pydantic.ValidationError:

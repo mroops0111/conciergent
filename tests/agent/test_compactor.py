@@ -28,11 +28,11 @@ def _compactor(token_limit: int = 1000) -> PydanticAICompactor:
 
 
 async def test_below_threshold_keeps_history():
-    assert await _compactor().compact(_history(latest_input_tokens=100)) is None
+    assert await _compactor().compact_if_needed(_history(latest_input_tokens=100)) is None
 
 
 async def test_above_threshold_summarizes_older_turns_and_keeps_the_last_exchange():
-    replacement = await _compactor().compact(_history(latest_input_tokens=900))
+    replacement = await _compactor().compact_if_needed(_history(latest_input_tokens=900))
     assert replacement is not None
     messages = ModelMessagesTypeAdapter.validate_python(replacement)
     assert isinstance(messages[0], ModelRequest)
@@ -66,7 +66,7 @@ async def test_split_never_orphans_a_tool_return():
         *tool_turn,
     ]
     history = list(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
-    replacement = await _compactor().compact(history)
+    replacement = await _compactor().compact_if_needed(history)
     assert replacement is not None
     decoded = ModelMessagesTypeAdapter.validate_python(replacement)
     kept_kinds = [type(part).__name__ for message in decoded for part in message.parts]
@@ -75,8 +75,8 @@ async def test_split_never_orphans_a_tool_return():
     # With no clean boundary before the tool turn, compaction declines instead of orphaning.
     unsplittable = [ModelRequest(parts=[UserPromptPart('do it')]), *tool_turn]
     history = list(ModelMessagesTypeAdapter.dump_python(unsplittable, mode='json'))
-    assert await _compactor().compact(history) is None
+    assert await _compactor().compact_if_needed(history) is None
 
 
 async def test_undecodable_history_is_left_alone():
-    assert await _compactor().compact([{'not': 'a message'}]) is None
+    assert await _compactor().compact_if_needed([{'not': 'a message'}]) is None

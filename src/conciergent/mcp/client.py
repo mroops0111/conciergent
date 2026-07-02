@@ -81,8 +81,8 @@ def _oauth_provider(
             response_types=['code'],
         ),
         storage=OAuthTokenStorage(store, server=url, principal=principal),
-        redirect_handler=handoff.redirect,
-        callback_handler=handoff.callback,
+        redirect_handler=handoff.redirect_handler,
+        callback_handler=handoff.callback_handler,
     )
 
 
@@ -93,10 +93,10 @@ class _BridgeHandoff:
         self._bridge = bridge
         self._authorize_url: str | None = None
 
-    async def redirect(self, authorization_url: str) -> None:
+    async def redirect_handler(self, authorization_url: str) -> None:
         self._authorize_url = authorization_url
 
-    async def callback(self) -> tuple[str, str | None]:
+    async def callback_handler(self) -> tuple[str, str | None]:
         if self._authorize_url is None:
             raise RuntimeError('the redirect handler must run before the callback handler')
         code = await self._bridge.request_authorization(self._authorize_url)

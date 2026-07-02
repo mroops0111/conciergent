@@ -69,8 +69,8 @@ def test_build_toolset_with_oauth_constructs():
 async def test_bridge_handoff_delegates_to_bridge():
     bridge = _FakeBridge('the-code')
     handoff = _BridgeHandoff(bridge)
-    await handoff.redirect('https://example.com/authorize?state=abc')
-    code, state = await handoff.callback()
+    await handoff.redirect_handler('https://example.com/authorize?state=abc')
+    code, state = await handoff.callback_handler()
     assert code == 'the-code'
     assert state is None
     assert bridge.seen_url == 'https://example.com/authorize?state=abc'
@@ -79,7 +79,7 @@ async def test_bridge_handoff_delegates_to_bridge():
 async def test_bridge_handoff_requires_redirect_first():
     handoff = _BridgeHandoff(_FakeBridge('c'))
     try:
-        await handoff.callback()
+        await handoff.callback_handler()
     except RuntimeError:
         return
     raise AssertionError('callback before redirect should raise')

@@ -40,7 +40,7 @@ class HistoryCompactor(abc.ABC):
     """Shrink an oversized history before the agent runs, keeping the spine ignorant of its format."""
 
     @abc.abstractmethod
-    async def compact(self, history: list[typing.Any]) -> list[typing.Any] | None:
+    async def compact_if_needed(self, history: list[typing.Any]) -> list[typing.Any] | None:
         """Return the replacement history when compaction fired, or None to keep it as is."""
         ...
 
@@ -92,7 +92,7 @@ async def run_turn(
     conversation = conversation or principal
     history = await store.load_history(conversation)
     if compactor is not None and history:
-        compacted = await compactor.compact(history)
+        compacted = await compactor.compact_if_needed(history)
         if compacted is not None:
             await store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
             history = compacted
