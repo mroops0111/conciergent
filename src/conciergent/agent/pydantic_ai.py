@@ -1,4 +1,5 @@
 import collections.abc
+import contextlib
 import typing
 
 import pydantic
@@ -77,6 +78,28 @@ class PydanticAIAgent(ChatAgent):
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
         """The MCP servers this agent connects to, exposed for assembly-time introspection."""
         return tuple(self._mcp_servers)
+
+    async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
+        """Open every MCP connection without running the agent, firing any pending OAuth flow now."""
+        if not self._mcp_servers:
+            return False
+        probe = _AuthorizationProbe(bridge) if bridge is not None else None
+        toolsets = [
+            build_toolset(
+                server,
+                principal=principal,
+                store=self._store,
+                bridge=probe,
+                redirect_uri=self._redirect_uri,
+                approval_predicate=self._approval_predicate,
+                client_name=self._client_name,
+            )
+            for server in self._mcp_servers
+        ]
+        async with contextlib.AsyncExitStack() as stack:
+            for toolset in toolsets:
+                await stack.enter_async_context(toolset)
+        return probe.authorized if probe is not None else False
 
     async def run(
         self,
@@ -157,6 +180,23 @@ class PydanticAIAgent(ChatAgent):
             'held_messages': held_messages,
         }
         return PendingApproval(card=card, state=state)
+
+
+class _AuthorizationProbe(OAuthBridge):
+    """Delegate to the real bridge while recording whether an authorization actually ran.
+
+    The SDK only invokes the redirect and callback pair when a real OAuth flow is needed,
+    so a completed delegation is exactly the just-authorized signal bootstrap reports.
+    """
+
+    def __init__(self, inner: OAuthBridge) -> None:
+        self._inner = inner
+        self.authorized = False
+
+    async def request_authorization(self, authorize_url: str) -> str:
+        code = await self._inner.request_authorization(authorize_url)
+        self.authorized = True
+        return code
 
 
 def _decode_history(history: list[typing.Any]) -> list[ModelMessage] | None:

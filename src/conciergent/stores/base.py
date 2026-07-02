@@ -15,12 +15,12 @@ class Store(abc.ABC):
         return None
 
     @abc.abstractmethod
-    async def load_history(self, principal: str) -> list[typing.Any]:
-        """Return the still-live turns for ``principal``, flattened into one message list."""
+    async def load_history(self, conversation: str) -> list[typing.Any]:
+        """Return the still-live turns of one conversation, flattened into one message list."""
         ...
 
     @abc.abstractmethod
-    async def append_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+    async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         """Append one turn of messages, which ages out on its own after ``ttl_seconds``.
 
         Backends also keep only a bounded number of recent turns,
@@ -29,10 +29,10 @@ class Store(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def replace_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+    async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         """Replace every stored turn with ``messages`` as one fresh turn, used by history compaction.
 
-        Callers must serialize turns per principal, a concurrent append between load and replace is lost.
+        Callers must serialize turns per conversation, a concurrent append between load and replace is lost.
         """
         ...
 
@@ -47,12 +47,12 @@ class Store(abc.ABC):
 
     @abc.abstractmethod
     async def park_approval(
-        self, principal: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
+        self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None: ...
 
     @abc.abstractmethod
-    async def take_approval(self, principal: str) -> dict[str, typing.Any] | None:
-        """Return and clear any parked approval state for ``principal``."""
+    async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
+        """Return and clear any approval state parked on one conversation."""
         ...
 
     @abc.abstractmethod

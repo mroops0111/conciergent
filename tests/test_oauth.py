@@ -40,3 +40,14 @@ async def test_timeout_raises_expiry():
     bridge = RecordingBridge(MemoryStore(), wait_timeout_seconds=0.01)
     with pytest.raises(OAuthHandoffExpiredError):
         await bridge.request_authorization('https://example.com/authorize?state=zzz')
+
+
+def test_handoff_expiry_detection_unwraps_groups():
+    from conciergent.oauth import is_handoff_expiry
+
+    plain = OAuthHandoffExpiredError()
+    assert is_handoff_expiry(plain)
+    assert is_handoff_expiry(ExceptionGroup('g', [plain]))
+    assert is_handoff_expiry(ExceptionGroup('g', [ExceptionGroup('inner', [plain])]))
+    assert not is_handoff_expiry(RuntimeError('boom'))
+    assert not is_handoff_expiry(ExceptionGroup('g', [plain, RuntimeError('boom')]))

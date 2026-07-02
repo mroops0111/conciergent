@@ -103,3 +103,13 @@ async def test_pending_approval_does_not_overwrite_history():
     agent = ScriptedAgent(output=PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
     await run_turn('hi', principal='slack:T:U', agent=agent, surface=surface, store=store)
     assert await store.load_history('slack:T:U') == [{'role': 'user'}, {'role': 'assistant'}]
+
+
+async def test_conversations_scope_history_within_one_principal():
+    surface = RecordingSurface()
+    store = MemoryStore()
+    agent = ScriptedAgent(output='ok', new_history=[{'turn': 1}])
+    await run_turn('hi', principal='p', conversation='p:thread-a', agent=agent, surface=surface, store=store)
+    assert await store.load_history('p:thread-a') == [{'turn': 1}]
+    assert await store.load_history('p:thread-b') == []
+    assert await store.load_history('p') == []

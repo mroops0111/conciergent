@@ -52,7 +52,7 @@ class EchoAgent(ChatAgent):
         bridge: typing.Any = None,
     ) -> AgentResult:
         self.inputs.append(user_input)
-        return AgentResult(output=f'echo {user_input}', history=[])
+        return AgentResult(output=f'echo {user_input}', history=[{'seen': user_input}])
 
 
 @pytest.fixture
@@ -214,3 +214,14 @@ def test_exclusive_interaction_consumes_the_whole_message(harness) -> None:
     client.post('/slack/interactions', content=first, headers=_signed_headers(first))
     client.post('/slack/interactions', content=second, headers=_signed_headers(second))
     assert agent.inputs == ['pick 0']
+
+
+def test_threads_are_separate_conversations(harness) -> None:
+    client, _, store = harness
+    _install(store)
+    first = _event_body(event_id='EvT1', text='in thread one', thread_ts='100.1')
+    second = _event_body(event_id='EvT2', text='in thread two', thread_ts='200.2')
+    client.post('/slack/events', content=first, headers=_signed_headers(first))
+    client.post('/slack/events', content=second, headers=_signed_headers(second))
+    assert asyncio.run(store.load_history('slack:T1:U1:100.1')) == [{'seen': 'in thread one'}]
+    assert asyncio.run(store.load_history('slack:T1:U1:200.2')) == [{'seen': 'in thread two'}]

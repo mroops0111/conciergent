@@ -11,8 +11,8 @@ class PendingApproval:
     """A request for the user to approve one or more sensitive actions before they run.
 
     The card renders the confirmation.
-    The ``state`` is an opaque JSON-serializable dict that the store parks and hands back on resume.
-    Only the agent adapter that produced it reads it back, so payload compatibility is handled in one place.
+    The ``state`` is an opaque JSON-serializable dict that the store parks and hands back on resume,
+    only the agent that produced it reads it back.
     """
 
     card: Card
@@ -59,6 +59,15 @@ class ChatAgent(abc.ABC):
         bridge: OAuthBridge | None,
     ) -> AgentResult: ...
 
+    async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
+        """Open the agent's backing context without running it, and report whether the user just authorized.
+
+        Surface lifecycle hooks call this, for example when a user adds the bot,
+        so a pending OAuth flow fires at add time instead of on the first message.
+        Returns True only when an authorization completed during this call; the default has nothing to open.
+        """
+        return False
+
 
 async def run_turn(
     user_input: str,
@@ -67,6 +76,7 @@ async def run_turn(
     agent: ChatAgent,
     surface: ReplySurface,
     store: Store,
+    conversation: str | None = None,
     bridge: OAuthBridge | None = None,
     compactor: HistoryCompactor | None = None,
     approval_ttl_seconds: int = 600,
@@ -74,16 +84,19 @@ async def run_turn(
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
+    The ``principal`` is the user's identity and keys credentials,
+    while ``conversation`` scopes history and pending approvals, for example one Slack thread.
+    Surfaces without threads leave it unset and the whole dialog with a user is one conversation.
     This is side-effect only, the surface sends and the appended history turn.
-    Tests observe it through the fake surface and store.
     """
-    history = await store.load_history(principal)
+    conversation = conversation or principal
+    history = await store.load_history(conversation)
     if compactor is not None and history:
         compacted = await compactor.compact(history)
         if compacted is not None:
-            await store.replace_history(principal, compacted, ttl_seconds=history_ttl_seconds)
+            await store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
             history = compacted
-    pending = await store.take_approval(principal)
+    pending = await store.take_approval(conversation)
 
     await surface.show_processing()
     result = await agent.run(user_input, principal=principal, history=history, pending=pending, bridge=bridge)
@@ -94,7 +107,7 @@ async def run_turn(
         # The in-flight messages ride on ``output.state`` and are replayed via ``pending`` on resume,
         # so committing ``result.history`` here would either wipe the conversation with the empty default,
         # or orphan the tool-call turn from its later result.
-        await store.park_approval(principal, output.state, ttl_seconds=approval_ttl_seconds)
+        await store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds)
         await surface.send_card(output.card, destructive=True)
         return
 
@@ -105,4 +118,4 @@ async def run_turn(
     else:
         await surface.send_text(output)
 
-    await store.append_history(principal, result.history, ttl_seconds=history_ttl_seconds)
+    await store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)
