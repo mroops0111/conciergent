@@ -48,11 +48,12 @@ def test_mcp_oauth_callback_rejects_missing_params():
     assert _client(app).get('/oauth/mcp/callback').status_code == 400
 
 
-def test_from_app_config_mounts_slack_routes():
+def test_from_app_config_mounts_configured_surfaces():
     config = AppConfig.model_validate(
         {
             'agent': {'model': 'test', 'system_prompt': 'x'},
             'slack': {'signing_secret': 'sek', 'client_id': 'cid', 'client_secret': 'cs'},
+            'line': {'channel_secret': 'ls', 'channel_access_token': 'lt'},
         }
     )
     client = _client(App.from_app_config(config))
@@ -60,8 +61,29 @@ def test_from_app_config_mounts_slack_routes():
     assert client.post('/slack/events', content=b'{}').status_code == 401
     assert client.post('/slack/interactions', content=b'{}').status_code == 401
     assert client.get('/oauth/slack/install').status_code == 307
+    assert client.post('/line/events', content=b'{}').status_code == 401
 
 
-def test_slack_routes_absent_without_slack_settings():
+def test_surfaces_absent_when_not_configured():
     client = _client(App(agent=SilentAgent()))
     assert client.post('/slack/events', content=b'{}').status_code == 404
+    assert client.post('/line/events', content=b'{}').status_code == 404
+
+
+def test_a_custom_surface_mounts_without_touching_app():
+    import fastapi as fastapi_module
+
+    from conciergent.surfaces import Surface, SurfaceContext
+
+    class Teams(Surface):
+        def build_routers(self, context: SurfaceContext) -> list[fastapi_module.APIRouter]:
+            router = fastapi_module.APIRouter()
+
+            @router.post('/teams/events')
+            async def events() -> dict[str, str]:
+                return {'ok': 'yes'}
+
+            return [router]
+
+    client = _client(App(agent=SilentAgent(), surfaces=[Teams()]))
+    assert client.post('/teams/events').json() == {'ok': 'yes'}
