@@ -1,4 +1,6 @@
+import asyncio
 import collections.abc
+import contextlib
 import time
 import typing
 
@@ -22,6 +24,8 @@ class MemoryStore(Store):
         self._approvals: dict[str, tuple[dict[str, typing.Any], float]] = {}
         self._mcp_tokens: dict[tuple[str, str], dict[str, typing.Any]] = {}
         self._mcp_clients: dict[str, dict[str, typing.Any]] = {}
+        self._bot_tokens: dict[tuple[str, str], str] = {}
+        self._oauth_codes: dict[str, asyncio.Future[str]] = {}
 
     async def load_history(self, principal: str) -> list[typing.Any]:
         turns = self._live_turns(principal)
@@ -31,6 +35,9 @@ class MemoryStore(Store):
         turns = self._live_turns(principal)
         turns.append((time.monotonic() + ttl_seconds, list(messages)))
         self._history[principal] = turns[-self._max_turns :]
+
+    async def replace_history(self, principal: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
+        self._history[principal] = [(time.monotonic() + ttl_seconds, list(messages))]
 
     def _live_turns(self, principal: str) -> list[tuple[float, list[typing.Any]]]:
         now = time.monotonic()
@@ -71,6 +78,27 @@ class MemoryStore(Store):
 
     async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None:
         self._mcp_clients[server] = dict(client)
+
+    async def resolve_bot_token(self, surface: str, tenant: str) -> str | None:
+        return self._bot_tokens.get((surface, tenant))
+
+    async def set_bot_token(self, surface: str, tenant: str, token: str) -> None:
+        self._bot_tokens[surface, tenant] = token
+
+    async def deliver_oauth_code(self, state: str, code: str) -> None:
+        future = self._oauth_codes.setdefault(state, asyncio.get_running_loop().create_future())
+        if not future.done():
+            future.set_result(code)
+
+    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
+        future = self._oauth_codes.setdefault(state, asyncio.get_running_loop().create_future())
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), timeout=timeout_seconds)
+        except TimeoutError:
+            return None
+        finally:
+            with contextlib.suppress(KeyError):
+                del self._oauth_codes[state]
 
     def _evict_expired(self, now: float) -> None:
         expired = [key for key, expiry in self._dedup_keys.items() if expiry <= now]

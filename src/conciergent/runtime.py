@@ -27,6 +27,24 @@ class AgentResult:
     history: list[typing.Any] = dataclasses.field(default_factory=list)
 
 
+class OAuthBridge(abc.ABC):
+    """Drive an OAuth authorization that happens inside the conversation."""
+
+    @abc.abstractmethod
+    async def request_authorization(self, authorize_url: str) -> str:
+        """Show the user the authorize URL and return the code once they complete the flow."""
+        ...
+
+
+class HistoryCompactor(abc.ABC):
+    """Shrink an oversized history before the agent runs, keeping the spine ignorant of its format."""
+
+    @abc.abstractmethod
+    async def compact(self, history: list[typing.Any]) -> list[typing.Any] | None:
+        """Return the replacement history when compaction fired, or None to keep it as is."""
+        ...
+
+
 class ChatAgent(abc.ABC):
     """The minimal contract the runtime needs from an agent implementation."""
 
@@ -38,16 +56,8 @@ class ChatAgent(abc.ABC):
         principal: str,
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
+        bridge: OAuthBridge | None,
     ) -> AgentResult: ...
-
-
-class OAuthBridge(abc.ABC):
-    """Drive an OAuth authorization that happens inside the conversation."""
-
-    @abc.abstractmethod
-    async def request_authorization(self, authorize_url: str) -> str:
-        """Show the user the authorize URL and return the code once they complete the flow."""
-        ...
 
 
 async def run_turn(
@@ -57,6 +67,8 @@ async def run_turn(
     agent: ChatAgent,
     surface: ReplySurface,
     store: Store,
+    bridge: OAuthBridge | None = None,
+    compactor: HistoryCompactor | None = None,
     approval_ttl_seconds: int = 600,
     history_ttl_seconds: int = 604800,
 ) -> None:
@@ -66,10 +78,15 @@ async def run_turn(
     Tests observe it through the fake surface and store.
     """
     history = await store.load_history(principal)
+    if compactor is not None and history:
+        compacted = await compactor.compact(history)
+        if compacted is not None:
+            await store.replace_history(principal, compacted, ttl_seconds=history_ttl_seconds)
+            history = compacted
     pending = await store.take_approval(principal)
 
     await surface.show_processing()
-    result = await agent.run(user_input, principal=principal, history=history, pending=pending)
+    result = await agent.run(user_input, principal=principal, history=history, pending=pending, bridge=bridge)
 
     output = result.output
     if isinstance(output, PendingApproval):
