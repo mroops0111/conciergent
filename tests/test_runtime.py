@@ -74,10 +74,10 @@ async def test_card_reply_is_dispatched_non_destructive():
     assert any(kind == 'card' and payload[0] is card and payload[1] is False for kind, payload in surface.calls)
 
 
-async def test_carousel_reply_is_dispatched():
-    cards = [Card(title='a'), Card(title='b')]
-    surface, _ = await _drive_turn(Carousel(cards=cards))
-    assert ('carousel', cards) in surface.calls
+async def test_carousel_reply_is_dispatched_with_fallback_last():
+    option, fallback = Card(title='a'), Card(title='b')
+    surface, _ = await _drive_turn(Carousel(options=[option], fallback=fallback))
+    assert ('carousel', [option, fallback]) in surface.calls
 
 
 async def test_history_is_persisted():
@@ -98,7 +98,7 @@ async def test_pending_approval_parks_and_renders_destructive():
 async def test_pending_approval_does_not_overwrite_history():
     surface = RecordingSurface()
     store = MemoryStore()
-    await store.save_history('slack:T:U', [{'role': 'user'}, {'role': 'assistant'}])
+    await store.append_history('slack:T:U', [{'role': 'user'}, {'role': 'assistant'}], ttl_seconds=60)
     agent = ScriptedAgent(output=PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
     await run_turn('hi', principal='slack:T:U', agent=agent, surface=surface, store=store)
     assert await store.load_history('slack:T:U') == [{'role': 'user'}, {'role': 'assistant'}]

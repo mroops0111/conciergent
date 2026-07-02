@@ -1,3 +1,6 @@
+import pydantic
+import pytest
+
 from conciergent import Card, Carousel, Section, Suggestion
 
 
@@ -23,6 +26,17 @@ def test_field_descriptions_survive_for_llm_schema():
     assert Suggestion.model_json_schema()['properties']['prompt']['description']
 
 
-def test_carousel_holds_cards():
-    carousel = Carousel(cards=[Card(title='a'), Card(title='b')])
-    assert len(carousel.cards) == 2
+def test_carousel_holds_options_and_fallback():
+    carousel = Carousel(options=[Card(title='a')], fallback=Card(title='b'))
+    assert len(carousel.options) == 1
+    assert carousel.fallback.title == 'b'
+
+
+def test_length_guardrails_reject_oversized_text():
+    # The length caps guard the LLM against unrenderable output, so keep them enforced.
+    with pytest.raises(pydantic.ValidationError):
+        Section(text='x' * 101)
+    with pytest.raises(pydantic.ValidationError):
+        Card(title='x' * 41)
+    with pytest.raises(pydantic.ValidationError):
+        Suggestion(label='x' * 51, prompt='ok')

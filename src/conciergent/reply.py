@@ -7,7 +7,12 @@ import pydantic
 class Link(pydantic.BaseModel):
     """A labelled hyperlink, rendered as a link or a button depending on the surface."""
 
-    text: typing.Annotated[str, pydantic.Field(description='The visible label for the link.')]
+    text: typing.Annotated[
+        str,
+        pydantic.Field(
+            min_length=1, max_length=50, description='The visible label for the link, at most 50 characters.'
+        ),
+    ]
     url: typing.Annotated[str, pydantic.Field(description='The destination URL, an absolute http(s) URL.')]
 
 
@@ -17,10 +22,19 @@ class Suggestion(pydantic.BaseModel):
     Selecting it sends its prompt back to the agent as if the user had typed it.
     """
 
-    label: typing.Annotated[str, pydantic.Field(description='Short button text shown to the user.')]
+    label: typing.Annotated[
+        str,
+        pydantic.Field(
+            min_length=1, max_length=50, description='Short button text shown to the user, at most 50 characters.'
+        ),
+    ]
     prompt: typing.Annotated[
         str,
-        pydantic.Field(description='The message sent back to the agent when the user taps this suggestion.'),
+        pydantic.Field(
+            min_length=1,
+            max_length=100,
+            description='The message sent back to the agent when the user taps this suggestion, at most 100 characters.',
+        ),
     ]
     exclusive: typing.Annotated[
         bool,
@@ -38,35 +52,54 @@ class Section(pydantic.BaseModel):
 
     text: typing.Annotated[
         str,
-        pydantic.Field(description='Body text for this section. Keep it concise, one idea per section.'),
+        pydantic.Field(
+            min_length=1,
+            max_length=100,
+            description='Body text for this section, at most 100 characters. Keep it concise, one idea per section.',
+        ),
     ]
     heading: typing.Annotated[
         str | None,
-        pydantic.Field(description='Optional bold heading shown above the text.'),
+        pydantic.Field(max_length=40, description='Optional bold heading shown above the text, at most 40 characters.'),
     ] = None
 
 
 class Card(pydantic.BaseModel):
     """A rich reply with an optional title, text sections, and optional links and suggestions."""
 
-    title: typing.Annotated[str | None, pydantic.Field(description='Optional card title.')] = None
-    sections: list[Section] = pydantic.Field(default_factory=list, description='Ordered content blocks.')
-    links: list[Link] = pydantic.Field(default_factory=list, description='Optional link or button actions.')
+    title: typing.Annotated[
+        str | None,
+        pydantic.Field(max_length=40, description='Optional card title, a short label of at most 40 characters.'),
+    ] = None
+    sections: list[Section] = pydantic.Field(
+        default_factory=list, max_length=6, description='Ordered content blocks, at most 6.'
+    )
+    links: list[Link] = pydantic.Field(
+        default_factory=list, max_length=5, description='Optional link or button actions, at most 5.'
+    )
     suggestions: list[Suggestion] = pydantic.Field(
-        default_factory=list, description='Optional quick replies offered to the user.'
+        default_factory=list, max_length=3, description='Optional quick replies offered to the user, at most 3.'
     )
     footnote: typing.Annotated[
         str | None,
-        pydantic.Field(description='Optional small print shown at the bottom.'),
+        pydantic.Field(max_length=100, description='Optional small print shown at the bottom, at most 100 characters.'),
     ] = None
 
 
 class Carousel(pydantic.BaseModel):
-    """A horizontally scrollable set of cards for presenting several comparable options."""
+    """A horizontally scrollable set of option cards, closed by a fallback for when none of them fit."""
 
-    cards: typing.Annotated[
+    options: typing.Annotated[
         list[Card],
-        pydantic.Field(description='The cards to show, in order. Provide at least two.'),
+        pydantic.Field(
+            min_length=1,
+            max_length=4,
+            description='One to four option cards the user picks between, each with a pickable suggestion or link.',
+        ),
+    ]
+    fallback: typing.Annotated[
+        Card,
+        pydantic.Field(description='Escape-hatch card shown after the options for when none of them fit.'),
     ]
 
 
