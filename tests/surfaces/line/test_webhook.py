@@ -120,6 +120,19 @@ def test_non_text_messages_are_ignored(harness) -> None:
     assert agent.inputs == []
 
 
+def test_event_without_id_still_dispatches(harness) -> None:
+    client, agent = harness
+    event = {
+        'type': 'message',
+        'replyToken': 'rt9',
+        'source': {'type': 'user', 'userId': 'U1'},
+        'message': {'type': 'text', 'text': 'no id'},
+    }
+    body = json.dumps({'events': [event, dict(event)]}).encode()
+    client.post('/line/events', content=body, headers=_signed_headers(body))
+    assert agent.inputs == ['no id', 'no id']
+
+
 def test_follow_event_sends_the_welcome(harness) -> None:
     client, agent = harness
     event = {

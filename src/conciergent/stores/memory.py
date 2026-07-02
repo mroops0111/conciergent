@@ -8,6 +8,7 @@ from .base import Store
 
 
 _DEFAULT_MAX_TURNS = 10
+_OAUTH_CODE_TTL_SECONDS = 300.0
 
 
 class MemoryStore(Store):
@@ -25,7 +26,7 @@ class MemoryStore(Store):
         self._mcp_tokens: dict[tuple[str, str], dict[str, typing.Any]] = {}
         self._mcp_clients: dict[str, dict[str, typing.Any]] = {}
         self._bot_tokens: dict[tuple[str, str], str] = {}
-        self._oauth_codes: dict[str, asyncio.Future[str]] = {}
+        self._oauth_codes: dict[str, tuple[asyncio.Future[str], float]] = {}
 
     async def load_history(self, principal: str) -> list[typing.Any]:
         turns = self._live_turns(principal)
@@ -86,12 +87,12 @@ class MemoryStore(Store):
         self._bot_tokens[surface, tenant] = token
 
     async def deliver_oauth_code(self, state: str, code: str) -> None:
-        future = self._oauth_codes.setdefault(state, asyncio.get_running_loop().create_future())
+        future = self._oauth_slot(state)
         if not future.done():
             future.set_result(code)
 
     async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
-        future = self._oauth_codes.setdefault(state, asyncio.get_running_loop().create_future())
+        future = self._oauth_slot(state)
         try:
             return await asyncio.wait_for(asyncio.shield(future), timeout=timeout_seconds)
         except TimeoutError:
@@ -99,6 +100,16 @@ class MemoryStore(Store):
         finally:
             with contextlib.suppress(KeyError):
                 del self._oauth_codes[state]
+
+    def _oauth_slot(self, state: str) -> asyncio.Future[str]:
+        # Stale slots are evicted on access, so codes delivered to a waiter that never comes
+        # do not accumulate for the life of the process.
+        now = time.monotonic()
+        self._oauth_codes = {key: slot for key, slot in self._oauth_codes.items() if slot[1] > now}
+        future, _ = self._oauth_codes.setdefault(
+            state, (asyncio.get_running_loop().create_future(), now + _OAUTH_CODE_TTL_SECONDS)
+        )
+        return future
 
     def _evict_expired(self, now: float) -> None:
         expired = [key for key, expiry in self._dedup_keys.items() if expiry <= now]

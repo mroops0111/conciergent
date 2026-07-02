@@ -191,5 +191,6 @@ def _interaction_dedupe_key(
     if scope == 'exclusive':
         # An exclusive pick consumes the whole message, so every button shares one key.
         return f'slack:interaction:{channel}:{message_ts}'
-    action_id = (payload.get('actions') or [{}])[0].get('action_id', '')
-    return f'slack:interaction:{channel}:{message_ts}:{action_id}'
+    # The per-click action_ts keeps redeliveries deduplicated while a fresh click stays usable.
+    action = (payload.get('actions') or [{}])[0]
+    return f'slack:interaction:{channel}:{message_ts}:{action.get("action_id", "")}:{action.get("action_ts", "")}'

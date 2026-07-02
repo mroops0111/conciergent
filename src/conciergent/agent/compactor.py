@@ -83,10 +83,19 @@ def _latest_input_tokens(messages: list[ModelMessage]) -> int:
 
 
 def _split_before_last_exchange(messages: list[ModelMessage]) -> tuple[list[ModelMessage], list[ModelMessage]]:
-    """Split so the latest user exchange stays verbatim and everything earlier gets compacted."""
+    """Split so the latest user exchange stays verbatim and everything earlier gets compacted.
+
+    A resumed approval turn packs tool returns and the new user prompt into one request.
+    Splitting there would orphan the returns from their summarized-away calls and the provider
+    would reject the history, so only a request with no tool returns is a safe boundary.
+    """
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
-        if isinstance(message, ModelRequest) and any(isinstance(part, UserPromptPart) for part in message.parts):
+        if (
+            isinstance(message, ModelRequest)
+            and any(isinstance(part, UserPromptPart) for part in message.parts)
+            and not any(isinstance(part, ToolReturnPart) for part in message.parts)
+        ):
             return list(messages[:index]), list(messages[index:])
     return list(messages), []
 

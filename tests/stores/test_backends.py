@@ -106,3 +106,9 @@ async def test_oauth_code_reaches_the_waiter(store: Store):
 
 async def test_oauth_code_wait_times_out(store: Store):
     assert await store.await_oauth_code('nobody', timeout_seconds=0.3) is None
+
+
+async def test_oauth_code_zero_timeout_checks_once(store: Store):
+    assert await store.await_oauth_code('nobody', timeout_seconds=0) is None
+    await store.deliver_oauth_code('ready', 'code-r')
+    assert await store.await_oauth_code('ready', timeout_seconds=0) == 'code-r'

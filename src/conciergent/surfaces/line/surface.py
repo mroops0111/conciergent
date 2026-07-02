@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _API_BASE_URL = 'https://api.line.me'
 _TIMEOUT_SECONDS = 30.0
 _LOADING_SECONDS = 30
+_TEXT_MAX_CHARS = 5000
 
 TEXT_FORMATTING_INSTRUCTION = (
     'LINE renders plain text only. Never use markdown of any kind, no asterisks, backticks, or [text](url). '
@@ -92,7 +93,9 @@ class LineReplySurface(ReplySurface):
         return TEXT_FORMATTING_INSTRUCTION
 
     async def send_text(self, text: str) -> None:
-        await self._slot.send({'type': 'text', 'text': text})
+        # LINE rejects text messages over 5000 characters, so longer replies go out in slices.
+        for start in range(0, len(text), _TEXT_MAX_CHARS):
+            await self._slot.send({'type': 'text', 'text': text[start : start + _TEXT_MAX_CHARS]})
 
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
         placement: render.SuggestionPlacement = 'destructive_button' if destructive else 'chip'

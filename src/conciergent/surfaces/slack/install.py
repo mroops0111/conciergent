@@ -1,3 +1,4 @@
+import logging
 import secrets
 import typing
 import urllib.parse
@@ -14,6 +15,8 @@ _AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize'
 _ACCESS_URL = 'https://slack.com/api/oauth.v2.access'
 _STATE_TTL_SECONDS = 600
 _STATE_KEY_PREFIX = 'slack-install'
+
+logger = logging.getLogger(__name__)
 
 
 class SlackInstallSettings(typing.NamedTuple):
@@ -51,9 +54,14 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
         issued = await store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
         if not code or issued is None:
             return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
-        team_id, bot_token = await _exchange_code(
-            code, client_id=settings.client_id, client_secret=settings.client_secret, redirect_uri=redirect_uri
-        )
+        try:
+            team_id, bot_token = await _exchange_code(
+                code, client_id=settings.client_id, client_secret=settings.client_secret, redirect_uri=redirect_uri
+            )
+        except (RuntimeError, httpx.HTTPError):
+            # A stale or already-consumed code is a routine OAuth ending, not a server error.
+            logger.warning('Slack install code exchange failed', exc_info=True)
+            return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
         await store.set_bot_token(ChatSurface.slack, team_id, bot_token)
         return fastapi.responses.HTMLResponse('<h1>Installed. You can close this window.</h1>')
 

@@ -170,6 +170,30 @@ def test_suggestion_interaction_runs_the_prompt(harness) -> None:
     assert FakeMessenger.patches, 'the interacted message is patched to show processing'
 
 
+def test_open_interaction_allows_a_fresh_click(harness) -> None:
+    client, agent, store = harness
+    _install(store)
+
+    def body_for(action_ts: str) -> bytes:
+        payload = {
+            'type': 'block_actions',
+            'team': {'id': 'T1'},
+            'user': {'id': 'U1'},
+            'channel': {'id': 'D1'},
+            'message': {'ts': '111.222'},
+            'actions': [{'action_id': 'suggestion:open:0:0', 'value': 'refresh', 'action_ts': action_ts}],
+        }
+        return urllib.parse.urlencode({'payload': json.dumps(payload)}).encode()
+
+    first = body_for('1000.1')
+    redelivery = body_for('1000.1')
+    fresh_click = body_for('2000.2')
+    client.post('/slack/interactions', content=first, headers=_signed_headers(first))
+    client.post('/slack/interactions', content=redelivery, headers=_signed_headers(redelivery))
+    client.post('/slack/interactions', content=fresh_click, headers=_signed_headers(fresh_click))
+    assert agent.inputs == ['refresh', 'refresh']
+
+
 def test_exclusive_interaction_consumes_the_whole_message(harness) -> None:
     client, agent, store = harness
     _install(store)
