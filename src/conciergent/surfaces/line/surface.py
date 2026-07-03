@@ -2,6 +2,7 @@ import logging
 import typing
 
 import httpx
+import typing_extensions
 
 from ...reply import Card, Link, ReplySurface
 from ...runtime import StatefulOAuthBridge
@@ -89,14 +90,17 @@ class LineReplySurface(ReplySurface):
         self._slot = slot
 
     @property
+    @typing_extensions.override
     def text_formatting_instruction(self) -> str:
         return TEXT_FORMATTING_INSTRUCTION
 
+    @typing_extensions.override
     async def send_text(self, text: str) -> None:
         # LINE rejects text messages over 5000 characters, so longer replies go out in slices.
         for start in range(0, len(text), _TEXT_MAX_CHARS):
             await self._slot.send({'type': 'text', 'text': text[start : start + _TEXT_MAX_CHARS]})
 
+    @typing_extensions.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
         placement: render.SuggestionPlacement = 'destructive_button' if destructive else 'chip'
         message: dict[str, typing.Any] = {
@@ -110,6 +114,7 @@ class LineReplySurface(ReplySurface):
                 message['quickReply'] = quick_reply
         await self._slot.send(message)
 
+    @typing_extensions.override
     async def send_carousel(self, cards: list[Card]) -> None:
         message = {
             'type': 'flex',
@@ -118,6 +123,7 @@ class LineReplySurface(ReplySurface):
         }
         await self._slot.send(message)
 
+    @typing_extensions.override
     async def show_processing(self) -> None:
         # The typing indicator is a nice-to-have and must never abort the turn.
         try:
@@ -142,6 +148,7 @@ class LineOAuthBridge(StatefulOAuthBridge):
         self._title = title
         self._link_label = link_label
 
+    @typing_extensions.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(title=self._title, links=[Link(text=self._link_label, url=authorize_url)])
         message = {

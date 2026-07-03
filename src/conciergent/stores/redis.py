@@ -4,6 +4,7 @@ import typing
 import uuid
 
 import redis.asyncio
+import typing_extensions
 
 from .base import Store
 
@@ -31,6 +32,7 @@ class RedisStore(Store):
     def from_url(cls, url: str, *, max_turns: int = _DEFAULT_MAX_TURNS) -> 'RedisStore':
         return cls(redis.asyncio.Redis.from_url(url), max_turns=max_turns)
 
+    @typing_extensions.override
     async def load_history(self, conversation: str) -> list[typing.Any]:
         turn_ids = [_text(raw) for raw in await self._redis.lrange(self._index_key(conversation), 0, -1)]
         if not turn_ids:
@@ -43,6 +45,7 @@ class RedisStore(Store):
                 messages.extend(json.loads(payload))
         return messages
 
+    @typing_extensions.override
     async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         turn_id = uuid.uuid4().hex
         pipeline = self._redis.pipeline(transaction=True)
@@ -52,6 +55,7 @@ class RedisStore(Store):
         pipeline.expire(self._index_key(conversation), _INDEX_TTL_SECONDS)
         await pipeline.execute()
 
+    @typing_extensions.override
     async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         turn_ids = [_text(raw) for raw in await self._redis.lrange(self._index_key(conversation), 0, -1)]
         turn_id = uuid.uuid4().hex
@@ -64,40 +68,50 @@ class RedisStore(Store):
         pipeline.expire(self._index_key(conversation), _INDEX_TTL_SECONDS)
         await pipeline.execute()
 
+    @typing_extensions.override
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         recorded = await self._redis.set(f'{_PREFIX}:dedupe:{key}', '1', nx=True, ex=ttl_seconds)
         return recorded is None
 
+    @typing_extensions.override
     async def park_approval(
         self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None:
         await self._redis.set(f'{_PREFIX}:approval:{conversation}', json.dumps(dict(state)), ex=ttl_seconds)
 
+    @typing_extensions.override
     async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
         payload = await self._redis.getdel(f'{_PREFIX}:approval:{conversation}')
         return json.loads(payload) if payload is not None else None
 
+    @typing_extensions.override
     async def get_mcp_token(self, server: str, principal: str) -> dict[str, typing.Any] | None:
         payload = await self._redis.get(f'{_PREFIX}:mcp-token:{server}:{principal}')
         return json.loads(payload) if payload is not None else None
 
+    @typing_extensions.override
     async def set_mcp_token(self, server: str, principal: str, token: collections.abc.Mapping[str, typing.Any]) -> None:
         await self._redis.set(f'{_PREFIX}:mcp-token:{server}:{principal}', json.dumps(dict(token)))
 
+    @typing_extensions.override
     async def get_mcp_client(self, server: str) -> dict[str, typing.Any] | None:
         payload = await self._redis.get(f'{_PREFIX}:mcp-client:{server}')
         return json.loads(payload) if payload is not None else None
 
+    @typing_extensions.override
     async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None:
         await self._redis.set(f'{_PREFIX}:mcp-client:{server}', json.dumps(dict(client)))
 
+    @typing_extensions.override
     async def resolve_bot_token(self, surface: str, tenant: str) -> str | None:
         token = await self._redis.get(f'{_PREFIX}:bot-token:{surface}:{tenant}')
         return _text(token) if token is not None else None
 
+    @typing_extensions.override
     async def set_bot_token(self, surface: str, tenant: str, token: str) -> None:
         await self._redis.set(f'{_PREFIX}:bot-token:{surface}:{tenant}', token)
 
+    @typing_extensions.override
     async def deliver_oauth_code(self, state: str, code: str) -> None:
         pipeline = self._redis.pipeline(transaction=True)
         pipeline.rpush(f'{_PREFIX}:oauth-code:{state}', code)
@@ -105,6 +119,7 @@ class RedisStore(Store):
         pipeline.expire(f'{_PREFIX}:oauth-code:{state}', _OAUTH_CODE_TTL_SECONDS)
         await pipeline.execute()
 
+    @typing_extensions.override
     async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
         if timeout_seconds <= 0:
             # BLPOP treats a zero timeout as block-forever, so a non-positive wait checks once instead.

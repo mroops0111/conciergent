@@ -419,6 +419,7 @@ dependencies = [
     { name = "pydantic-ai-slim", extra = ["google", "mcp"] },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
+    { name = "typing-extensions" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -466,6 +467,7 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'", specifier = ">=7.4.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.0" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+    { name = "typing-extensions", specifier = ">=4.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
 ]
 provides-extras = ["redis", "postgres", "gateway", "dev"]

@@ -3,6 +3,7 @@ import contextlib
 import typing
 
 import pydantic
+import typing_extensions
 from pydantic_ai import Agent, ToolOutput
 from pydantic_ai.mcp import MCPToolsetClient
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
@@ -79,6 +80,7 @@ class PydanticAIAgent(ChatAgent):
         """The MCP servers this agent connects to, exposed for assembly-time introspection."""
         return tuple(self._mcp_servers)
 
+    @typing_extensions.override
     async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
         """Open every MCP connection without running the agent, firing any pending OAuth flow now."""
         if not self._mcp_servers:
@@ -101,6 +103,7 @@ class PydanticAIAgent(ChatAgent):
                 await stack.enter_async_context(toolset)
         return probe.authorized if probe is not None else False
 
+    @typing_extensions.override
     async def run(
         self,
         user_input: str,
@@ -193,6 +196,7 @@ class _AuthorizationProbe(OAuthBridge):
         self._inner = inner
         self.authorized = False
 
+    @typing_extensions.override
     async def request_authorization(self, authorize_url: str) -> str:
         code = await self._inner.request_authorization(authorize_url)
         self.authorized = True

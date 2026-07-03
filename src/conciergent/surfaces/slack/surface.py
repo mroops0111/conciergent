@@ -2,6 +2,7 @@ import logging
 import typing
 
 import httpx
+import typing_extensions
 
 from ...reply import Card, Link, ReplySurface
 from ...runtime import StatefulOAuthBridge
@@ -67,20 +68,25 @@ class SlackReplySurface(ReplySurface):
         self._processing_text = processing_text
 
     @property
+    @typing_extensions.override
     def text_formatting_instruction(self) -> str:
         return render.TEXT_FORMATTING_INSTRUCTION
 
+    @typing_extensions.override
     async def send_text(self, text: str) -> None:
         await self._messenger.post_message(self._channel, {'text': text}, thread_ts=self._thread_ts)
 
+    @typing_extensions.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
         payload = render.build_card_payload(card, destructive=destructive)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)
 
+    @typing_extensions.override
     async def send_carousel(self, cards: list[Card]) -> None:
         payload = render.build_carousel_payload(cards)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)
 
+    @typing_extensions.override
     async def show_processing(self) -> None:
         """Patch the interacted message to disable its buttons, a no-op on plain message events."""
         if self._response_url is None or self._interacted_message is None:
@@ -113,6 +119,7 @@ class SlackOAuthBridge(StatefulOAuthBridge):
         self._title = title
         self._link_label = link_label
 
+    @typing_extensions.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(title=self._title, links=[Link(text=self._link_label, url=authorize_url)])
         payload = render.build_card_payload(card)

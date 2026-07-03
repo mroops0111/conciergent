@@ -2,6 +2,7 @@ import json
 import typing
 
 import pydantic
+import typing_extensions
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
@@ -52,6 +53,7 @@ class PydanticAICompactor(HistoryCompactor):
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
 
+    @typing_extensions.override
     async def compact_if_needed(self, history: list[typing.Any]) -> list[typing.Any] | None:
         try:
             messages = ModelMessagesTypeAdapter.validate_python(history)

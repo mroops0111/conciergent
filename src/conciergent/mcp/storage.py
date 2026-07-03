@@ -1,3 +1,4 @@
+import typing_extensions
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -16,16 +17,20 @@ class OAuthTokenStorage(TokenStorage):
         self._server = server
         self._principal = principal
 
+    @typing_extensions.override
     async def get_tokens(self) -> OAuthToken | None:
         stored = await self._store.get_mcp_token(self._server, self._principal)
         return OAuthToken.model_validate(stored) if stored is not None else None
 
+    @typing_extensions.override
     async def set_tokens(self, tokens: OAuthToken) -> None:
         await self._store.set_mcp_token(self._server, self._principal, tokens.model_dump(mode='json'))
 
+    @typing_extensions.override
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         stored = await self._store.get_mcp_client(self._server)
         return OAuthClientInformationFull.model_validate(stored) if stored is not None else None
 
+    @typing_extensions.override
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         await self._store.set_mcp_client(self._server, client_info.model_dump(mode='json'))

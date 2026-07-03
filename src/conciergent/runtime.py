@@ -3,6 +3,8 @@ import dataclasses
 import typing
 import urllib.parse
 
+import typing_extensions
+
 from .oauth_handoff import WAIT_TIMEOUT_SECONDS, OAuthHandoffExpiredError
 from .reply import Card, Carousel, Reply, ReplySurface
 from .stores.base import OAuthCodeStore, Store
@@ -50,6 +52,7 @@ class StatefulOAuthBridge(OAuthBridge):
         self._store = store
         self._wait_timeout_seconds = wait_timeout_seconds
 
+    @typing_extensions.override
     async def request_authorization(self, authorize_url: str) -> str:
         query = urllib.parse.parse_qs(urllib.parse.urlparse(authorize_url).query)
         states = query.get('state')

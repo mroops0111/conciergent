@@ -4,6 +4,8 @@ import contextlib
 import time
 import typing
 
+import typing_extensions
+
 from .base import Store
 
 
@@ -28,15 +30,18 @@ class MemoryStore(Store):
         self._bot_tokens: dict[tuple[str, str], str] = {}
         self._oauth_codes: dict[str, tuple[asyncio.Future[str], float]] = {}
 
+    @typing_extensions.override
     async def load_history(self, conversation: str) -> list[typing.Any]:
         turns = self._live_turns(conversation)
         return [message for _, messages in turns for message in messages]
 
+    @typing_extensions.override
     async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         turns = self._live_turns(conversation)
         turns.append((time.monotonic() + ttl_seconds, list(messages)))
         self._history[conversation] = turns[-self._max_turns :]
 
+    @typing_extensions.override
     async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         self._history[conversation] = [(time.monotonic() + ttl_seconds, list(messages))]
 
@@ -44,6 +49,7 @@ class MemoryStore(Store):
         now = time.monotonic()
         return [turn for turn in self._history.get(conversation, []) if turn[0] > now]
 
+    @typing_extensions.override
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         now = time.monotonic()
         self._evict_expired(now)
@@ -52,11 +58,13 @@ class MemoryStore(Store):
         self._dedup_keys[key] = now + ttl_seconds
         return False
 
+    @typing_extensions.override
     async def park_approval(
         self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None:
         self._approvals[conversation] = (dict(state), time.monotonic() + ttl_seconds)
 
+    @typing_extensions.override
     async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
         entry = self._approvals.pop(conversation, None)
         if entry is None:
@@ -66,31 +74,39 @@ class MemoryStore(Store):
             return None
         return state
 
+    @typing_extensions.override
     async def get_mcp_token(self, server: str, principal: str) -> dict[str, typing.Any] | None:
         token = self._mcp_tokens.get((server, principal))
         return dict(token) if token is not None else None
 
+    @typing_extensions.override
     async def set_mcp_token(self, server: str, principal: str, token: collections.abc.Mapping[str, typing.Any]) -> None:
         self._mcp_tokens[server, principal] = dict(token)
 
+    @typing_extensions.override
     async def get_mcp_client(self, server: str) -> dict[str, typing.Any] | None:
         client = self._mcp_clients.get(server)
         return dict(client) if client is not None else None
 
+    @typing_extensions.override
     async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None:
         self._mcp_clients[server] = dict(client)
 
+    @typing_extensions.override
     async def resolve_bot_token(self, surface: str, tenant: str) -> str | None:
         return self._bot_tokens.get((surface, tenant))
 
+    @typing_extensions.override
     async def set_bot_token(self, surface: str, tenant: str, token: str) -> None:
         self._bot_tokens[surface, tenant] = token
 
+    @typing_extensions.override
     async def deliver_oauth_code(self, state: str, code: str) -> None:
         future = self._oauth_slot(state)
         if not future.done():
             future.set_result(code)
 
+    @typing_extensions.override
     async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
         future = self._oauth_slot(state)
         try:

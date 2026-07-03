@@ -1,6 +1,7 @@
 import collections.abc
 
 import fastapi
+import typing_extensions
 
 from ..base import Surface, SurfaceContext
 from .install import SlackInstallSettings, build_install_router
@@ -28,6 +29,7 @@ class Slack(Surface):
         self._scopes = tuple(scopes)
         self._bot_token = bot_token
 
+    @typing_extensions.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
         routers = [
             build_router(

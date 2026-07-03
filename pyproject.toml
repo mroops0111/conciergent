@@ -30,6 +30,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "click>=8.4.0",
     "pydantic-ai-slim[google,mcp]>=2.1.0,<3",
+    "typing-extensions>=4.12",
     "mcp[cli]>=1.28.1,<2",
 ]
 
@@ -135,4 +136,6 @@ venvPath = "."
 venv = ".venv"
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+# Overrides must be explicit, a typo in an overriding method name otherwise fails silently.
+executionEnvironments = [{ root = "src", reportImplicitOverride = "error" }]
 reportMissingImports = "warning"

@@ -5,6 +5,7 @@ import typing
 
 import sqlalchemy
 import sqlalchemy.exc
+import typing_extensions
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -91,11 +92,13 @@ class PostgresStore(Store):
     def from_url(cls, url: str, *, max_turns: int = _DEFAULT_MAX_TURNS) -> 'PostgresStore':
         return cls(create_async_engine(url), max_turns=max_turns)
 
+    @typing_extensions.override
     async def prepare(self) -> None:
         """Create the store's tables when they do not exist yet."""
         async with self._engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 
+    @typing_extensions.override
     async def load_history(self, conversation: str) -> list[typing.Any]:
         async with self._sessions() as session:
             rows = await session.scalars(
@@ -105,6 +108,7 @@ class PostgresStore(Store):
             )
             return [message for row in rows for message in row.messages]
 
+    @typing_extensions.override
     async def append_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         async with self._sessions.begin() as session:
             session.add(
@@ -113,6 +117,7 @@ class PostgresStore(Store):
             await session.flush()
             await self._trim_turns(session, conversation)
 
+    @typing_extensions.override
     async def replace_history(self, conversation: str, messages: list[typing.Any], *, ttl_seconds: int) -> None:
         async with self._sessions.begin() as session:
             await session.execute(sqlalchemy.delete(HistoryTurn).where(HistoryTurn.conversation == conversation))
@@ -120,6 +125,7 @@ class PostgresStore(Store):
                 HistoryTurn(conversation=conversation, messages=list(messages), expires_at=time.time() + ttl_seconds)
             )
 
+    @typing_extensions.override
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         try:
             async with self._sessions.begin() as session:
@@ -135,6 +141,7 @@ class PostgresStore(Store):
             # A concurrent insert of the same key won the race, which is exactly a duplicate delivery.
             return True
 
+    @typing_extensions.override
     async def park_approval(
         self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
     ) -> None:
@@ -143,6 +150,7 @@ class PostgresStore(Store):
                 Approval(conversation=conversation, state=dict(state), expires_at=time.time() + ttl_seconds)
             )
 
+    @typing_extensions.override
     async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
         # A single DELETE with RETURNING hands the row to exactly one concurrent taker.
         async with self._sessions.begin() as session:
@@ -157,37 +165,45 @@ class PostgresStore(Store):
             state, expires_at = row
             return dict(state) if expires_at > time.time() else None
 
+    @typing_extensions.override
     async def get_mcp_token(self, server: str, principal: str) -> dict[str, typing.Any] | None:
         async with self._sessions() as session:
             row = await session.get(McpToken, (server, principal))
             return dict(row.token) if row is not None else None
 
+    @typing_extensions.override
     async def set_mcp_token(self, server: str, principal: str, token: collections.abc.Mapping[str, typing.Any]) -> None:
         async with self._sessions.begin() as session:
             await session.merge(McpToken(server=server, principal=principal, token=dict(token)))
 
+    @typing_extensions.override
     async def get_mcp_client(self, server: str) -> dict[str, typing.Any] | None:
         async with self._sessions() as session:
             row = await session.get(McpClient, server)
             return dict(row.client) if row is not None else None
 
+    @typing_extensions.override
     async def set_mcp_client(self, server: str, client: collections.abc.Mapping[str, typing.Any]) -> None:
         async with self._sessions.begin() as session:
             await session.merge(McpClient(server=server, client=dict(client)))
 
+    @typing_extensions.override
     async def resolve_bot_token(self, surface: str, tenant: str) -> str | None:
         async with self._sessions() as session:
             row = await session.get(BotToken, (surface, tenant))
             return row.token if row is not None else None
 
+    @typing_extensions.override
     async def set_bot_token(self, surface: str, tenant: str, token: str) -> None:
         async with self._sessions.begin() as session:
             await session.merge(BotToken(surface=surface, tenant=tenant, token=token))
 
+    @typing_extensions.override
     async def deliver_oauth_code(self, state: str, code: str) -> None:
         async with self._sessions.begin() as session:
             await session.merge(OAuthCode(state=state, code=code, expires_at=time.time() + _OAUTH_CODE_TTL_SECONDS))
 
+    @typing_extensions.override
     async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
         deadline = time.monotonic() + timeout_seconds
         while True:
