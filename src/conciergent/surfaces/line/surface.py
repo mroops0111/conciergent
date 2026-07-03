@@ -3,29 +3,36 @@ import typing
 
 import httpx
 
-from ...reply import Card, Link, ReplySurface
-from ...runtime import StatefulOAuthBridge
-from ...stores.base import OAuthCodeStore
-from . import render
+from conciergent import i18n
+from conciergent.defaults import DEFAULTS
+from conciergent.lang import Lang
+from conciergent.reply import Card, Link, ReplySurface
+from conciergent.runtime import StatefulOAuthBridge
+from conciergent.stores.base import OAuthCodeStore
+from conciergent.surfaces.line import render
 
 
 logger = logging.getLogger(__name__)
 
-_API_BASE_URL = 'https://api.line.me'
-_TIMEOUT_SECONDS = 30.0
-_LOADING_SECONDS = 30
-_TEXT_MAX_CHARS = 5000
-
+# The plain-text dialect hint injected into the agent's system prompt for this surface.
 TEXT_FORMATTING_INSTRUCTION = (
     'LINE renders plain text only. Never use markdown of any kind, no asterisks, backticks, or [text](url). '
     'Write short lines and use blank lines to separate ideas.'
 )
 
 
+_API_BASE_URL = 'https://api.line.me'
+# LINE shows the loading animation for at most this many seconds, and rejects text messages over 5000 characters.
+_LOADING_SECONDS = 30
+_TEXT_MAX_CHARS = 5000
+
+
 class LineMessenger:
     """A thin async client for the handful of LINE Messaging API calls the surface needs."""
 
-    def __init__(self, channel_access_token: str, *, timeout_seconds: float = _TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self, channel_access_token: str, *, timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+    ) -> None:
         self._client = httpx.AsyncClient(
             base_url=_API_BASE_URL,
             timeout=timeout_seconds,
@@ -53,6 +60,19 @@ class LineMessenger:
             '/v2/bot/chat/loading/start', json={'chatId': user_id, 'loadingSeconds': _LOADING_SECONDS}
         )
         response.raise_for_status()
+
+    async def get_lang(self, user_id: str) -> Lang | None:
+        """Resolve the user's UI language from their LINE profile language, or None when unavailable."""
+        try:
+            response = await self._client.get(f'/v2/bot/profile/{user_id}')
+            response.raise_for_status()
+            language = response.json().get('language', '')
+        except httpx.HTTPError:
+            return None
+        try:
+            return Lang(language) if language else None
+        except ValueError:
+            return None
 
 
 class ReplyTokenSlot:
@@ -85,14 +105,28 @@ class ReplyTokenSlot:
 class LineReplySurface(ReplySurface):
     """Render replies as LINE Flex messages through the reply-token slot."""
 
-    def __init__(self, slot: ReplyTokenSlot, *, text_formatting_instruction: str = TEXT_FORMATTING_INSTRUCTION) -> None:
+    def __init__(
+        self,
+        slot: ReplyTokenSlot,
+        *,
+        lang: Lang | None = None,
+        brand_color: str = render.BRAND_COLOR,
+        destructive_color: str = render.DESTRUCTIVE_COLOR,
+    ) -> None:
         self._slot = slot
-        self._text_formatting_instruction = text_formatting_instruction
+        self._lang = lang
+        self._brand_color = brand_color
+        self._destructive_color = destructive_color
 
     @property
     @typing.override
     def text_formatting_instruction(self) -> str:
-        return self._text_formatting_instruction
+        return TEXT_FORMATTING_INSTRUCTION
+
+    @property
+    @typing.override
+    def lang(self) -> Lang | None:
+        return self._lang
 
     @typing.override
     async def send_text(self, text: str) -> None:
@@ -106,7 +140,12 @@ class LineReplySurface(ReplySurface):
         message: dict[str, typing.Any] = {
             'type': 'flex',
             'altText': render.alt_text(card),
-            'contents': render.build_card_bubble(card, suggestion_placement=placement),
+            'contents': render.build_card_bubble(
+                card,
+                suggestion_placement=placement,
+                brand_color=self._brand_color,
+                destructive_color=self._destructive_color,
+            ),
         }
         if not destructive:
             quick_reply = render.build_quick_reply(card.suggestions)
@@ -119,7 +158,9 @@ class LineReplySurface(ReplySurface):
         message = {
             'type': 'flex',
             'altText': render.alt_text(cards[0]) if cards else 'Options',
-            'contents': render.build_carousel(cards),
+            'contents': render.build_carousel(
+                cards, brand_color=self._brand_color, destructive_color=self._destructive_color
+            ),
         }
         await self._slot.send(message)
 
@@ -140,24 +181,27 @@ class LineOAuthBridge(StatefulOAuthBridge):
         store: OAuthCodeStore,
         slot: ReplyTokenSlot,
         *,
-        title: str = 'Authorization needed',
-        link_label: str = 'Authorize',
+        lang: Lang | None = None,
         wait_timeout_seconds: float | None = None,
+        brand_color: str = render.BRAND_COLOR,
     ) -> None:
         if wait_timeout_seconds is not None:
             super().__init__(store, wait_timeout_seconds=wait_timeout_seconds)
         else:
             super().__init__(store)
         self._slot = slot
-        self._title = title
-        self._link_label = link_label
+        self._lang = lang
+        self._brand_color = brand_color
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
-        card = Card(title=self._title, links=[Link(text=self._link_label, url=authorize_url)])
+        card = Card(
+            title=i18n.t('authorization.header', self._lang),
+            links=[Link(text=i18n.t('authorization.button', self._lang), url=authorize_url)],
+        )
         message = {
             'type': 'flex',
             'altText': render.alt_text(card),
-            'contents': render.build_card_bubble(card, suggestion_placement='button'),
+            'contents': render.build_card_bubble(card, suggestion_placement='button', brand_color=self._brand_color),
         }
         await self._slot.send(message)

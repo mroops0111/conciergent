@@ -1,0 +1,28 @@
+approval:
+  header: 確認
+  body: 即將「{tools}」，此動作可能無法復原，請確認以繼續。
+  confirm: 確認
+  cancel: 取消
+
+authorization:
+  header: 需要授權
+  button: 前往授權
+
+slack:
+  processing: 處理中...
+
+line:
+  welcome: 嗨！傳個訊息給我就可以開始了。
+  ready: 都設定好了！現在就可以開始使用了。
+
+install:
+  completed_title: 安裝完成
+  completed_body: 這個視窗可以關掉了。
+  failed_title: 安裝失敗
+  failed_body: 發生錯誤，請重新安裝一次。
+
+callback:
+  completed_title: 授權完成
+  completed_body: 可以關掉這個視窗，回到對話繼續操作。
+  failed_title: 授權失敗
+  failed_body: 請回到對話再試一次。

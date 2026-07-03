@@ -1,7 +1,7 @@
 import collections.abc
 import typing
 
-from .base import Store
+from conciergent.stores.base import Store
 
 
 class CompositeStore(Store):

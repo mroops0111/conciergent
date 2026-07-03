@@ -2,6 +2,12 @@ import abc
 import collections.abc
 import typing
 
+from conciergent.defaults import DEFAULTS
+
+
+# Re-exported so the backends default to it without each reaching into the defaults tree.
+DEFAULT_MAX_TURNS = DEFAULTS.store.max_turns
+
 
 class HistoryStore(abc.ABC):
     """Conversation history, one expiring turn at a time."""

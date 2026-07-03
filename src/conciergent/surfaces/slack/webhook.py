@@ -8,12 +8,13 @@ import urllib.parse
 
 import fastapi
 
-from ...identity import ChatSurface, make_principal
-from ...oauth_handoff import WAIT_TIMEOUT_SECONDS, is_handoff_expiry
-from ...runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor, run_turn
-from ...stores.base import Store
-from . import render
-from .surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
+from conciergent.defaults import DEFAULTS
+from conciergent.identity import ChatSurface, make_principal
+from conciergent.oauth_handoff import is_handoff_expiry
+from conciergent.runtime import ChatAgent, HistoryCompactor, run_turn
+from conciergent.stores.base import Store
+from conciergent.surfaces.slack import render
+from conciergent.surfaces.slack.surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
 
 
 logger = logging.getLogger(__name__)
@@ -31,13 +32,12 @@ class SlackWebhookSettings(typing.NamedTuple):
 
     signing_secret: str
     fallback_bot_token: str = ''
-    text_formatting_instruction: str = render.TEXT_FORMATTING_INSTRUCTION
-    processing_text: str = 'Working on it...'
-    authorization_title: str = 'Authorization needed'
-    authorization_link_label: str = 'Authorize'
-    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
-    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
-    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
+    oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
+    api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+    brand_color: str = render.BRAND_COLOR
+    destructive_color: str = render.DESTRUCTIVE_COLOR
 
 
 def build_router(
@@ -142,24 +142,27 @@ async def _dispatch_turn(
     principal = make_principal(ChatSurface.slack, team_id, user_id)
     # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
     conversation = f'{principal}:{thread_ts}' if thread_ts else principal
-    async with SlackMessenger(bot_token) as messenger:
+    async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
+        # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
+        lang = await messenger.get_lang(user_id)
         surface = SlackReplySurface(
             messenger,
             channel=channel,
             thread_ts=thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
-            processing_text=settings.processing_text,
-            text_formatting_instruction=settings.text_formatting_instruction,
+            lang=lang,
+            brand_color=settings.brand_color,
+            destructive_color=settings.destructive_color,
         )
         bridge = SlackOAuthBridge(
             store,
             messenger,
             channel=channel,
             thread_ts=thread_ts,
-            title=settings.authorization_title,
-            link_label=settings.authorization_link_label,
+            lang=lang,
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+            brand_color=settings.brand_color,
         )
         try:
             await run_turn(

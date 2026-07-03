@@ -3,29 +3,17 @@ import typing
 
 import fastapi
 
-from ..base import Surface, SurfaceContext
-from .install import SlackInstallSettings, build_install_router
-from .webhook import SlackWebhookSettings, build_router
-
-
-def _webhook_settings(
-    *, signing_secret: str, fallback_bot_token: str, text_formatting_instruction: str
-) -> SlackWebhookSettings:
-    """Build settings where an empty override falls back to the platform default."""
-    if text_formatting_instruction:
-        return SlackWebhookSettings(
-            signing_secret=signing_secret,
-            fallback_bot_token=fallback_bot_token,
-            text_formatting_instruction=text_formatting_instruction,
-        )
-    return SlackWebhookSettings(signing_secret=signing_secret, fallback_bot_token=fallback_bot_token)
-
-
-_DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')
+from conciergent.defaults import DEFAULTS
+from conciergent.surfaces.base import Surface, SurfaceContext
+from conciergent.surfaces.slack.install import SlackInstallSettings, build_install_router
+from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
 
 
 class Slack(Surface):
     """The Slack platform, webhook routes plus the optional multi-workspace install flow."""
+
+    # The scopes the bot needs to function, so they are fixed by the surface rather than configured.
+    DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')
 
     def __init__(
         self,
@@ -33,34 +21,35 @@ class Slack(Surface):
         signing_secret: str,
         client_id: str = '',
         client_secret: str = '',
-        scopes: collections.abc.Sequence[str] = _DEFAULT_SCOPES,
+        scopes: collections.abc.Sequence[str] = DEFAULT_SCOPES,
         bot_token: str = '',
-        text_formatting_instruction: str = '',
-        processing_text: str = '',
-        authorization_title: str = '',
-        authorization_link_label: str = '',
+        brand_color: str = DEFAULTS.surface.brand_color,
+        destructive_color: str = DEFAULTS.surface.destructive_color,
+        api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds,
     ) -> None:
         self._signing_secret = signing_secret
         self._client_id = client_id
         self._client_secret = client_secret
         self._scopes = tuple(scopes)
         self._bot_token = bot_token
-        self._text_overrides = {
-            key: value
-            for key, value in {
-                'text_formatting_instruction': text_formatting_instruction,
-                'processing_text': processing_text,
-                'authorization_title': authorization_title,
-                'authorization_link_label': authorization_link_label,
-            }.items()
-            if value
-        }
+        self._brand_color = brand_color
+        self._destructive_color = destructive_color
+        self._api_timeout_seconds = api_timeout_seconds
 
     @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
         routers = [
             build_router(
-                settings=SlackWebhookSettings(signing_secret=self._signing_secret, fallback_bot_token=self._bot_token),
+                settings=SlackWebhookSettings(
+                    signing_secret=self._signing_secret,
+                    fallback_bot_token=self._bot_token,
+                    approval_ttl_seconds=context.approval_ttl_seconds,
+                    history_ttl_seconds=context.history_ttl_seconds,
+                    oauth_wait_timeout_seconds=context.oauth_wait_timeout_seconds,
+                    api_timeout_seconds=self._api_timeout_seconds,
+                    brand_color=self._brand_color,
+                    destructive_color=self._destructive_color,
+                ),
                 store=context.store,
                 agent=context.agent,
                 compactor=context.compactor,

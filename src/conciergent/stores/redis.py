@@ -5,10 +5,9 @@ import uuid
 
 import redis.asyncio
 
-from .base import Store
+from conciergent.stores.base import DEFAULT_MAX_TURNS, Store
 
 
-_DEFAULT_MAX_TURNS = 10
 _INDEX_TTL_SECONDS = 30 * 86400
 _OAUTH_CODE_TTL_SECONDS = 300
 _PREFIX = 'conciergent'
@@ -23,12 +22,12 @@ class RedisStore(Store):
     Requires a Redis server of 6.2 or newer for GETDEL.
     """
 
-    def __init__(self, client: redis.asyncio.Redis, *, max_turns: int = _DEFAULT_MAX_TURNS) -> None:
+    def __init__(self, client: redis.asyncio.Redis, *, max_turns: int = DEFAULT_MAX_TURNS) -> None:
         self._redis = client
         self._max_turns = max_turns
 
     @classmethod
-    def from_url(cls, url: str, *, max_turns: int = _DEFAULT_MAX_TURNS) -> 'RedisStore':
+    def from_url(cls, url: str, *, max_turns: int = DEFAULT_MAX_TURNS) -> 'RedisStore':
         return cls(redis.asyncio.Redis.from_url(url), max_turns=max_turns)
 
     @typing.override

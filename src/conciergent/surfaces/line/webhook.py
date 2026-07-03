@@ -7,11 +7,15 @@ import typing
 
 import fastapi
 
-from ...identity import ChatSurface, make_principal
-from ...oauth_handoff import WAIT_TIMEOUT_SECONDS, is_handoff_expiry
-from ...runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor, run_turn
-from ...stores.base import Store
-from .surface import TEXT_FORMATTING_INSTRUCTION, LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
+from conciergent import i18n
+from conciergent.defaults import DEFAULTS
+from conciergent.identity import ChatSurface, make_principal
+from conciergent.lang import Lang
+from conciergent.oauth_handoff import is_handoff_expiry
+from conciergent.runtime import ChatAgent, HistoryCompactor, run_turn
+from conciergent.stores.base import Store
+from conciergent.surfaces.line import render
+from conciergent.surfaces.line.surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
 
 logger = logging.getLogger(__name__)
@@ -24,14 +28,12 @@ class LineWebhookSettings(typing.NamedTuple):
 
     channel_secret: str
     channel_access_token: str
-    welcome_text: str = 'Hi! Send me a message to get started.'
-    ready_text: str = 'You are all set. Send me a message to get started.'
-    text_formatting_instruction: str = TEXT_FORMATTING_INSTRUCTION
-    authorization_title: str = 'Authorization needed'
-    authorization_link_label: str = 'Authorize'
-    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
-    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
-    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
+    oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
+    api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+    brand_color: str = render.BRAND_COLOR
+    destructive_color: str = render.DESTRUCTIVE_COLOR
 
 
 def build_router(
@@ -83,23 +85,30 @@ async def _dispatch_event(
     if source.get('type') != 'user' or not user_id:
         return
     principal = make_principal(ChatSurface.line, user_id)
-    async with LineMessenger(settings.channel_access_token) as messenger:
+    async with LineMessenger(settings.channel_access_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         slot = ReplyTokenSlot(messenger, user_id=user_id, reply_token=event.get('replyToken'))
+        # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
+        lang = await messenger.get_lang(user_id)
         bridge = LineOAuthBridge(
             store,
             slot,
-            title=settings.authorization_title,
-            link_label=settings.authorization_link_label,
+            lang=lang,
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+            brand_color=settings.brand_color,
         )
         if event.get('type') == 'follow':
-            await _greet_follower(settings=settings, agent=agent, principal=principal, bridge=bridge, slot=slot)
+            await _greet_follower(agent=agent, principal=principal, bridge=bridge, slot=slot, lang=lang)
             return
         message = event.get('message') or {}
         user_text = message.get('text', '')
         if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
             return
-        surface = LineReplySurface(slot, text_formatting_instruction=settings.text_formatting_instruction)
+        surface = LineReplySurface(
+            slot,
+            lang=lang,
+            brand_color=settings.brand_color,
+            destructive_color=settings.destructive_color,
+        )
         try:
             await run_turn(
                 user_text,
@@ -120,11 +129,11 @@ async def _dispatch_event(
 
 async def _greet_follower(
     *,
-    settings: LineWebhookSettings,
     agent: ChatAgent,
     principal: str,
     bridge: LineOAuthBridge,
     slot: ReplyTokenSlot,
+    lang: Lang | None,
 ) -> None:
     """Fire any pending OAuth at add time and greet according to what happened."""
     try:
@@ -134,7 +143,7 @@ async def _greet_follower(
         if not is_handoff_expiry(error):
             logger.exception('LINE follow bootstrap failed for %s', principal)
         return
-    text = settings.ready_text if just_authorized else settings.welcome_text
+    text = i18n.t('line.ready' if just_authorized else 'line.welcome', lang)
     await slot.send({'type': 'text', 'text': text})
 
 

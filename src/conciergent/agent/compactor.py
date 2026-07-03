@@ -15,12 +15,15 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 
-from ..runtime import HistoryCompactor
+from conciergent.runtime import HistoryCompactor
 
 
+# The compaction thresholds, as fractions of the model's input token limit.
+# Compaction fires once history passes the trigger ratio, then shrinks it toward the target ratio.
 _COMPACTION_TRIGGER_RATIO = 0.80
 _COMPACTION_TARGET_RATIO = 0.20
 _SUMMARY_MIN_TARGET_CHARS = 200
+
 _COMPACTION_SUMMARY_STUB = '(Earlier conversation summary)'
 _INSTRUCTIONS = (
     'You compact prior chat history into a pickup summary for the assistant. '

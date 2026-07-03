@@ -7,8 +7,10 @@ import fastapi
 import fastapi.responses
 import httpx
 
-from ...identity import ChatSurface
-from ...stores.base import Store
+from conciergent import i18n
+from conciergent.identity import ChatSurface
+from conciergent.lang import Lang, parse_accept_language
+from conciergent.stores.base import Store
 
 
 _AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize'
@@ -50,10 +52,13 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
         return fastapi.responses.RedirectResponse(f'{_AUTHORIZE_URL}?{query}')
 
     @router.get('/oauth/slack/callback')
-    async def callback(code: str = '', state: str = '') -> fastapi.responses.HTMLResponse:
+    async def callback(
+        code: str = '', state: str = '', accept_language: str = fastapi.Header(default='')
+    ) -> fastapi.responses.HTMLResponse:
+        lang = parse_accept_language(accept_language)
         issued = await store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
         if not code or issued is None:
-            return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
+            return _page(lang, 'install.failed', status_code=400)
         try:
             team_id, bot_token = await _exchange_code(
                 code, client_id=settings.client_id, client_secret=settings.client_secret, redirect_uri=redirect_uri
@@ -61,11 +66,17 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
         except (RuntimeError, httpx.HTTPError):
             # A stale or already-consumed code is a routine OAuth ending, not a server error.
             logger.warning('Slack install code exchange failed', exc_info=True)
-            return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
+            return _page(lang, 'install.failed', status_code=400)
         await store.set_bot_token(ChatSurface.slack, team_id, bot_token)
-        return fastapi.responses.HTMLResponse('<h1>Installed. You can close this window.</h1>')
+        return _page(lang, 'install.completed')
 
     return router
+
+
+def _page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:
+    title = i18n.t(f'{key}_title', lang)
+    body = i18n.t(f'{key}_body', lang)
+    return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
 
 
 async def _exchange_code(code: str, *, client_id: str, client_secret: str, redirect_uri: str) -> tuple[str, str]:

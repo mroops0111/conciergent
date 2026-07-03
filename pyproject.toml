@@ -83,6 +83,7 @@ select = [
     "S",    # flake8-bandit
     "T20",  # flake8-print
     "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
     "RUF",  # Ruff-specific rules
 ]
 
@@ -104,6 +105,9 @@ exclude = [
     "node_modules",
     "venv",
 ]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
 
 [tool.ruff.format]
 quote-style = "single"
@@ -134,6 +138,5 @@ venvPath = "."
 venv = ".venv"
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-# Overrides must be explicit, a typo in an overriding method name otherwise fails silently.
 executionEnvironments = [{ root = "src", reportImplicitOverride = "error" }]
 reportMissingImports = "warning"

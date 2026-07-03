@@ -3,13 +3,10 @@ import dataclasses
 import typing
 import urllib.parse
 
-from .oauth_handoff import WAIT_TIMEOUT_SECONDS, OAuthHandoffExpiredError
-from .reply import Card, Carousel, Reply, ReplySurface
-from .stores.base import OAuthCodeStore, Store
-
-
-DEFAULT_APPROVAL_TTL_SECONDS = 600
-DEFAULT_HISTORY_TTL_SECONDS = 604800
+from conciergent.defaults import DEFAULTS
+from conciergent.oauth_handoff import OAuthHandoffExpiredError
+from conciergent.reply import Card, Carousel, Reply, ReplySurface
+from conciergent.stores.base import OAuthCodeStore, Store
 
 
 @dataclasses.dataclass
@@ -50,7 +47,9 @@ class StatefulOAuthBridge(OAuthBridge):
     Subclasses implement only the rendering.
     """
 
-    def __init__(self, store: OAuthCodeStore, *, wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self, store: OAuthCodeStore, *, wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
+    ) -> None:
         self._store = store
         self._wait_timeout_seconds = wait_timeout_seconds
 
@@ -70,6 +69,24 @@ class StatefulOAuthBridge(OAuthBridge):
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         """Show the authorize URL to the user, for example as a button in the conversation."""
         ...
+
+
+class AuthorizationProbe(OAuthBridge):
+    """Wrap a bridge and record whether an authorization actually ran through it.
+
+    A bridge is only called when a real authorization is needed,
+    so a completed delegation is exactly the just-authorized signal that bootstrap reports.
+    """
+
+    def __init__(self, inner: OAuthBridge) -> None:
+        self._inner = inner
+        self.authorized = False
+
+    @typing.override
+    async def request_authorization(self, authorize_url: str) -> str:
+        code = await self._inner.request_authorization(authorize_url)
+        self.authorized = True
+        return code
 
 
 class HistoryCompactor(abc.ABC):
@@ -116,8 +133,8 @@ async def run_turn(
     conversation: str | None = None,
     bridge: OAuthBridge | None = None,
     compactor: HistoryCompactor | None = None,
-    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS,
-    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS,
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 

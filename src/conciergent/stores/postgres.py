@@ -8,10 +8,9 @@ import sqlalchemy.exc
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from .base import Store
+from conciergent.stores.base import DEFAULT_MAX_TURNS, Store
 
 
-_DEFAULT_MAX_TURNS = 10
 _OAUTH_CODE_TTL_SECONDS = 300.0
 _OAUTH_POLL_INTERVAL_SECONDS = 0.2
 
@@ -82,13 +81,13 @@ class PostgresStore(Store):
     so the waiting process picks the code up within the poll interval.
     """
 
-    def __init__(self, engine: AsyncEngine, *, max_turns: int = _DEFAULT_MAX_TURNS) -> None:
+    def __init__(self, engine: AsyncEngine, *, max_turns: int = DEFAULT_MAX_TURNS) -> None:
         self._engine = engine
         self._sessions = async_sessionmaker(engine, expire_on_commit=False)
         self._max_turns = max_turns
 
     @classmethod
-    def from_url(cls, url: str, *, max_turns: int = _DEFAULT_MAX_TURNS) -> 'PostgresStore':
+    def from_url(cls, url: str, *, max_turns: int = DEFAULT_MAX_TURNS) -> 'PostgresStore':
         return cls(create_async_engine(url), max_turns=max_turns)
 
     @typing.override

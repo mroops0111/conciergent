@@ -1,0 +1,25 @@
+conversation:
+  # How long a parked human-in-the-loop approval waits for a decision before it expires, in seconds.
+  approval_ttl_seconds: 600
+  # How long conversation history is retained, in seconds (one week).
+  history_ttl_seconds: 604800
+  # How long an in-chat OAuth handoff blocks waiting for the user to finish authorizing, in seconds.
+  # Authorization codes expire within minutes, so keep this below any outer MCP initialization timeout,
+  # and a timeout then surfaces here as a clear expiry instead of being swallowed by an outer cancellation.
+  oauth_wait_timeout_seconds: 240
+
+agent:
+  # How long an MCP tool call may run before it times out, in seconds.
+  mcp_read_timeout_seconds: 120
+
+store:
+  # How many of the most recent conversation turns to keep in history.
+  max_turns: 10
+
+surface:
+  # The accent color of reply cards.
+  brand_color: '#586af2'
+  # The accent color of destructive-action confirmation cards.
+  destructive_color: '#DC3545'
+  # How long a call to a surface's chat API may run before it times out, in seconds.
+  api_timeout_seconds: 30

@@ -22,7 +22,7 @@ class FakeMessenger:
     posts: typing.ClassVar[list[tuple[str, dict[str, typing.Any]]]] = []
     patches: typing.ClassVar[list[dict[str, typing.Any]]] = []
 
-    def __init__(self, bot_token: str) -> None:
+    def __init__(self, bot_token: str, *, timeout_seconds: float = 30.0) -> None:
         self.bot_token = bot_token
 
     async def __aenter__(self) -> 'FakeMessenger':
@@ -36,6 +36,9 @@ class FakeMessenger:
 
     async def respond_via_response_url(self, response_url: str, payload: dict[str, typing.Any]) -> None:
         FakeMessenger.patches.append(payload)
+
+    async def get_lang(self, user_id: str) -> None:
+        return None
 
 
 class EchoAgent(ChatAgent):

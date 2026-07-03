@@ -4,7 +4,7 @@ import subprocess
 
 import click
 
-from .app import App
+from conciergent.app import App
 
 
 _CONFIG_TEMPLATE = """\
@@ -20,6 +20,32 @@ slack:
   client_id: ${SLACK_CLIENT_ID:-}
   client_secret: ${SLACK_CLIENT_SECRET:-}
   bot_token: ${SLACK_BOT_TOKEN:-}
+  # brand_color: "#586af2"
+  # destructive_color: "#DC3545"
+
+# line:
+#   channel_secret: ${LINE_CHANNEL_SECRET}
+#   channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
+
+# The agent section also accepts:
+#   input_token_limit: 1048576     # enables history compaction
+#   mcp_read_timeout_seconds: 120
+
+# UI text (buttons, prompts, greetings) is not set here, it lives in a locale catalog.
+# To rebrand it or add a language, point at a directory of {lang}.yml files that override the shipped text,
+# for example locales/zh-TW.yml with `approval: {header: 請確認}`.
+# locales_dir: ./locales
+
+# conversation:
+#   approval_ttl_seconds: 600
+#   history_ttl_seconds: 604800
+#   oauth_wait_timeout_seconds: 240
+
+# store:
+#   type: composite                # memory | redis | postgres | composite
+#   messages: redis://localhost:6379/0
+#   credentials: postgresql+asyncpg://localhost/conciergent
+#   max_turns: 10
 
 server:
   host: 127.0.0.1

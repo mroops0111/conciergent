@@ -3,7 +3,7 @@ import typing
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from ..stores.base import CredentialStore
+from conciergent.stores.base import CredentialStore
 
 
 class OAuthTokenStorage(TokenStorage):

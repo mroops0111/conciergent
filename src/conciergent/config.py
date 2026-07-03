@@ -6,16 +6,7 @@ import typing
 import pydantic
 import yaml
 
-
-class ApprovalTextSettings(pydantic.BaseModel):
-    """The human-in-the-loop confirmation texts, all optional overrides of the English defaults."""
-
-    title: str = ''
-    body: str = ''
-    confirm_label: str = ''
-    cancel_label: str = ''
-    confirm_prompt: str = ''
-    cancel_prompt: str = ''
+from conciergent.defaults import DEFAULTS
 
 
 class AgentSettings(pydantic.BaseModel):
@@ -25,44 +16,38 @@ class AgentSettings(pydantic.BaseModel):
     system_prompt: str
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
     input_token_limit: int | None = None
-    mcp_read_timeout_seconds: float = 120.0
-    approval: ApprovalTextSettings = pydantic.Field(default_factory=ApprovalTextSettings)
+    mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds
 
 
 class SlackSettings(pydantic.BaseModel):
     """Slack app credentials, created once in the Slack app dashboard.
 
     An empty secret would make every webhook signature forgeable, so required fields reject it,
-    catching an unset environment variable at startup instead.
+    catching an unset environment variable at startup instead. UI text is not configured here,
+    it lives in the locale catalog so it can be translated (see ``locales_dir``).
     """
 
     signing_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
     client_id: str = ''
     client_secret: str = ''
-    scopes: list[str] = pydantic.Field(
-        default_factory=lambda: ['chat:write', 'im:history', 'im:read', 'im:write', 'users:read']
-    )
     bot_token: str = ''
-    text_formatting_instruction: str = ''
-    processing_text: str = ''
-    authorization_title: str = ''
-    authorization_link_label: str = ''
+    brand_color: str = DEFAULTS.surface.brand_color
+    destructive_color: str = DEFAULTS.surface.destructive_color
+    api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
 
 
 class LineSettings(pydantic.BaseModel):
     """LINE Messaging API channel credentials, created once in the LINE developers console.
 
     An empty secret would make every webhook signature forgeable, so both fields reject it,
-    catching an unset environment variable at startup instead.
+    catching an unset environment variable at startup instead. UI text lives in the locale catalog.
     """
 
     channel_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
     channel_access_token: typing.Annotated[str, pydantic.Field(min_length=1)]
-    welcome_text: str = ''
-    ready_text: str = ''
-    text_formatting_instruction: str = ''
-    authorization_title: str = ''
-    authorization_link_label: str = ''
+    brand_color: str = DEFAULTS.surface.brand_color
+    destructive_color: str = DEFAULTS.surface.destructive_color
+    api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -77,7 +62,7 @@ class StoreSettings(pydantic.BaseModel):
     url: str = ''
     messages: str = ''
     credentials: str = ''
-    max_turns: int = 10
+    max_turns: int = DEFAULTS.store.max_turns
 
     @pydantic.model_validator(mode='after')
     def _require_backend_urls(self) -> typing.Self:
@@ -105,9 +90,9 @@ class GatewaySettings(pydantic.BaseModel):
 class ConversationSettings(pydantic.BaseModel):
     """How long conversation state lives, matching the reference defaults."""
 
-    approval_ttl_seconds: int = 600
-    history_ttl_seconds: int = 604800
-    oauth_wait_timeout_seconds: float = 240.0
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
+    oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
 
 
 class ServerSettings(pydantic.BaseModel):
@@ -135,6 +120,8 @@ class AppConfig(pydantic.BaseModel):
     conversation: ConversationSettings = pydantic.Field(default_factory=ConversationSettings)
     gateway: GatewaySettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
+    # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
+    locales_dir: str | None = None
 
 
 def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:

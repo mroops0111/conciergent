@@ -4,10 +4,9 @@ import contextlib
 import time
 import typing
 
-from .base import Store
+from conciergent.stores.base import DEFAULT_MAX_TURNS, Store
 
 
-_DEFAULT_MAX_TURNS = 10
 _OAUTH_CODE_TTL_SECONDS = 300.0
 
 
@@ -18,7 +17,7 @@ class MemoryStore(Store):
     Use a networked backend for production multi-process deployments.
     """
 
-    def __init__(self, *, max_turns: int = _DEFAULT_MAX_TURNS) -> None:
+    def __init__(self, *, max_turns: int = DEFAULT_MAX_TURNS) -> None:
         self._max_turns = max_turns
         self._history: dict[str, list[tuple[float, list[typing.Any]]]] = {}
         self._dedup_keys: dict[str, float] = {}

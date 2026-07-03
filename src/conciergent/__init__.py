@@ -1,8 +1,8 @@
-from .app import App
-from .config import AppConfig
-from .identity import ChatSurface, make_principal, parse_principal
-from .reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
-from .runtime import (
+from conciergent.app import App
+from conciergent.config import AppConfig
+from conciergent.identity import ChatSurface, make_principal, parse_principal
+from conciergent.reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
+from conciergent.runtime import (
     AgentResult,
     ChatAgent,
     HistoryCompactor,
@@ -11,7 +11,7 @@ from .runtime import (
     StatefulOAuthBridge,
     run_turn,
 )
-from .stores import MemoryStore, Store
+from conciergent.stores import MemoryStore, Store
 
 
 __version__ = '0.0.1'

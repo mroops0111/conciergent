@@ -2,8 +2,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic_ai.models.test import TestModel
 
-from conciergent import Card, Carousel, MemoryStore, PendingApproval, ReplySurface
+from conciergent import Card, Carousel, MemoryStore, PendingApproval, ReplySurface, i18n
 from conciergent.agent import PydanticAIAgent
+from conciergent.lang import Lang
 
 
 class RecordingSurfaceBase(ReplySurface):
@@ -20,8 +21,9 @@ class RecordingSurfaceBase(ReplySurface):
         return None
 
 
-_CONFIRM = 'CONFIRM'
-_CANCEL = 'CANCEL'
+# With no surface the agent resolves no language, so the confirm/cancel prompts fall back to English.
+_CONFIRM = i18n.t('approval.confirm', None)
+_CANCEL = i18n.t('approval.cancel', None)
 
 
 def _destructive_server(calls: list[int]) -> FastMCP:
@@ -41,8 +43,6 @@ def _agent(server: FastMCP) -> PydanticAIAgent:
         system_prompt='be helpful',
         mcp_servers=[server],
         store=MemoryStore(),
-        confirm_prompt=_CONFIRM,
-        cancel_prompt=_CANCEL,
     )
 
 
@@ -129,6 +129,57 @@ async def test_bootstrap_opens_mcp_context_without_running_the_agent():
     agent = _agent(_destructive_server(calls))
     assert await agent.bootstrap('p') is False
     assert calls == []
+
+
+class LangSurface(RecordingSurfaceBase):
+    def __init__(self, lang: Lang | None) -> None:
+        self._lang = lang
+
+    @property
+    def lang(self) -> Lang | None:
+        return self._lang
+
+
+async def test_respond_language_instruction_names_the_user_language():
+    model = TestModel()
+    agent = PydanticAIAgent(model=model, system_prompt='be helpful')
+    await agent.run('hi', principal='p', history=[], pending=None, surface=LangSurface(Lang.ZH_TW))
+    params = model.last_model_request_parameters
+    assert params is not None and params.instruction_parts is not None
+    instructions = ' '.join(part.content for part in params.instruction_parts)
+    assert 'Traditional Chinese' in instructions
+
+
+async def test_respond_language_falls_back_to_mirroring_without_a_language():
+    model = TestModel()
+    agent = PydanticAIAgent(model=model, system_prompt='be helpful')
+    await agent.run('hi', principal='p', history=[], pending=None, surface=LangSurface(None))
+    params = model.last_model_request_parameters
+    assert params is not None and params.instruction_parts is not None
+    instructions = ' '.join(part.content for part in params.instruction_parts)
+    assert 'same language as the most recent user message' in instructions
+
+
+async def test_approval_card_is_localized_to_the_user_language():
+    calls: list[int] = []
+    agent = _agent(_destructive_server(calls))
+    result = await agent.run('delete it', principal='p', history=[], pending=None, surface=LangSurface(Lang.ZH_TW))
+    assert isinstance(result.output, PendingApproval)
+    assert result.output.card.title == i18n.t('approval.header', Lang.ZH_TW)
+    assert i18n.t('approval.confirm', Lang.ZH_TW) in [s.label for s in result.output.card.suggestions]
+
+
+async def test_confirm_in_the_user_language_runs_the_tool():
+    calls: list[int] = []
+    agent = _agent(_destructive_server(calls))
+    surface = LangSurface(Lang.ZH_TW)
+    parked = await agent.run('delete it', principal='p', history=[], pending=None, surface=surface)
+    assert isinstance(parked.output, PendingApproval)
+    resumed = await agent.run(
+        i18n.t('approval.confirm', Lang.ZH_TW), principal='p', history=[], pending=parked.output.state, surface=surface
+    )
+    assert not isinstance(resumed.output, PendingApproval)
+    assert len(calls) == 1  # the localized confirm matched and ran the tool
 
 
 async def test_surface_formatting_hint_joins_the_instructions():

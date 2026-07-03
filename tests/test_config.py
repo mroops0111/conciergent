@@ -79,25 +79,22 @@ def test_gateway_specs_parse():
     assert config.gateway.specs[0].name == 'petstore'
 
 
-def test_text_and_timeout_knobs_parse_and_default():
+def test_non_text_knobs_parse_and_default_to_the_shipped_values():
     config = build_app_config(
         {
-            'agent': {
-                'model': 'm',
-                'system_prompt': 'p',
-                'approval': {'confirm_label': '確認', 'title': '請確認'},
-            },
-            'slack': {'signing_secret': 's', 'processing_text': '處理中...'},
-            'line': {'channel_secret': 'cs', 'channel_access_token': 't', 'welcome_text': '嗨'},
+            'agent': {'model': 'm', 'system_prompt': 'p'},
+            'slack': {'signing_secret': 's', 'brand_color': '#123456'},
+            'line': {'channel_secret': 'cs', 'channel_access_token': 't'},
             'conversation': {'approval_ttl_seconds': 900},
             'store': {'max_turns': 20},
         }
     )
-    assert config.agent.approval.confirm_label == '確認'
-    assert config.agent.approval.cancel_label == ''
+    # An unset knob resolves to the real value from defaults.yml, not an empty sentinel.
     assert config.agent.mcp_read_timeout_seconds == 120.0
-    assert config.slack is not None and config.slack.processing_text == '處理中...'
-    assert config.line is not None and config.line.welcome_text == '嗨'
+    assert config.slack is not None and config.slack.brand_color == '#123456'
+    assert config.slack.destructive_color == '#DC3545'
+    assert config.slack.api_timeout_seconds == 30.0
+    assert config.line is not None and config.line.brand_color == '#586af2'
     assert config.conversation.approval_ttl_seconds == 900
     assert config.conversation.history_ttl_seconds == 604800
     assert config.conversation.oauth_wait_timeout_seconds == 240.0

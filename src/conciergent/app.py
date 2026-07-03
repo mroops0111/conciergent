@@ -1,20 +1,23 @@
 import collections.abc
 import contextlib
+import pathlib
 import typing
 
 import fastapi
 import fastapi.responses
 import uvicorn
 
-from .agent import PydanticAIAgent, PydanticAICompactor
-from .config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
-from .oauth_handoff import WAIT_TIMEOUT_SECONDS
-from .runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor
-from .stores.base import Store
-from .stores.memory import MemoryStore
-from .surfaces.base import Surface, SurfaceContext
-from .surfaces.line.app import Line
-from .surfaces.slack.app import Slack
+from conciergent import i18n
+from conciergent.agent import PydanticAIAgent, PydanticAICompactor
+from conciergent.config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
+from conciergent.defaults import DEFAULTS
+from conciergent.lang import Lang, parse_accept_language
+from conciergent.runtime import ChatAgent, HistoryCompactor
+from conciergent.stores.base import Store
+from conciergent.stores.memory import MemoryStore
+from conciergent.surfaces.base import Surface, SurfaceContext
+from conciergent.surfaces.line.app import Line
+from conciergent.surfaces.slack.app import Slack
 
 
 class App:
@@ -35,9 +38,9 @@ class App:
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
-        approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS,
-        history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS,
-        oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS,
+        approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
+        history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
+        oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
     ) -> None:
         self.store = store if store is not None else MemoryStore()
         self.agent = agent
@@ -59,13 +62,15 @@ class App:
     @classmethod
     def from_app_config(cls, config: AppConfig) -> 'App':
         """Build the application from a validated config, mapping each configured section to its surface."""
+        if config.locales_dir is not None:
+            # Layer the app-builder's translations over the shipped catalog before any surface renders text.
+            i18n.load_overrides([pathlib.Path(config.locales_dir).expanduser()])
         store = _build_store(config.store)
         redirect_uri = f'{config.server.url.rstrip("/")}/oauth/mcp/callback'
         mcp_servers = list(config.agent.mcp_servers)
         if config.gateway is not None:
             # Each embedded spec is served by this same process, so the agent dials back into itself.
             mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
-        approval = config.agent.approval
         agent = PydanticAIAgent(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
@@ -73,12 +78,6 @@ class App:
             store=store,
             redirect_uri=redirect_uri,
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
-            approval_title=approval.title,
-            approval_body=approval.body,
-            confirm_label=approval.confirm_label,
-            cancel_label=approval.cancel_label,
-            confirm_prompt=approval.confirm_prompt,
-            cancel_prompt=approval.cancel_prompt,
         )
         compactor = None
         if config.agent.input_token_limit is not None:
@@ -90,12 +89,10 @@ class App:
                     signing_secret=config.slack.signing_secret,
                     client_id=config.slack.client_id,
                     client_secret=config.slack.client_secret,
-                    scopes=config.slack.scopes,
                     bot_token=config.slack.bot_token,
-                    text_formatting_instruction=config.slack.text_formatting_instruction,
-                    processing_text=config.slack.processing_text,
-                    authorization_title=config.slack.authorization_title,
-                    authorization_link_label=config.slack.authorization_link_label,
+                    brand_color=config.slack.brand_color,
+                    destructive_color=config.slack.destructive_color,
+                    api_timeout_seconds=config.slack.api_timeout_seconds,
                 )
             )
         if config.line is not None:
@@ -103,11 +100,9 @@ class App:
                 Line(
                     channel_secret=config.line.channel_secret,
                     channel_access_token=config.line.channel_access_token,
-                    welcome_text=config.line.welcome_text,
-                    ready_text=config.line.ready_text,
-                    text_formatting_instruction=config.line.text_formatting_instruction,
-                    authorization_title=config.line.authorization_title,
-                    authorization_link_label=config.line.authorization_link_label,
+                    brand_color=config.line.brand_color,
+                    destructive_color=config.line.destructive_color,
+                    api_timeout_seconds=config.line.api_timeout_seconds,
                 )
             )
         return cls(
@@ -147,11 +142,14 @@ class App:
             return {'status': 'ok'}
 
         @app.get('/oauth/mcp/callback')
-        async def mcp_oauth_callback(code: str = '', state: str = '') -> fastapi.responses.HTMLResponse:
+        async def mcp_oauth_callback(
+            code: str = '', state: str = '', accept_language: str = fastapi.Header(default='')
+        ) -> fastapi.responses.HTMLResponse:
+            lang = parse_accept_language(accept_language)
             if not code or not state:
-                return fastapi.responses.HTMLResponse('<h1>Authorization failed</h1>', status_code=400)
+                return _callback_page(lang, 'callback.failed', status_code=400)
             await self.store.deliver_oauth_code(state, code)
-            return fastapi.responses.HTMLResponse('<h1>Authorized. You can close this window.</h1>')
+            return _callback_page(lang, 'callback.completed')
 
         context = SurfaceContext(
             store=self.store,
@@ -173,13 +171,19 @@ class App:
         uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
 
 
+def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:
+    title = i18n.t(f'{key}_title', lang)
+    body = i18n.t(f'{key}_body', lang)
+    return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
+
+
 def _build_store(settings: StoreSettings) -> Store:
     if settings.type == 'redis':
         return _store_from_url(settings.url, max_turns=settings.max_turns)
     if settings.type == 'postgres':
         return _store_from_url(settings.url, max_turns=settings.max_turns)
     if settings.type == 'composite':
-        from .stores.composite import CompositeStore
+        from conciergent.stores.composite import CompositeStore
 
         return CompositeStore(
             messages=_store_from_url(settings.messages, max_turns=settings.max_turns),
@@ -192,12 +196,12 @@ def _store_from_url(url: str, *, max_turns: int) -> Store:
     # The networked backends import lazily, so the core works without their optional extras installed.
     if url.startswith('redis'):
         try:
-            from .stores.redis import RedisStore
+            from conciergent.stores.redis import RedisStore
         except ImportError as error:
             raise RuntimeError('the redis backend needs the extra: pip install conciergent[redis]') from error
         return RedisStore.from_url(url, max_turns=max_turns)
     try:
-        from .stores.postgres import PostgresStore
+        from conciergent.stores.postgres import PostgresStore
     except ImportError as error:
         raise RuntimeError('the postgres backend needs the extra: pip install conciergent[postgres]') from error
     return PostgresStore.from_url(url, max_turns=max_turns)

@@ -3,9 +3,9 @@ import typing
 
 import fastapi
 
-from ..oauth_handoff import WAIT_TIMEOUT_SECONDS
-from ..runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor
-from ..stores.base import Store
+from conciergent.defaults import DEFAULTS
+from conciergent.runtime import ChatAgent, HistoryCompactor
+from conciergent.stores.base import Store
 
 
 class SurfaceContext(typing.NamedTuple):
@@ -15,9 +15,9 @@ class SurfaceContext(typing.NamedTuple):
     agent: ChatAgent
     compactor: HistoryCompactor | None
     base_url: str
-    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
-    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
-    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
+    oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
 
 
 class Surface(abc.ABC):

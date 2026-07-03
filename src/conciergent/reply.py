@@ -3,6 +3,8 @@ import typing
 
 import pydantic
 
+from conciergent.lang import Lang
+
 
 class Link(pydantic.BaseModel):
     """A labelled hyperlink, rendered as a link or a button depending on the surface."""
@@ -121,6 +123,15 @@ class ReplySurface(abc.ABC):
         For example, the markdown dialect the surface understands; empty by default.
         """
         return ''
+
+    @property
+    def lang(self) -> Lang | None:
+        """The user's resolved UI language for this conversation, or None when the surface cannot tell.
+
+        The agent renders localized text and asks the model to reply in this language.
+        None falls back to English and to the language of the user's own message.
+        """
+        return None
 
     @abc.abstractmethod
     async def send_text(self, text: str) -> None: ...

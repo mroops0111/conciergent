@@ -20,7 +20,7 @@ class FakeMessenger:
     replies: typing.ClassVar[list[dict[str, typing.Any]]] = []
     pushes: typing.ClassVar[list[dict[str, typing.Any]]] = []
 
-    def __init__(self, channel_access_token: str) -> None:
+    def __init__(self, channel_access_token: str, *, timeout_seconds: float = 30.0) -> None:
         self.token = channel_access_token
 
     async def __aenter__(self) -> 'FakeMessenger':
@@ -36,6 +36,9 @@ class FakeMessenger:
         FakeMessenger.pushes.append(message)
 
     async def start_loading(self, user_id: str) -> None:
+        return None
+
+    async def get_lang(self, user_id: str) -> None:
         return None
 
 

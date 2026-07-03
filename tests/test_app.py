@@ -130,20 +130,18 @@ def test_a_custom_surface_mounts_without_touching_app():
     assert client.post('/teams/events').json() == {'ok': 'yes'}
 
 
-def test_approval_texts_flow_from_config_to_the_agent():
-    config = AppConfig.model_validate(
-        {
-            'agent': {
-                'model': 'test',
-                'system_prompt': 'x',
-                'approval': {'confirm_prompt': '好', 'cancel_prompt': '算了'},
-            },
-        }
-    )
-    app = App.from_app_config(config)
-    from conciergent.agent import PydanticAIAgent
+def test_locales_dir_override_rebrands_shipped_text(tmp_path):
+    from conciergent import i18n
+    from conciergent.lang import Lang
 
-    assert isinstance(app.agent, PydanticAIAgent)
-    assert app.agent._confirm_prompt == '好'
-    assert app.agent._cancel_prompt == '算了'
-    assert app.agent._confirm_label == 'Confirm'
+    (tmp_path / 'zh-TW.yml').write_text('approval:\n  header: 請稍候確認\n', encoding='utf-8')
+    config = AppConfig.model_validate({'agent': {'model': 'test', 'system_prompt': 'x'}, 'locales_dir': str(tmp_path)})
+    try:
+        App.from_app_config(config)
+        # The override wins for its one key and language, while untouched keys stay on the shipped catalog.
+        assert i18n.t('approval.header', Lang.ZH_TW) == '請稍候確認'
+        assert i18n.t('approval.confirm', Lang.ZH_TW) == '確認'
+        assert i18n.t('approval.header', Lang.EN) == 'Confirm'
+    finally:
+        # Restore the shipped catalog so the global override does not leak into other tests.
+        i18n.load_overrides([])

@@ -1,5 +1,6 @@
 import collections.abc
 import contextlib
+import dataclasses
 import typing
 
 import pydantic
@@ -10,28 +11,27 @@ from pydantic_ai.models import Model
 from pydantic_ai.output import OutputSpec
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
 
-from ..mcp.client import (
-    _DEFAULT_CLIENT_NAME,
-    DEFAULT_READ_TIMEOUT_SECONDS,
-    ApprovalPredicate,
-    build_toolset,
-    needs_approval,
-)
-from ..reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
-from ..runtime import AgentResult, ChatAgent, OAuthBridge, PendingApproval
-from ..stores.base import CredentialStore
+from conciergent import i18n
+from conciergent.defaults import DEFAULTS
+from conciergent.lang import Lang
+from conciergent.mcp.client import _DEFAULT_CLIENT_NAME, ApprovalPredicate, build_toolset, needs_approval
+from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
+from conciergent.runtime import AgentResult, AuthorizationProbe, ChatAgent, OAuthBridge, PendingApproval
+from conciergent.stores.base import CredentialStore
 
 
-_DEFAULT_CONFIRM_LABEL = 'Confirm'
-_DEFAULT_CANCEL_LABEL = 'Cancel'
-_DEFAULT_CONFIRM_PROMPT = 'Confirm'
-_DEFAULT_CANCEL_PROMPT = 'Cancel'
-_DEFAULT_APPROVAL_TITLE = 'Confirm'
-_DEFAULT_APPROVAL_BODY = 'I am about to "{tools}". This action may not be undone. Confirm to proceed.'
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
 _IGNORED_DENIAL = (
     'User skipped the approval and changed topic. Drop the pending action silently and answer their new message.'
 )
+
+
+@dataclasses.dataclass
+class AgentDeps:
+    """Per-turn context the agent's instructions and rendering read, carried through pydantic-ai deps."""
+
+    surface: ReplySurface | None
+    lang: Lang | None
 
 
 class PydanticAIAgent(ChatAgent):
@@ -51,13 +51,7 @@ class PydanticAIAgent(ChatAgent):
         redirect_uri: str | None = None,
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = _DEFAULT_CLIENT_NAME,
-        mcp_read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS,
-        confirm_label: str = '',
-        cancel_label: str = '',
-        confirm_prompt: str = '',
-        cancel_prompt: str = '',
-        approval_title: str = '',
-        approval_body: str = '',
+        mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
     ) -> None:
         if mcp_servers and store is None:
             raise ValueError('store is required when mcp_servers are configured')
@@ -67,31 +61,33 @@ class PydanticAIAgent(ChatAgent):
         self._approval_predicate = approval_predicate
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
-        # An empty text selects the English default, which lets config pass fields through unconditionally.
-        self._confirm_label = confirm_label or _DEFAULT_CONFIRM_LABEL
-        self._cancel_label = cancel_label or _DEFAULT_CANCEL_LABEL
-        self._confirm_prompt = confirm_prompt or _DEFAULT_CONFIRM_PROMPT
-        self._cancel_prompt = cancel_prompt or _DEFAULT_CANCEL_PROMPT
-        self._approval_title = approval_title or _DEFAULT_APPROVAL_TITLE
-        self._approval_body = approval_body or _DEFAULT_APPROVAL_BODY
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
             ToolOutput(Carousel, name='reply_carousel'),
             DeferredToolRequests,
         ]
-        self._agent: Agent[ReplySurface | None, Reply | DeferredToolRequests] = Agent(
+        self._agent: Agent[AgentDeps, Reply | DeferredToolRequests] = Agent(
             model,
-            deps_type=ReplySurface | None,
+            deps_type=AgentDeps,
             output_type=output_type,
             instructions=system_prompt,
             retries=3,
         )
 
         @self._agent.instructions
-        def surface_formatting(ctx: RunContext[ReplySurface | None]) -> str:
+        def surface_formatting(ctx: RunContext[AgentDeps]) -> str:
             # Each surface renders a different dialect, so its hint joins the system prompt per turn.
-            return ctx.deps.text_formatting_instruction if ctx.deps is not None else ''
+            surface = ctx.deps.surface
+            return surface.text_formatting_instruction if surface is not None else ''
+
+        @self._agent.instructions
+        def respond_language(ctx: RunContext[AgentDeps]) -> str:
+            # Answer in the user's own language; with no resolved language, mirror their latest message.
+            lang = ctx.deps.lang
+            if lang is None:
+                return 'Respond in the same language as the most recent user message.'
+            return f'Respond in {lang.display_name}.'
 
     @property
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
@@ -103,7 +99,7 @@ class PydanticAIAgent(ChatAgent):
         """Open every MCP connection without running the agent, firing any pending OAuth flow now."""
         if not self._mcp_servers:
             return False
-        probe = _AuthorizationProbe(bridge) if bridge is not None else None
+        probe = AuthorizationProbe(bridge) if bridge is not None else None
         toolsets = [
             build_toolset(
                 server,
@@ -146,16 +142,22 @@ class PydanticAIAgent(ChatAgent):
             )
             for server in self._mcp_servers
         ]
-        resumption = self._try_resume(pending, user_input=user_input, history=history) if pending is not None else None
+        lang = surface.lang if surface is not None else None
+        deps = AgentDeps(surface=surface, lang=lang)
+        resumption = (
+            self._try_resume(pending, user_input=user_input, history=history, lang=lang)
+            if pending is not None
+            else None
+        )
         if resumption is not None:
             prompt, messages, deferred, held = resumption
             result = await self._agent.run(
-                prompt, message_history=messages, deferred_tool_results=deferred, toolsets=toolsets, deps=surface
+                prompt, message_history=messages, deferred_tool_results=deferred, toolsets=toolsets, deps=deps
             )
         else:
             held = []
             result = await self._agent.run(
-                user_input, message_history=_decode_history(history), toolsets=toolsets, deps=surface
+                user_input, message_history=_decode_history(history), toolsets=toolsets, deps=deps
             )
 
         output = result.output
@@ -163,11 +165,11 @@ class PydanticAIAgent(ChatAgent):
         if isinstance(output, DeferredToolRequests):
             # The in-flight messages ride on the approval,
             # so the tool call and its later result land in one stored turn instead of aging out separately.
-            return AgentResult(output=self._park(output.approvals, held_messages=new_messages))
+            return AgentResult(output=self._park(output.approvals, held_messages=new_messages, lang=lang))
         return AgentResult(output=output, history=new_messages)
 
     def _try_resume(
-        self, pending: dict[str, typing.Any], *, user_input: str, history: list[typing.Any]
+        self, pending: dict[str, typing.Any], *, user_input: str, history: list[typing.Any], lang: Lang | None
     ) -> tuple[str | None, list[ModelMessage], DeferredToolResults, list[typing.Any]] | None:
         """Rebuild the deferred run from parked state, or None when the state is unreadable.
 
@@ -180,25 +182,30 @@ class PydanticAIAgent(ChatAgent):
             messages = ModelMessagesTypeAdapter.validate_python([*history, *held])
         except (KeyError, pydantic.ValidationError):
             return None
+        # The parked card offered these exact prompts in the user's language, so a tap comes back matching them.
+        confirm_prompt = i18n.t('approval.confirm', lang)
+        cancel_prompt = i18n.t('approval.cancel', lang)
         # One confirm or cancel decides every tool deferred in the parked turn,
         # so the resumed run has a result for each pending call and never rejects the batch as unsatisfied.
         decision: bool | ToolDenied
-        if user_input == self._confirm_prompt:
+        if user_input == confirm_prompt:
             return None, messages, DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, True)), held
-        if user_input == self._cancel_prompt:
+        if user_input == cancel_prompt:
             decision = ToolDenied(_CANCEL_DENIAL)
             return None, messages, DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, decision)), held
         decision = ToolDenied(_IGNORED_DENIAL)
         return user_input, messages, DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, decision)), held
 
-    def _park(self, approvals: list[ToolCallPart], *, held_messages: list[typing.Any]) -> PendingApproval:
+    def _park(
+        self, approvals: list[ToolCallPart], *, held_messages: list[typing.Any], lang: Lang | None
+    ) -> PendingApproval:
         tool_names = ', '.join(call.tool_name for call in approvals)
         card = Card(
-            title=self._approval_title,
-            sections=[Section(text=self._approval_body.format(tools=tool_names))],
+            title=i18n.t('approval.header', lang),
+            sections=[Section(text=i18n.t('approval.body', lang, tools=tool_names))],
             suggestions=[
-                Suggestion(label=self._confirm_label, prompt=self._confirm_prompt),
-                Suggestion(label=self._cancel_label, prompt=self._cancel_prompt),
+                Suggestion(label=i18n.t('approval.confirm', lang), prompt=i18n.t('approval.confirm', lang)),
+                Suggestion(label=i18n.t('approval.cancel', lang), prompt=i18n.t('approval.cancel', lang)),
             ],
         )
         state = {
@@ -206,24 +213,6 @@ class PydanticAIAgent(ChatAgent):
             'held_messages': held_messages,
         }
         return PendingApproval(card=card, state=state)
-
-
-class _AuthorizationProbe(OAuthBridge):
-    """Delegate to the real bridge while recording whether an authorization actually ran.
-
-    The SDK only invokes the redirect and callback pair when a real OAuth flow is needed,
-    so a completed delegation is exactly the just-authorized signal bootstrap reports.
-    """
-
-    def __init__(self, inner: OAuthBridge) -> None:
-        self._inner = inner
-        self.authorized = False
-
-    @typing.override
-    async def request_authorization(self, authorize_url: str) -> str:
-        code = await self._inner.request_authorization(authorize_url)
-        self.authorized = True
-        return code
 
 
 def _decode_history(history: list[typing.Any]) -> list[ModelMessage] | None:

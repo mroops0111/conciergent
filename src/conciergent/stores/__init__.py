@@ -1,5 +1,5 @@
-from .base import ApprovalStore, CredentialStore, DedupeStore, HistoryStore, OAuthCodeStore, Store
-from .memory import MemoryStore
+from conciergent.stores.base import ApprovalStore, CredentialStore, DedupeStore, HistoryStore, OAuthCodeStore, Store
+from conciergent.stores.memory import MemoryStore
 
 
 __all__ = [
