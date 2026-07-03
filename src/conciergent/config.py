@@ -7,6 +7,9 @@ import pydantic
 import yaml
 
 from conciergent.defaults import DEFAULTS
+from conciergent.surfaces.base import Surface
+from conciergent.surfaces.line.app import Line
+from conciergent.surfaces.slack.app import Slack
 
 
 class AgentSettings(pydantic.BaseModel):
@@ -20,7 +23,18 @@ class AgentSettings(pydantic.BaseModel):
     client_name: str = DEFAULTS.agent.client_name
 
 
-class SlackSettings(pydantic.BaseModel):
+class SurfaceSettings(pydantic.BaseModel):
+    """Credentials for one chat surface.
+
+    Each subclass owns the mapping to its concrete ``Surface``, so the application assembles
+    surfaces by iterating whatever sections are present, never by enumerating platform names.
+    """
+
+    def build(self) -> Surface:
+        raise NotImplementedError
+
+
+class SlackSettings(SurfaceSettings):
     """Slack app credentials, created once in the Slack app dashboard.
 
     An empty secret would make every webhook signature forgeable, so required fields reject it,
@@ -36,8 +50,19 @@ class SlackSettings(pydantic.BaseModel):
     destructive_color: str = DEFAULTS.surface.destructive_color
     api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
 
+    def build(self) -> Surface:
+        return Slack(
+            signing_secret=self.signing_secret,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bot_token=self.bot_token,
+            brand_color=self.brand_color,
+            destructive_color=self.destructive_color,
+            api_timeout_seconds=self.api_timeout_seconds,
+        )
 
-class LineSettings(pydantic.BaseModel):
+
+class LineSettings(SurfaceSettings):
     """LINE Messaging API channel credentials, created once in the LINE developers console.
 
     An empty secret would make every webhook signature forgeable, so both fields reject it,
@@ -49,6 +74,15 @@ class LineSettings(pydantic.BaseModel):
     brand_color: str = DEFAULTS.surface.brand_color
     destructive_color: str = DEFAULTS.surface.destructive_color
     api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+
+    def build(self) -> Surface:
+        return Line(
+            channel_secret=self.channel_secret,
+            channel_access_token=self.channel_access_token,
+            brand_color=self.brand_color,
+            destructive_color=self.destructive_color,
+            api_timeout_seconds=self.api_timeout_seconds,
+        )
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -113,6 +147,10 @@ class AppConfig(pydantic.BaseModel):
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
+
+    def surface_settings(self) -> list[SurfaceSettings]:
+        """Every configured surface, found by type so a new surface needs no change here."""
+        return [value for value in self.__dict__.values() if isinstance(value, SurfaceSettings)]
 
 
 def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:

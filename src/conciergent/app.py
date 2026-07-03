@@ -16,8 +16,6 @@ from conciergent.i18n.lang import Lang, parse_accept_language
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import Surface, SurfaceContext
-from conciergent.surfaces.line.app import Line
-from conciergent.surfaces.slack.app import Slack
 
 
 class App:
@@ -38,7 +36,7 @@ class App:
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
-        gateway: GatewaySettings | None = None,
+        gateway_settings: GatewaySettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
@@ -51,7 +49,7 @@ class App:
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
-        self._gateway = gateway
+        self._gateway_settings = gateway_settings
         self._approval_ttl_seconds = approval_ttl_seconds
         self._history_ttl_seconds = history_ttl_seconds
         self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
@@ -86,36 +84,16 @@ class App:
         compactor: HistorySummarizer | None = None
         if config.agent.input_token_limit is not None:
             compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
-        surfaces: list[Surface] = []
-        if config.slack is not None:
-            surfaces.append(
-                Slack(
-                    signing_secret=config.slack.signing_secret,
-                    client_id=config.slack.client_id,
-                    client_secret=config.slack.client_secret,
-                    bot_token=config.slack.bot_token,
-                    brand_color=config.slack.brand_color,
-                    destructive_color=config.slack.destructive_color,
-                    api_timeout_seconds=config.slack.api_timeout_seconds,
-                )
-            )
-        if config.line is not None:
-            surfaces.append(
-                Line(
-                    channel_secret=config.line.channel_secret,
-                    channel_access_token=config.line.channel_access_token,
-                    brand_color=config.line.brand_color,
-                    destructive_color=config.line.destructive_color,
-                    api_timeout_seconds=config.line.api_timeout_seconds,
-                )
-            )
+        surfaces = [settings.build() for settings in config.surface_settings()]
+        if not surfaces:
+            raise ValueError('configure at least one surface: add a slack or line section')
         return cls(
             runner=runner,
             message_store=message_store,
             credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
-            gateway=config.gateway,
+            gateway_settings=config.gateway,
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
@@ -125,7 +103,7 @@ class App:
         )
 
     def build_asgi(self) -> fastapi.FastAPI:
-        gateway = _build_gateway(self._gateway) if self._gateway is not None else None
+        gateway = _build_gateway(self._gateway_settings) if self._gateway_settings is not None else None
 
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
@@ -143,8 +121,8 @@ class App:
             gateway.mount(app)
 
         @app.get('/healthz')
-        async def healthz() -> dict[str, typing.Any]:
-            return {'status': 'ok'}
+        async def healthz() -> fastapi.Response:
+            return fastapi.Response(status_code=fastapi.status.HTTP_204_NO_CONTENT)
 
         @app.get('/oauth/mcp/callback')
         async def mcp_oauth_callback(
@@ -184,11 +162,10 @@ def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fa
 
 
 def _build_gateway(settings: GatewaySettings) -> typing.Any:
-    # Same lazy-import rule as the store backends, the gateway is an optional extra.
     try:
         import openapi_mcp_gateway
     except ImportError as error:
-        raise RuntimeError('the embedded gateway needs the extra: pip install conciergent[gateway]') from error
+        raise RuntimeError('the embedded gateway needs the extra: uv install conciergent[gateway]') from error
     gateway = openapi_mcp_gateway.Gateway()
     for spec in settings.specs:
         gateway.add_server(spec.name, spec.spec, base_url=spec.base_url)

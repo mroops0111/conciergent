@@ -44,7 +44,7 @@ def _client(app: App) -> fastapi.testclient.TestClient:
 
 def test_healthz(stores):
     app = App(runner=typing.cast(ChatRunner, SilentAgent()), **stores)
-    assert _client(app).get('/healthz').json() == {'status': 'ok'}
+    assert _client(app).get('/healthz').status_code == 204
 
 
 def test_mcp_oauth_callback_delivers_the_code(stores):
@@ -94,6 +94,7 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
     config = AppConfig.model_validate(
         {
             'agent': {'model': 'test', 'system_prompt': 'x', 'mcp_servers': ['https://example.com/mcp']},
+            'slack': {'signing_secret': 'sek'},
             'gateway': {'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
             'server': {'url': 'https://example.com'},
             'store': store_config,
@@ -119,7 +120,7 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
 
     app = App(
         runner=typing.cast(ChatRunner, SilentAgent()),
-        gateway=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]),
+        gateway_settings=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]),
         **stores,
     )
     try:
@@ -155,7 +156,12 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
 
     (tmp_path / 'zh-TW.yml').write_text('approval:\n  header: 請稍候確認\n', encoding='utf-8')
     config = AppConfig.model_validate(
-        {'agent': {'model': 'test', 'system_prompt': 'x'}, 'locales_dir': str(tmp_path), 'store': store_config}
+        {
+            'agent': {'model': 'test', 'system_prompt': 'x'},
+            'slack': {'signing_secret': 'sek'},
+            'locales_dir': str(tmp_path),
+            'store': store_config,
+        }
     )
     try:
         App.from_app_config(config)
