@@ -14,7 +14,7 @@ from ..stores.base import CredentialStore
 from .storage import OAuthTokenStorage
 
 
-_DEFAULT_READ_TIMEOUT_SECONDS = 120.0
+DEFAULT_READ_TIMEOUT_SECONDS = 120.0
 _DEFAULT_CLIENT_NAME = 'conciergent'
 
 ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
@@ -39,7 +39,7 @@ def build_toolset(
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
     client_name: str = _DEFAULT_CLIENT_NAME,
-    read_timeout_seconds: float = _DEFAULT_READ_TIMEOUT_SECONDS,
+    read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS,
 ) -> AbstractToolset[typing.Any]:
     """Build a gated MCP toolset for one MCP server, given as a URL or an already-built client.
 

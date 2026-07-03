@@ -25,10 +25,10 @@ TEXT_FORMATTING_INSTRUCTION = (
 class LineMessenger:
     """A thin async client for the handful of LINE Messaging API calls the surface needs."""
 
-    def __init__(self, channel_access_token: str) -> None:
+    def __init__(self, channel_access_token: str, *, timeout_seconds: float = _TIMEOUT_SECONDS) -> None:
         self._client = httpx.AsyncClient(
             base_url=_API_BASE_URL,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
             headers={'Authorization': f'Bearer {channel_access_token}', 'Content-Type': 'application/json'},
         )
 
@@ -142,8 +142,12 @@ class LineOAuthBridge(StatefulOAuthBridge):
         *,
         title: str = 'Authorization needed',
         link_label: str = 'Authorize',
+        wait_timeout_seconds: float | None = None,
     ) -> None:
-        super().__init__(store)
+        if wait_timeout_seconds is not None:
+            super().__init__(store, wait_timeout_seconds=wait_timeout_seconds)
+        else:
+            super().__init__(store)
         self._slot = slot
         self._title = title
         self._link_label = link_label

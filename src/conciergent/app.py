@@ -8,7 +8,8 @@ import uvicorn
 
 from .agent import PydanticAIAgent, PydanticAICompactor
 from .config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
-from .runtime import ChatAgent, HistoryCompactor
+from .oauth_handoff import WAIT_TIMEOUT_SECONDS
+from .runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor
 from .stores.base import Store
 from .stores.memory import MemoryStore
 from .surfaces.base import Surface, SurfaceContext
@@ -34,6 +35,9 @@ class App:
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
+        approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS,
+        history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS,
+        oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS,
     ) -> None:
         self.store = store if store is not None else MemoryStore()
         self.agent = agent
@@ -43,6 +47,9 @@ class App:
         self.host = host
         self.port = port
         self.base_url = base_url or f'http://{host}:{port}'
+        self._approval_ttl_seconds = approval_ttl_seconds
+        self._history_ttl_seconds = history_ttl_seconds
+        self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
 
     @classmethod
     def from_config(cls, path: str) -> 'App':
@@ -58,12 +65,20 @@ class App:
         if config.gateway is not None:
             # Each embedded spec is served by this same process, so the agent dials back into itself.
             mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
+        approval = config.agent.approval
         agent = PydanticAIAgent(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
             mcp_servers=mcp_servers,
             store=store,
             redirect_uri=redirect_uri,
+            mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
+            approval_title=approval.title,
+            approval_body=approval.body,
+            confirm_label=approval.confirm_label,
+            cancel_label=approval.cancel_label,
+            confirm_prompt=approval.confirm_prompt,
+            cancel_prompt=approval.cancel_prompt,
         )
         compactor = None
         if config.agent.input_token_limit is not None:
@@ -78,6 +93,9 @@ class App:
                     scopes=config.slack.scopes,
                     bot_token=config.slack.bot_token,
                     text_formatting_instruction=config.slack.text_formatting_instruction,
+                    processing_text=config.slack.processing_text,
+                    authorization_title=config.slack.authorization_title,
+                    authorization_link_label=config.slack.authorization_link_label,
                 )
             )
         if config.line is not None:
@@ -88,6 +106,8 @@ class App:
                     welcome_text=config.line.welcome_text,
                     ready_text=config.line.ready_text,
                     text_formatting_instruction=config.line.text_formatting_instruction,
+                    authorization_title=config.line.authorization_title,
+                    authorization_link_label=config.line.authorization_link_label,
                 )
             )
         return cls(
@@ -99,6 +119,9 @@ class App:
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
+            approval_ttl_seconds=config.conversation.approval_ttl_seconds,
+            history_ttl_seconds=config.conversation.history_ttl_seconds,
+            oauth_wait_timeout_seconds=config.conversation.oauth_wait_timeout_seconds,
         )
 
     def build_asgi(self) -> fastapi.FastAPI:
@@ -130,7 +153,15 @@ class App:
             await self.store.deliver_oauth_code(state, code)
             return fastapi.responses.HTMLResponse('<h1>Authorized. You can close this window.</h1>')
 
-        context = SurfaceContext(store=self.store, agent=self.agent, compactor=self._compactor, base_url=self.base_url)
+        context = SurfaceContext(
+            store=self.store,
+            agent=self.agent,
+            compactor=self._compactor,
+            base_url=self.base_url,
+            approval_ttl_seconds=self._approval_ttl_seconds,
+            history_ttl_seconds=self._history_ttl_seconds,
+            oauth_wait_timeout_seconds=self._oauth_wait_timeout_seconds,
+        )
         for surface in self._surfaces:
             for router in surface.build_routers(context):
                 app.include_router(router)
@@ -144,31 +175,32 @@ class App:
 
 def _build_store(settings: StoreSettings) -> Store:
     if settings.type == 'redis':
-        return _store_from_url(settings.url)
+        return _store_from_url(settings.url, max_turns=settings.max_turns)
     if settings.type == 'postgres':
-        return _store_from_url(settings.url)
+        return _store_from_url(settings.url, max_turns=settings.max_turns)
     if settings.type == 'composite':
         from .stores.composite import CompositeStore
 
         return CompositeStore(
-            messages=_store_from_url(settings.messages), credentials=_store_from_url(settings.credentials)
+            messages=_store_from_url(settings.messages, max_turns=settings.max_turns),
+            credentials=_store_from_url(settings.credentials, max_turns=settings.max_turns),
         )
-    return MemoryStore()
+    return MemoryStore(max_turns=settings.max_turns)
 
 
-def _store_from_url(url: str) -> Store:
+def _store_from_url(url: str, *, max_turns: int) -> Store:
     # The networked backends import lazily, so the core works without their optional extras installed.
     if url.startswith('redis'):
         try:
             from .stores.redis import RedisStore
         except ImportError as error:
             raise RuntimeError('the redis backend needs the extra: pip install conciergent[redis]') from error
-        return RedisStore.from_url(url)
+        return RedisStore.from_url(url, max_turns=max_turns)
     try:
         from .stores.postgres import PostgresStore
     except ImportError as error:
         raise RuntimeError('the postgres backend needs the extra: pip install conciergent[postgres]') from error
-    return PostgresStore.from_url(url)
+    return PostgresStore.from_url(url, max_turns=max_turns)
 
 
 def _build_gateway(settings: GatewaySettings) -> typing.Any:

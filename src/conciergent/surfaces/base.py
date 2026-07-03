@@ -3,7 +3,8 @@ import typing
 
 import fastapi
 
-from ..runtime import ChatAgent, HistoryCompactor
+from ..oauth_handoff import WAIT_TIMEOUT_SECONDS
+from ..runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor
 from ..stores.base import Store
 
 
@@ -14,6 +15,9 @@ class SurfaceContext(typing.NamedTuple):
     agent: ChatAgent
     compactor: HistoryCompactor | None
     base_url: str
+    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
+    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
+    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
 
 
 class Surface(abc.ABC):

@@ -128,3 +128,22 @@ def test_a_custom_surface_mounts_without_touching_app():
 
     client = _client(App(agent=SilentAgent(), surfaces=[Teams()]))
     assert client.post('/teams/events').json() == {'ok': 'yes'}
+
+
+def test_approval_texts_flow_from_config_to_the_agent():
+    config = AppConfig.model_validate(
+        {
+            'agent': {
+                'model': 'test',
+                'system_prompt': 'x',
+                'approval': {'confirm_prompt': '好', 'cancel_prompt': '算了'},
+            },
+        }
+    )
+    app = App.from_app_config(config)
+    from conciergent.agent import PydanticAIAgent
+
+    assert isinstance(app.agent, PydanticAIAgent)
+    assert app.agent._confirm_prompt == '好'
+    assert app.agent._cancel_prompt == '算了'
+    assert app.agent._confirm_label == 'Confirm'

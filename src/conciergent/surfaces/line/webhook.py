@@ -8,8 +8,8 @@ import typing
 import fastapi
 
 from ...identity import ChatSurface, make_principal
-from ...oauth_handoff import is_handoff_expiry
-from ...runtime import ChatAgent, HistoryCompactor, run_turn
+from ...oauth_handoff import WAIT_TIMEOUT_SECONDS, is_handoff_expiry
+from ...runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
 from .surface import TEXT_FORMATTING_INSTRUCTION, LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
@@ -27,6 +27,11 @@ class LineWebhookSettings(typing.NamedTuple):
     welcome_text: str = 'Hi! Send me a message to get started.'
     ready_text: str = 'You are all set. Send me a message to get started.'
     text_formatting_instruction: str = TEXT_FORMATTING_INSTRUCTION
+    authorization_title: str = 'Authorization needed'
+    authorization_link_label: str = 'Authorize'
+    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
+    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
+    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
 
 
 def build_router(
@@ -80,7 +85,13 @@ async def _dispatch_event(
     principal = make_principal(ChatSurface.line, user_id)
     async with LineMessenger(settings.channel_access_token) as messenger:
         slot = ReplyTokenSlot(messenger, user_id=user_id, reply_token=event.get('replyToken'))
-        bridge = LineOAuthBridge(store, slot)
+        bridge = LineOAuthBridge(
+            store,
+            slot,
+            title=settings.authorization_title,
+            link_label=settings.authorization_link_label,
+            wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+        )
         if event.get('type') == 'follow':
             await _greet_follower(settings=settings, agent=agent, principal=principal, bridge=bridge, slot=slot)
             return
@@ -98,6 +109,8 @@ async def _dispatch_event(
                 store=store,
                 bridge=bridge,
                 compactor=compactor,
+                approval_ttl_seconds=settings.approval_ttl_seconds,
+                history_ttl_seconds=settings.history_ttl_seconds,
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.

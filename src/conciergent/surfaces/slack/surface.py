@@ -18,10 +18,10 @@ _TIMEOUT_SECONDS = 30.0
 class SlackMessenger:
     """A thin async client for the handful of Slack Web API calls the surface needs."""
 
-    def __init__(self, bot_token: str) -> None:
+    def __init__(self, bot_token: str, *, timeout_seconds: float = _TIMEOUT_SECONDS) -> None:
         self._client = httpx.AsyncClient(
             base_url=_API_BASE_URL,
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
             headers={
                 'Authorization': f'Bearer {bot_token}',
                 'Content-Type': 'application/json; charset=utf-8',
@@ -112,8 +112,12 @@ class SlackOAuthBridge(StatefulOAuthBridge):
         thread_ts: str | None = None,
         title: str = 'Authorization needed',
         link_label: str = 'Authorize',
+        wait_timeout_seconds: float | None = None,
     ) -> None:
-        super().__init__(store)
+        if wait_timeout_seconds is not None:
+            super().__init__(store, wait_timeout_seconds=wait_timeout_seconds)
+        else:
+            super().__init__(store)
         self._messenger = messenger
         self._channel = channel
         self._thread_ts = thread_ts

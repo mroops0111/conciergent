@@ -10,7 +10,13 @@ from pydantic_ai.models import Model
 from pydantic_ai.output import OutputSpec
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
 
-from ..mcp.client import _DEFAULT_CLIENT_NAME, ApprovalPredicate, build_toolset, needs_approval
+from ..mcp.client import (
+    _DEFAULT_CLIENT_NAME,
+    DEFAULT_READ_TIMEOUT_SECONDS,
+    ApprovalPredicate,
+    build_toolset,
+    needs_approval,
+)
 from ..reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from ..runtime import AgentResult, ChatAgent, OAuthBridge, PendingApproval
 from ..stores.base import CredentialStore
@@ -45,12 +51,13 @@ class PydanticAIAgent(ChatAgent):
         redirect_uri: str | None = None,
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = _DEFAULT_CLIENT_NAME,
-        confirm_label: str = _DEFAULT_CONFIRM_LABEL,
-        cancel_label: str = _DEFAULT_CANCEL_LABEL,
-        confirm_prompt: str = _DEFAULT_CONFIRM_PROMPT,
-        cancel_prompt: str = _DEFAULT_CANCEL_PROMPT,
-        approval_title: str = _DEFAULT_APPROVAL_TITLE,
-        approval_body: str = _DEFAULT_APPROVAL_BODY,
+        mcp_read_timeout_seconds: float = DEFAULT_READ_TIMEOUT_SECONDS,
+        confirm_label: str = '',
+        cancel_label: str = '',
+        confirm_prompt: str = '',
+        cancel_prompt: str = '',
+        approval_title: str = '',
+        approval_body: str = '',
     ) -> None:
         if mcp_servers and store is None:
             raise ValueError('store is required when mcp_servers are configured')
@@ -59,12 +66,14 @@ class PydanticAIAgent(ChatAgent):
         self._redirect_uri = redirect_uri
         self._approval_predicate = approval_predicate
         self._client_name = client_name
-        self._confirm_label = confirm_label
-        self._cancel_label = cancel_label
-        self._confirm_prompt = confirm_prompt
-        self._cancel_prompt = cancel_prompt
-        self._approval_title = approval_title
-        self._approval_body = approval_body
+        self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
+        # An empty text selects the English default, which lets config pass fields through unconditionally.
+        self._confirm_label = confirm_label or _DEFAULT_CONFIRM_LABEL
+        self._cancel_label = cancel_label or _DEFAULT_CANCEL_LABEL
+        self._confirm_prompt = confirm_prompt or _DEFAULT_CONFIRM_PROMPT
+        self._cancel_prompt = cancel_prompt or _DEFAULT_CANCEL_PROMPT
+        self._approval_title = approval_title or _DEFAULT_APPROVAL_TITLE
+        self._approval_body = approval_body or _DEFAULT_APPROVAL_BODY
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
@@ -104,6 +113,7 @@ class PydanticAIAgent(ChatAgent):
                 redirect_uri=self._redirect_uri,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
+                read_timeout_seconds=self._mcp_read_timeout_seconds,
             )
             for server in self._mcp_servers
         ]
@@ -132,6 +142,7 @@ class PydanticAIAgent(ChatAgent):
                 redirect_uri=self._redirect_uri,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
+                read_timeout_seconds=self._mcp_read_timeout_seconds,
             )
             for server in self._mcp_servers
         ]

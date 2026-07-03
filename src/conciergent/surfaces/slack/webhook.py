@@ -9,8 +9,8 @@ import urllib.parse
 import fastapi
 
 from ...identity import ChatSurface, make_principal
-from ...oauth_handoff import is_handoff_expiry
-from ...runtime import ChatAgent, HistoryCompactor, run_turn
+from ...oauth_handoff import WAIT_TIMEOUT_SECONDS, is_handoff_expiry
+from ...runtime import DEFAULT_APPROVAL_TTL_SECONDS, DEFAULT_HISTORY_TTL_SECONDS, ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
 from . import render
 from .surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
@@ -32,6 +32,12 @@ class SlackWebhookSettings(typing.NamedTuple):
     signing_secret: str
     fallback_bot_token: str = ''
     text_formatting_instruction: str = render.TEXT_FORMATTING_INSTRUCTION
+    processing_text: str = 'Working on it...'
+    authorization_title: str = 'Authorization needed'
+    authorization_link_label: str = 'Authorize'
+    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS
+    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS
+    oauth_wait_timeout_seconds: float = WAIT_TIMEOUT_SECONDS
 
 
 def build_router(
@@ -143,9 +149,18 @@ async def _dispatch_turn(
             thread_ts=thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
+            processing_text=settings.processing_text,
             text_formatting_instruction=settings.text_formatting_instruction,
         )
-        bridge = SlackOAuthBridge(store, messenger, channel=channel, thread_ts=thread_ts)
+        bridge = SlackOAuthBridge(
+            store,
+            messenger,
+            channel=channel,
+            thread_ts=thread_ts,
+            title=settings.authorization_title,
+            link_label=settings.authorization_link_label,
+            wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+        )
         try:
             await run_turn(
                 user_text,
@@ -156,6 +171,8 @@ async def _dispatch_turn(
                 conversation=conversation,
                 bridge=bridge,
                 compactor=compactor,
+                approval_ttl_seconds=settings.approval_ttl_seconds,
+                history_ttl_seconds=settings.history_ttl_seconds,
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.

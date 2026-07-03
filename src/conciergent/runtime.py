@@ -8,6 +8,10 @@ from .reply import Card, Carousel, Reply, ReplySurface
 from .stores.base import OAuthCodeStore, Store
 
 
+DEFAULT_APPROVAL_TTL_SECONDS = 600
+DEFAULT_HISTORY_TTL_SECONDS = 604800
+
+
 @dataclasses.dataclass
 class PendingApproval:
     """A request for the user to approve one or more sensitive actions before they run.
@@ -112,8 +116,8 @@ async def run_turn(
     conversation: str | None = None,
     bridge: OAuthBridge | None = None,
     compactor: HistoryCompactor | None = None,
-    approval_ttl_seconds: int = 600,
-    history_ttl_seconds: int = 604800,
+    approval_ttl_seconds: int = DEFAULT_APPROVAL_TTL_SECONDS,
+    history_ttl_seconds: int = DEFAULT_HISTORY_TTL_SECONDS,
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 

@@ -36,13 +36,25 @@ class Slack(Surface):
         scopes: collections.abc.Sequence[str] = _DEFAULT_SCOPES,
         bot_token: str = '',
         text_formatting_instruction: str = '',
+        processing_text: str = '',
+        authorization_title: str = '',
+        authorization_link_label: str = '',
     ) -> None:
         self._signing_secret = signing_secret
         self._client_id = client_id
         self._client_secret = client_secret
         self._scopes = tuple(scopes)
         self._bot_token = bot_token
-        self._text_formatting_instruction = text_formatting_instruction
+        self._text_overrides = {
+            key: value
+            for key, value in {
+                'text_formatting_instruction': text_formatting_instruction,
+                'processing_text': processing_text,
+                'authorization_title': authorization_title,
+                'authorization_link_label': authorization_link_label,
+            }.items()
+            if value
+        }
 
     @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:

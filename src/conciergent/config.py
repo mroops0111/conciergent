@@ -7,6 +7,17 @@ import pydantic
 import yaml
 
 
+class ApprovalTextSettings(pydantic.BaseModel):
+    """The human-in-the-loop confirmation texts, all optional overrides of the English defaults."""
+
+    title: str = ''
+    body: str = ''
+    confirm_label: str = ''
+    cancel_label: str = ''
+    confirm_prompt: str = ''
+    cancel_prompt: str = ''
+
+
 class AgentSettings(pydantic.BaseModel):
     """The batteries-included agent, a model plus a prompt plus MCP server URLs."""
 
@@ -14,6 +25,8 @@ class AgentSettings(pydantic.BaseModel):
     system_prompt: str
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
     input_token_limit: int | None = None
+    mcp_read_timeout_seconds: float = 120.0
+    approval: ApprovalTextSettings = pydantic.Field(default_factory=ApprovalTextSettings)
 
 
 class SlackSettings(pydantic.BaseModel):
@@ -31,6 +44,9 @@ class SlackSettings(pydantic.BaseModel):
     )
     bot_token: str = ''
     text_formatting_instruction: str = ''
+    processing_text: str = ''
+    authorization_title: str = ''
+    authorization_link_label: str = ''
 
 
 class LineSettings(pydantic.BaseModel):
@@ -45,6 +61,8 @@ class LineSettings(pydantic.BaseModel):
     welcome_text: str = ''
     ready_text: str = ''
     text_formatting_instruction: str = ''
+    authorization_title: str = ''
+    authorization_link_label: str = ''
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -59,6 +77,7 @@ class StoreSettings(pydantic.BaseModel):
     url: str = ''
     messages: str = ''
     credentials: str = ''
+    max_turns: int = 10
 
     @pydantic.model_validator(mode='after')
     def _require_backend_urls(self) -> typing.Self:
@@ -83,6 +102,14 @@ class GatewaySettings(pydantic.BaseModel):
     specs: list[GatewaySpec]
 
 
+class ConversationSettings(pydantic.BaseModel):
+    """How long conversation state lives, matching the reference defaults."""
+
+    approval_ttl_seconds: int = 600
+    history_ttl_seconds: int = 604800
+    oauth_wait_timeout_seconds: float = 240.0
+
+
 class ServerSettings(pydantic.BaseModel):
     """Where the webhook app listens, and the public URL external services reach it at."""
 
@@ -105,6 +132,7 @@ class AppConfig(pydantic.BaseModel):
     slack: SlackSettings | None = None
     line: LineSettings | None = None
     store: StoreSettings = pydantic.Field(default_factory=StoreSettings)
+    conversation: ConversationSettings = pydantic.Field(default_factory=ConversationSettings)
     gateway: GatewaySettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
 
