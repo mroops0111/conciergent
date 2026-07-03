@@ -31,7 +31,7 @@ def needs_approval(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_a
 
 
 def build_toolset(
-    client: MCPToolsetClient,
+    server: MCPToolsetClient,
     *,
     principal: str,
     store: CredentialStore | None = None,
@@ -41,7 +41,7 @@ def build_toolset(
     client_name: str = _DEFAULT_CLIENT_NAME,
     read_timeout_seconds: float = _DEFAULT_READ_TIMEOUT_SECONDS,
 ) -> AbstractToolset[typing.Any]:
-    """Build a gated MCP toolset for one server, given a URL or an already-built client.
+    """Build a gated MCP toolset for one MCP server, given as a URL or an already-built client.
 
     OAuth is attached only for a URL client with both a ``bridge`` and a ``redirect_uri``,
     otherwise the server is reached unauthenticated.
@@ -49,22 +49,22 @@ def build_toolset(
     """
     if (bridge is None) != (redirect_uri is None):
         raise ValueError('bridge and redirect_uri must be given together to enable MCP OAuth')
-    if isinstance(client, str):
+    if isinstance(server, str):
         auth = None
         if bridge is not None and redirect_uri is not None:
             if store is None:
                 raise ValueError('store is required to persist MCP OAuth tokens')
             auth = _oauth_provider(
-                client,
+                server,
                 store=store,
                 principal=principal,
                 bridge=bridge,
                 redirect_uri=redirect_uri,
                 client_name=client_name,
             )
-        toolset = MCPToolset(client, auth=auth, read_timeout=read_timeout_seconds)
+        toolset = MCPToolset(server, auth=auth, read_timeout=read_timeout_seconds)
     else:
-        toolset = MCPToolset(client)
+        toolset = MCPToolset(server)
     return toolset.approval_required(approval_predicate)
 
 
