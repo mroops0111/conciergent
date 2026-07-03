@@ -15,8 +15,6 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 
-from conciergent.runtime import HistoryCompactor
-
 
 # The compaction thresholds, as fractions of the model's input token limit.
 # Compaction fires once history passes the trigger ratio, then shrinks it toward the target ratio.
@@ -35,7 +33,7 @@ _INSTRUCTIONS = (
 )
 
 
-class PydanticAICompactor(HistoryCompactor):
+class HistorySummarizer:
     """Summarize older turns with a small model run when the last request neared the token limit.
 
     The trigger reads what the model actually saw, the ``input_tokens`` of the latest real response.
@@ -55,7 +53,6 @@ class PydanticAICompactor(HistoryCompactor):
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
 
-    @typing.override
     async def compact_if_needed(self, history: list[typing.Any]) -> list[typing.Any] | None:
         try:
             messages = ModelMessagesTypeAdapter.validate_python(history)

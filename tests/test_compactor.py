@@ -10,7 +10,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
-from conciergent.agent import PydanticAICompactor
+from conciergent.compactor import HistorySummarizer
 
 
 def _history(*, latest_input_tokens: int) -> list[typing.Any]:
@@ -23,8 +23,8 @@ def _history(*, latest_input_tokens: int) -> list[typing.Any]:
     return list(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
 
 
-def _compactor(input_token_limit: int = 1000) -> PydanticAICompactor:
-    return PydanticAICompactor(
+def _compactor(input_token_limit: int = 1000) -> HistorySummarizer:
+    return HistorySummarizer(
         TestModel(call_tools=[], custom_output_text='the summary'), input_token_limit=input_token_limit
     )
 

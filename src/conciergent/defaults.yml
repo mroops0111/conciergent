@@ -11,6 +11,9 @@ conversation:
 agent:
   # How long an MCP tool call may run before it times out, in seconds.
   mcp_read_timeout_seconds: 120
+  # The app name shown on the MCP server's OAuth authorization screen.
+  # Override with your own product name so users see who is asking, not the framework.
+  client_name: conciergent
 
 store:
   # How many of the most recent conversation turns to keep in history.

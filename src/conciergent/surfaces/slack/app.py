@@ -51,7 +51,7 @@ class Slack(Surface):
                     destructive_color=self._destructive_color,
                 ),
                 store=context.store,
-                agent=context.agent,
+                runner=context.runner,
                 compactor=context.compactor,
             )
         ]

@@ -2,16 +2,16 @@ import dataclasses
 import typing
 
 from conciergent import (
-    AgentResult,
     Card,
     Carousel,
-    ChatAgent,
     MemoryStore,
     PendingApproval,
     ReplySurface,
     Section,
+    TurnResult,
     run_turn,
 )
+from conciergent.runner import ChatRunner
 
 
 class RecordingSurface(ReplySurface):
@@ -34,7 +34,9 @@ class RecordingSurface(ReplySurface):
 
 
 @dataclasses.dataclass
-class ScriptedAgent(ChatAgent):
+class ScriptedRunner:
+    """A stand-in runner that returns a fixed turn, so run_turn is tested without a real agent."""
+
     output: typing.Any
     new_history: list[typing.Any] = dataclasses.field(default_factory=list)
 
@@ -44,23 +46,22 @@ class ScriptedAgent(ChatAgent):
         *,
         principal: str,
         history: list[typing.Any],
-        pending: dict[str, typing.Any] | None,
+        pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-    ) -> AgentResult:
-        return AgentResult(output=self.output, history=self.new_history)
+    ) -> TurnResult:
+        return TurnResult(output=self.output, history=self.new_history)
+
+
+def _runner(output: typing.Any, new_history: list[typing.Any] | None = None) -> ChatRunner:
+    # run_turn only needs `.run`, so a scripted stand-in is cast to the concrete runner type.
+    return typing.cast(ChatRunner, ScriptedRunner(output=output, new_history=new_history or []))
 
 
 async def _drive_turn(output: typing.Any):
     surface = RecordingSurface()
     store = MemoryStore()
-    await run_turn(
-        'hi',
-        principal='slack:T:U',
-        agent=ScriptedAgent(output=output),
-        surface=surface,
-        store=store,
-    )
+    await run_turn('hi', principal='slack:T:U', runner=_runner(output), surface=surface, store=store)
     return surface, store
 
 
@@ -85,8 +86,8 @@ async def test_carousel_reply_is_dispatched_with_fallback_last():
 async def test_history_is_persisted():
     surface = RecordingSurface()
     store = MemoryStore()
-    agent = ScriptedAgent(output='ok', new_history=[{'role': 'user'}, {'role': 'assistant'}])
-    await run_turn('hi', principal='p', agent=agent, surface=surface, store=store)
+    runner = _runner('ok', [{'role': 'user'}, {'role': 'assistant'}])
+    await run_turn('hi', principal='p', runner=runner, surface=surface, store=store)
     assert await store.load_history('p') == [{'role': 'user'}, {'role': 'assistant'}]
 
 
@@ -101,16 +102,16 @@ async def test_pending_approval_does_not_overwrite_history():
     surface = RecordingSurface()
     store = MemoryStore()
     await store.append_history('slack:T:U', [{'role': 'user'}, {'role': 'assistant'}], ttl_seconds=60)
-    agent = ScriptedAgent(output=PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
-    await run_turn('hi', principal='slack:T:U', agent=agent, surface=surface, store=store)
+    runner = _runner(PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
+    await run_turn('hi', principal='slack:T:U', runner=runner, surface=surface, store=store)
     assert await store.load_history('slack:T:U') == [{'role': 'user'}, {'role': 'assistant'}]
 
 
 async def test_conversations_scope_history_within_one_principal():
     surface = RecordingSurface()
     store = MemoryStore()
-    agent = ScriptedAgent(output='ok', new_history=[{'turn': 1}])
-    await run_turn('hi', principal='p', conversation='p:thread-a', agent=agent, surface=surface, store=store)
+    runner = _runner('ok', [{'turn': 1}])
+    await run_turn('hi', principal='p', conversation='p:thread-a', runner=runner, surface=surface, store=store)
     assert await store.load_history('p:thread-a') == [{'turn': 1}]
     assert await store.load_history('p:thread-b') == []
     assert await store.load_history('p') == []

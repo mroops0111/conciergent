@@ -17,6 +17,7 @@ class AgentSettings(pydantic.BaseModel):
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
     input_token_limit: int | None = None
     mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds
+    client_name: str = DEFAULTS.agent.client_name
 
 
 class SlackSettings(pydantic.BaseModel):

@@ -12,6 +12,7 @@ class ConversationDefaults(pydantic.BaseModel):
 
 class AgentDefaults(pydantic.BaseModel):
     mcp_read_timeout_seconds: float
+    client_name: str
 
 
 class StoreDefaults(pydantic.BaseModel):

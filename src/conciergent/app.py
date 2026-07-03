@@ -8,11 +8,11 @@ import fastapi.responses
 import uvicorn
 
 from conciergent import i18n
-from conciergent.agent import PydanticAIAgent, PydanticAICompactor
+from conciergent.compactor import HistorySummarizer
 from conciergent.config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.lang import Lang, parse_accept_language
-from conciergent.runtime import ChatAgent, HistoryCompactor
+from conciergent.runner import ChatRunner
 from conciergent.stores.base import Store
 from conciergent.stores.memory import MemoryStore
 from conciergent.surfaces.base import Surface, SurfaceContext
@@ -30,26 +30,26 @@ class App:
     def __init__(
         self,
         *,
-        agent: ChatAgent,
-        store: Store | None = None,
-        surfaces: collections.abc.Sequence[Surface] = (),
-        compactor: HistoryCompactor | None = None,
-        gateway: GatewaySettings | None = None,
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
+        store: Store | None = None,
+        surfaces: collections.abc.Sequence[Surface] = (),
+        runner: ChatRunner,
+        compactor: HistorySummarizer | None = None,
+        gateway: GatewaySettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
     ) -> None:
-        self.store = store if store is not None else MemoryStore()
-        self.agent = agent
-        self._surfaces = list(surfaces)
-        self._compactor = compactor
-        self._gateway = gateway
         self.host = host
         self.port = port
         self.base_url = base_url or f'http://{host}:{port}'
+        self._store = store if store is not None else MemoryStore()
+        self._runner = runner
+        self._surfaces = list(surfaces)
+        self._compactor = compactor
+        self._gateway = gateway
         self._approval_ttl_seconds = approval_ttl_seconds
         self._history_ttl_seconds = history_ttl_seconds
         self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
@@ -71,17 +71,18 @@ class App:
         if config.gateway is not None:
             # Each embedded spec is served by this same process, so the agent dials back into itself.
             mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
-        agent = PydanticAIAgent(
+        runner = ChatRunner(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
             mcp_servers=mcp_servers,
             store=store,
             redirect_uri=redirect_uri,
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
+            client_name=config.agent.client_name,
         )
-        compactor = None
+        compactor: HistorySummarizer | None = None
         if config.agent.input_token_limit is not None:
-            compactor = PydanticAICompactor(config.agent.model, input_token_limit=config.agent.input_token_limit)
+            compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
         surfaces: list[Surface] = []
         if config.slack is not None:
             surfaces.append(
@@ -106,7 +107,7 @@ class App:
                 )
             )
         return cls(
-            agent=agent,
+            runner=runner,
             store=store,
             surfaces=surfaces,
             compactor=compactor,
@@ -124,7 +125,7 @@ class App:
 
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
-            await self.store.prepare()
+            await self._store.prepare()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
                     # The mounted MCP sub-apps only serve while their session managers run,
@@ -148,12 +149,12 @@ class App:
             lang = parse_accept_language(accept_language)
             if not code or not state:
                 return _callback_page(lang, 'callback.failed', status_code=400)
-            await self.store.deliver_oauth_code(state, code)
+            await self._store.deliver_oauth_code(state, code)
             return _callback_page(lang, 'callback.completed')
 
         context = SurfaceContext(
-            store=self.store,
-            agent=self.agent,
+            store=self._store,
+            runner=self._runner,
             compactor=self._compactor,
             base_url=self.base_url,
             approval_ttl_seconds=self._approval_ttl_seconds,

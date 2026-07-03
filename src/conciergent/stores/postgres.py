@@ -5,7 +5,7 @@ import typing
 
 import sqlalchemy
 import sqlalchemy.exc
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from conciergent.stores.base import DEFAULT_MAX_TURNS, Store
@@ -221,7 +221,7 @@ class PostgresStore(Store):
                 return None
             await asyncio.sleep(min(_OAUTH_POLL_INTERVAL_SECONDS, timeout_seconds))
 
-    async def _trim_turns(self, session: typing.Any, conversation: str) -> None:
+    async def _trim_turns(self, session: AsyncSession, conversation: str) -> None:
         ids = list(
             await session.scalars(
                 sqlalchemy.select(HistoryTurn.id)

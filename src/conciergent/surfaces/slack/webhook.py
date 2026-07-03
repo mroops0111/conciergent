@@ -8,13 +8,15 @@ import urllib.parse
 
 import fastapi
 
+from conciergent.compactor import HistorySummarizer
 from conciergent.defaults import DEFAULTS
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.oauth_handoff import is_handoff_expiry
-from conciergent.runtime import ChatAgent, HistoryCompactor, run_turn
+from conciergent.runner import ChatRunner
 from conciergent.stores.base import Store
 from conciergent.surfaces.slack import render
 from conciergent.surfaces.slack.surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
+from conciergent.turn import run_turn
 
 
 logger = logging.getLogger(__name__)
@@ -44,8 +46,8 @@ def build_router(
     *,
     settings: SlackWebhookSettings,
     store: Store,
-    agent: ChatAgent,
-    compactor: HistoryCompactor | None = None,
+    runner: ChatRunner,
+    compactor: HistorySummarizer | None = None,
 ) -> fastapi.APIRouter:
     """Build the Slack webhook routes, acknowledging within Slack's deadline and replying in the background."""
     router = fastapi.APIRouter()
@@ -76,7 +78,7 @@ def build_router(
             _dispatch_turn,
             settings=settings,
             store=store,
-            agent=agent,
+            runner=runner,
             compactor=compactor,
             team_id=payload.get('team_id', ''),
             user_id=event['user'],
@@ -107,7 +109,7 @@ def build_router(
             _dispatch_turn,
             settings=settings,
             store=store,
-            agent=agent,
+            runner=runner,
             compactor=compactor,
             team_id=(payload.get('team') or {}).get('id', ''),
             user_id=(payload.get('user') or {}).get('id', ''),
@@ -126,8 +128,8 @@ async def _dispatch_turn(
     *,
     settings: SlackWebhookSettings,
     store: Store,
-    agent: ChatAgent,
-    compactor: HistoryCompactor | None,
+    runner: ChatRunner,
+    compactor: HistorySummarizer | None,
     team_id: str,
     user_id: str,
     channel: str,
@@ -168,7 +170,7 @@ async def _dispatch_turn(
             await run_turn(
                 user_text,
                 principal=principal,
-                agent=agent,
+                runner=runner,
                 surface=surface,
                 store=store,
                 conversation=conversation,

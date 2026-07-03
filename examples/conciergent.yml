@@ -10,6 +10,7 @@ agent:
     - http://localhost:8000/mcp
   # input_token_limit: 1048576      # set to enable history compaction; unset means no compaction
   # mcp_read_timeout_seconds: 120   # how long one MCP tool call may run
+  # client_name: Acme Assistant     # name shown on the MCP OAuth screen; defaults to conciergent
 
 slack:
   signing_secret: ${SLACK_SIGNING_SECRET}

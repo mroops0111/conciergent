@@ -10,7 +10,8 @@ import fastapi
 import fastapi.testclient
 import pytest
 
-from conciergent import AgentResult, ChatAgent, ChatSurface, MemoryStore
+from conciergent import ChatSurface, MemoryStore, TurnResult
+from conciergent.runner import ChatRunner
 from conciergent.surfaces.slack import webhook
 from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
 
@@ -41,7 +42,7 @@ class FakeMessenger:
         return None
 
 
-class EchoAgent(ChatAgent):
+class EchoAgent:
     def __init__(self) -> None:
         self.inputs: list[str] = []
 
@@ -51,12 +52,12 @@ class EchoAgent(ChatAgent):
         *,
         principal: str,
         history: list[typing.Any],
-        pending: dict[str, typing.Any] | None,
+        pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-    ) -> AgentResult:
+    ) -> TurnResult:
         self.inputs.append(user_input)
-        return AgentResult(output=f'echo {user_input}', history=[{'seen': user_input}])
+        return TurnResult(output=f'echo {user_input}', history=[{'seen': user_input}])
 
 
 @pytest.fixture
@@ -67,7 +68,11 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> tuple[fastapi.testclient.TestCli
     store = MemoryStore()
     agent = EchoAgent()
     app = fastapi.FastAPI()
-    app.include_router(build_router(settings=SlackWebhookSettings(signing_secret=_SECRET), store=store, agent=agent))
+    app.include_router(
+        build_router(
+            settings=SlackWebhookSettings(signing_secret=_SECRET), store=store, runner=typing.cast(ChatRunner, agent)
+        )
+    )
     return fastapi.testclient.TestClient(app), agent, store
 
 
@@ -149,7 +154,7 @@ def test_fallback_bot_token_serves_single_workspace(monkeypatch: pytest.MonkeyPa
     agent = EchoAgent()
     app = fastapi.FastAPI()
     settings = SlackWebhookSettings(signing_secret=_SECRET, fallback_bot_token='xoxb-static')
-    app.include_router(build_router(settings=settings, store=MemoryStore(), agent=agent))
+    app.include_router(build_router(settings=settings, store=MemoryStore(), runner=typing.cast(ChatRunner, agent)))
     client = fastapi.testclient.TestClient(app)
     body = _event_body()
     client.post('/slack/events', content=body, headers=_signed_headers(body))

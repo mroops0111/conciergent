@@ -15,8 +15,6 @@ from conciergent.runtime import OAuthBridge
 from conciergent.stores.base import CredentialStore
 
 
-_DEFAULT_CLIENT_NAME = 'conciergent'
-
 ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
 
 
@@ -38,7 +36,7 @@ def build_toolset(
     bridge: OAuthBridge | None = None,
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
-    client_name: str = _DEFAULT_CLIENT_NAME,
+    client_name: str = DEFAULTS.agent.client_name,
     read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
 ) -> AbstractToolset[typing.Any]:
     """Build a gated MCP toolset for one MCP server, given as a URL or an already-built client.

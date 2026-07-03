@@ -8,14 +8,16 @@ import typing
 import fastapi
 
 from conciergent import i18n
+from conciergent.compactor import HistorySummarizer
 from conciergent.defaults import DEFAULTS
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.lang import Lang
 from conciergent.oauth_handoff import is_handoff_expiry
-from conciergent.runtime import ChatAgent, HistoryCompactor, run_turn
+from conciergent.runner import ChatRunner
 from conciergent.stores.base import Store
 from conciergent.surfaces.line import render
 from conciergent.surfaces.line.surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
+from conciergent.turn import run_turn
 
 
 logger = logging.getLogger(__name__)
@@ -40,8 +42,8 @@ def build_router(
     *,
     settings: LineWebhookSettings,
     store: Store,
-    agent: ChatAgent,
-    compactor: HistoryCompactor | None = None,
+    runner: ChatRunner,
+    compactor: HistorySummarizer | None = None,
 ) -> fastapi.APIRouter:
     """Build the LINE webhook route, acknowledging immediately and replying in the background."""
     router = fastapi.APIRouter()
@@ -65,7 +67,7 @@ def build_router(
             if event_id and await store.dedupe(f'line:event:{event_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
                 continue
             background.add_task(
-                _dispatch_event, settings=settings, store=store, agent=agent, compactor=compactor, event=event
+                _dispatch_event, settings=settings, store=store, runner=runner, compactor=compactor, event=event
             )
         return {}
 
@@ -76,8 +78,8 @@ async def _dispatch_event(
     *,
     settings: LineWebhookSettings,
     store: Store,
-    agent: ChatAgent,
-    compactor: HistoryCompactor | None,
+    runner: ChatRunner,
+    compactor: HistorySummarizer | None,
     event: dict[str, typing.Any],
 ) -> None:
     source = event.get('source') or {}
@@ -97,7 +99,7 @@ async def _dispatch_event(
             brand_color=settings.brand_color,
         )
         if event.get('type') == 'follow':
-            await _greet_follower(agent=agent, principal=principal, bridge=bridge, slot=slot, lang=lang)
+            await _greet_follower(runner=runner, principal=principal, bridge=bridge, slot=slot, lang=lang)
             return
         message = event.get('message') or {}
         user_text = message.get('text', '')
@@ -113,7 +115,7 @@ async def _dispatch_event(
             await run_turn(
                 user_text,
                 principal=principal,
-                agent=agent,
+                runner=runner,
                 surface=surface,
                 store=store,
                 bridge=bridge,
@@ -129,7 +131,7 @@ async def _dispatch_event(
 
 async def _greet_follower(
     *,
-    agent: ChatAgent,
+    runner: ChatRunner,
     principal: str,
     bridge: LineOAuthBridge,
     slot: ReplyTokenSlot,
@@ -137,7 +139,7 @@ async def _greet_follower(
 ) -> None:
     """Fire any pending OAuth at add time and greet according to what happened."""
     try:
-        just_authorized = await agent.bootstrap(principal, bridge=bridge)
+        just_authorized = await runner.bootstrap(principal, bridge=bridge)
     except Exception as error:
         # The user got the authorization link but walked away, greeting can wait for their message.
         if not is_handoff_expiry(error):

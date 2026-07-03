@@ -3,8 +3,9 @@ import typing
 
 import fastapi
 
+from conciergent.compactor import HistorySummarizer
 from conciergent.defaults import DEFAULTS
-from conciergent.runtime import ChatAgent, HistoryCompactor
+from conciergent.runner import ChatRunner
 from conciergent.stores.base import Store
 
 
@@ -12,8 +13,8 @@ class SurfaceContext(typing.NamedTuple):
     """Everything the application hands a surface when it mounts."""
 
     store: Store
-    agent: ChatAgent
-    compactor: HistoryCompactor | None
+    runner: ChatRunner
+    compactor: HistorySummarizer | None
     base_url: str
     approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
     history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds

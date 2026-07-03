@@ -8,7 +8,8 @@ import fastapi
 import fastapi.testclient
 import pytest
 
-from conciergent import AgentResult, ChatAgent, MemoryStore
+from conciergent import MemoryStore, TurnResult
+from conciergent.runner import ChatRunner
 from conciergent.surfaces.line import webhook
 from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
@@ -42,7 +43,7 @@ class FakeMessenger:
         return None
 
 
-class EchoAgent(ChatAgent):
+class EchoAgent:
     def __init__(self) -> None:
         self.inputs: list[str] = []
         self.bootstrapped: list[str] = []
@@ -58,12 +59,12 @@ class EchoAgent(ChatAgent):
         *,
         principal: str,
         history: list[typing.Any],
-        pending: dict[str, typing.Any] | None,
+        pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-    ) -> AgentResult:
+    ) -> TurnResult:
         self.inputs.append(user_input)
-        return AgentResult(output=f'echo {user_input}', history=[])
+        return TurnResult(output=f'echo {user_input}', history=[])
 
 
 @pytest.fixture
@@ -74,7 +75,7 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> tuple[fastapi.testclient.TestCli
     agent = EchoAgent()
     app = fastapi.FastAPI()
     settings = LineWebhookSettings(channel_secret=_SECRET, channel_access_token='token')
-    app.include_router(build_router(settings=settings, store=MemoryStore(), agent=agent))
+    app.include_router(build_router(settings=settings, store=MemoryStore(), runner=typing.cast(ChatRunner, agent)))
     return fastapi.testclient.TestClient(app), agent
 
 

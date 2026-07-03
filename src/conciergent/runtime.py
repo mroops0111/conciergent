@@ -5,8 +5,8 @@ import urllib.parse
 
 from conciergent.defaults import DEFAULTS
 from conciergent.oauth_handoff import OAuthHandoffExpiredError
-from conciergent.reply import Card, Carousel, Reply, ReplySurface
-from conciergent.stores.base import OAuthCodeStore, Store
+from conciergent.reply import Card, Reply
+from conciergent.stores.base import OAuthCodeStore
 
 
 @dataclasses.dataclass
@@ -15,7 +15,7 @@ class PendingApproval:
 
     The card renders the confirmation.
     The ``state`` is an opaque JSON-serializable dict that the store parks and hands back on resume,
-    only the agent that produced it reads it back.
+    only the runner that produced it reads it back.
     """
 
     card: Card
@@ -23,8 +23,8 @@ class PendingApproval:
 
 
 @dataclasses.dataclass
-class AgentResult:
-    """The outcome of one agent run, carrying the reply to send and this turn's new messages to append."""
+class TurnResult:
+    """The outcome of one turn, carrying the reply to send and this turn's new messages to append."""
 
     output: Reply | PendingApproval
     history: list[typing.Any] = dataclasses.field(default_factory=list)
@@ -42,9 +42,8 @@ class OAuthBridge(abc.ABC):
 class StatefulOAuthBridge(OAuthBridge):
     """Complete an in-chat OAuth authorization by round-tripping the ``state`` through the store.
 
-    ``request_authorization`` extracts the state from the authorize URL, lets the surface render the
-    link to the user, then blocks until the callback route delivers the code for that state.
-    Subclasses implement only the rendering.
+    ``request_authorization`` extracts the state from the authorize URL, lets the surface render the link to the user,
+    then blocks until the callback route delivers the code for that state.
     """
 
     def __init__(
@@ -87,91 +86,3 @@ class AuthorizationProbe(OAuthBridge):
         code = await self._inner.request_authorization(authorize_url)
         self.authorized = True
         return code
-
-
-class HistoryCompactor(abc.ABC):
-    """Shrink an oversized history before the agent runs, keeping the spine ignorant of its format."""
-
-    @abc.abstractmethod
-    async def compact_if_needed(self, history: list[typing.Any]) -> list[typing.Any] | None:
-        """Return the replacement history when compaction fired, or None to keep it as is."""
-        ...
-
-
-class ChatAgent(abc.ABC):
-    """The minimal contract the runtime needs from an agent implementation."""
-
-    @abc.abstractmethod
-    async def run(
-        self,
-        user_input: str,
-        *,
-        principal: str,
-        history: list[typing.Any],
-        pending: dict[str, typing.Any] | None,
-        bridge: OAuthBridge | None,
-        surface: ReplySurface | None,
-    ) -> AgentResult: ...
-
-    async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
-        """Open the agent's backing context without running it, and report whether the user just authorized.
-
-        Surface lifecycle hooks call this, for example when a user adds the bot,
-        so a pending OAuth flow fires at add time instead of on the first message.
-        Returns True only when an authorization completed during this call; the default has nothing to open.
-        """
-        return False
-
-
-async def run_turn(
-    user_input: str,
-    *,
-    principal: str,
-    agent: ChatAgent,
-    surface: ReplySurface,
-    store: Store,
-    conversation: str | None = None,
-    bridge: OAuthBridge | None = None,
-    compactor: HistoryCompactor | None = None,
-    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
-    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
-) -> None:
-    """Run one conversation turn end to end and dispatch the reply to ``surface``.
-
-    The ``principal`` is the user's identity and keys credentials,
-    while ``conversation`` scopes history and pending approvals, for example one Slack thread.
-    Surfaces without threads leave it unset and the whole dialog with a user is one conversation.
-    This is side-effect only, the surface sends and the appended history turn.
-    """
-    conversation = conversation or principal
-    history = await store.load_history(conversation)
-    if compactor is not None and history:
-        compacted = await compactor.compact_if_needed(history)
-        if compacted is not None:
-            await store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
-            history = compacted
-    pending = await store.take_approval(conversation)
-
-    await surface.show_processing()
-    result = await agent.run(
-        user_input, principal=principal, history=history, pending=pending, bridge=bridge, surface=surface
-    )
-
-    output = result.output
-    if isinstance(output, PendingApproval):
-        # The turn is only paused, not finished.
-        # The in-flight messages ride on ``output.state`` and are replayed via ``pending`` on resume,
-        # so committing ``result.history`` here would either wipe the conversation with the empty default,
-        # or orphan the tool-call turn from its later result.
-        await store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds)
-        await surface.send_card(output.card, destructive=True)
-        return
-
-    if isinstance(output, Carousel):
-        await surface.send_carousel([*output.options, output.fallback])
-    elif isinstance(output, Card):
-        await surface.send_card(output)
-    else:
-        await surface.send_text(output)
-
-    await store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)

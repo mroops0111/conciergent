@@ -3,21 +3,22 @@ import typing
 
 import fastapi.testclient
 
-from conciergent import AgentResult, App, AppConfig, ChatAgent, MemoryStore
+from conciergent import App, AppConfig, MemoryStore, TurnResult
+from conciergent.runner import ChatRunner
 
 
-class SilentAgent(ChatAgent):
+class SilentAgent:
     async def run(
         self,
         user_input: str,
         *,
         principal: str,
         history: list[typing.Any],
-        pending: dict[str, typing.Any] | None,
+        pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-    ) -> AgentResult:
-        return AgentResult(output='ok', history=[])
+    ) -> TurnResult:
+        return TurnResult(output='ok', history=[])
 
 
 def _client(app: App) -> fastapi.testclient.TestClient:
@@ -25,13 +26,13 @@ def _client(app: App) -> fastapi.testclient.TestClient:
 
 
 def test_healthz():
-    app = App(agent=SilentAgent())
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()))
     assert _client(app).get('/healthz').json() == {'status': 'ok'}
 
 
 def test_mcp_oauth_callback_delivers_the_code():
     store = MemoryStore()
-    app = App(agent=SilentAgent(), store=store)
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()), store=store)
     client = _client(app)
 
     async def scenario() -> str | None:
@@ -45,7 +46,7 @@ def test_mcp_oauth_callback_delivers_the_code():
 
 
 def test_mcp_oauth_callback_rejects_missing_params():
-    app = App(agent=SilentAgent())
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()))
     assert _client(app).get('/oauth/mcp/callback').status_code == 400
 
 
@@ -66,7 +67,7 @@ def test_from_app_config_mounts_configured_surfaces():
 
 
 def test_surfaces_absent_when_not_configured():
-    client = _client(App(agent=SilentAgent()))
+    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent())))
     assert client.post('/slack/events', content=b'{}').status_code == 404
     assert client.post('/line/events', content=b'{}').status_code == 404
 
@@ -80,10 +81,8 @@ def test_gateway_urls_join_the_agent_mcp_servers():
         }
     )
     app = App.from_app_config(config)
-    from conciergent.agent import PydanticAIAgent
-
-    assert isinstance(app.agent, PydanticAIAgent)
-    assert app.agent.mcp_servers == ('https://example.com/mcp', 'https://example.com/petstore/mcp')
+    assert isinstance(app._runner, ChatRunner)
+    assert app._runner.mcp_servers == ('https://example.com/mcp', 'https://example.com/petstore/mcp')
 
 
 def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
@@ -100,7 +99,7 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
     from conciergent.config import GatewaySettings, GatewaySpec
 
     app = App(
-        agent=SilentAgent(),
+        runner=typing.cast(ChatRunner, SilentAgent()),
         gateway=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]),
     )
     try:
@@ -126,7 +125,7 @@ def test_a_custom_surface_mounts_without_touching_app():
 
             return [router]
 
-    client = _client(App(agent=SilentAgent(), surfaces=[Teams()]))
+    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent()), surfaces=[Teams()]))
     assert client.post('/teams/events').json() == {'ok': 'yes'}
 
 
