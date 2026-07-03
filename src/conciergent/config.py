@@ -120,6 +120,14 @@ class ConversationSettings(pydantic.BaseModel):
     oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
 
 
+class LoggerSettings(pydantic.BaseModel):
+    """How the process logs, applied once at startup by ``conciergent.logger.setup``."""
+
+    level: str = 'INFO'
+    format: typing.Literal['text', 'json'] = 'text'
+    file: str | None = None
+
+
 class ServerSettings(pydantic.BaseModel):
     """Where the webhook app listens, and the public URL external services reach it at."""
 
@@ -145,6 +153,7 @@ class AppConfig(pydantic.BaseModel):
     conversation: ConversationSettings = pydantic.Field(default_factory=ConversationSettings)
     gateway: GatewaySettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
+    logger: LoggerSettings = pydantic.Field(default_factory=LoggerSettings)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
 

@@ -41,6 +41,11 @@ slack:
 #   history_ttl_seconds: 604800
 #   oauth_wait_timeout_seconds: 240
 
+# logger:
+#   level: INFO      # DEBUG, INFO, WARNING, ERROR, CRITICAL
+#   format: text     # text or json (one JSON object per line)
+#   file: ./conciergent.log   # also write to this file, in addition to stderr
+
 # Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
 # while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.
 store:

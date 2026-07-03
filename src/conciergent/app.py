@@ -7,10 +7,10 @@ import fastapi
 import fastapi.responses
 import uvicorn
 
-from conciergent import i18n
+from conciergent import i18n, logger
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.config import AppConfig, GatewaySettings, build_app_config, yaml_layer
+from conciergent.config import AppConfig, GatewaySettings, LoggerSettings, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
 from conciergent.store.credential import CredentialStore
@@ -37,6 +37,7 @@ class App:
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
         gateway_settings: GatewaySettings | None = None,
+        logger_settings: LoggerSettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
@@ -50,6 +51,7 @@ class App:
         self._surfaces = list(surfaces)
         self._compactor = compactor
         self._gateway_settings = gateway_settings
+        self._logger_settings = logger_settings
         self._approval_ttl_seconds = approval_ttl_seconds
         self._history_ttl_seconds = history_ttl_seconds
         self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
@@ -94,6 +96,7 @@ class App:
             surfaces=surfaces,
             compactor=compactor,
             gateway_settings=config.gateway,
+            logger_settings=config.logger,
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
@@ -152,6 +155,13 @@ class App:
 
     def run(self) -> None:
         """Serve the webhook application."""
+        if self._logger_settings is not None:
+            # Configure process-wide logging once, before uvicorn brings up its own loggers.
+            logger.setup(
+                level=self._logger_settings.level,
+                format=self._logger_settings.format,
+                file=self._logger_settings.file,
+            )
         uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
 
 
