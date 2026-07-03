@@ -6,7 +6,7 @@ import httpx
 from conciergent import i18n
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
-from conciergent.reply import Card, Link, ReplySurface
+from conciergent.reply import Card, Link, ReplySurface, Section
 from conciergent.runtime import StatefulOAuthBridge
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import render
@@ -156,8 +156,9 @@ class SlackOAuthBridge(StatefulOAuthBridge):
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(
-            title=i18n.t('authorization.header', self._lang),
-            links=[Link(text=i18n.t('authorization.button', self._lang), url=authorize_url)],
+            header=i18n.t('authorization.header', self._lang),
+            sections=[Section(text=i18n.t('authorization.body', self._lang))],
+            links=[Link(label=i18n.t('authorization.button', self._lang), url=authorize_url)],
         )
         payload = render.build_card_payload(card, brand_color=self._brand_color)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)

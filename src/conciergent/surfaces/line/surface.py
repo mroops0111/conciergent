@@ -6,7 +6,7 @@ import httpx
 from conciergent import i18n
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
-from conciergent.reply import Card, Link, ReplySurface
+from conciergent.reply import Card, Link, ReplySurface, Section
 from conciergent.runtime import StatefulOAuthBridge
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import render
@@ -22,9 +22,8 @@ TEXT_FORMATTING_INSTRUCTION = (
 
 
 _API_BASE_URL = 'https://api.line.me'
-# LINE shows the loading animation for at most this many seconds, and rejects text messages over 5000 characters.
+# LINE shows the loading animation for at most this many seconds.
 _LOADING_SECONDS = 30
-_TEXT_MAX_CHARS = 5000
 
 
 class LineMessenger:
@@ -130,9 +129,7 @@ class LineReplySurface(ReplySurface):
 
     @typing.override
     async def send_text(self, text: str) -> None:
-        # LINE rejects text messages over 5000 characters, so longer replies go out in slices.
-        for start in range(0, len(text), _TEXT_MAX_CHARS):
-            await self._slot.send({'type': 'text', 'text': text[start : start + _TEXT_MAX_CHARS]})
+        await self._slot.send({'type': 'text', 'text': text})
 
     @typing.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
@@ -147,17 +144,18 @@ class LineReplySurface(ReplySurface):
                 destructive_color=self._destructive_color,
             ),
         }
-        if not destructive:
-            quick_reply = render.build_quick_reply(card.suggestions)
-            if quick_reply is not None:
-                message['quickReply'] = quick_reply
+        # Suggestions live either as envelope chips or as bubble-footer buttons, never both; pick by placement.
+        if placement == 'chip':
+            chips = render.build_quick_reply(card.suggestions)
+            if chips:
+                message['quickReply'] = {'items': chips}
         await self._slot.send(message)
 
     @typing.override
     async def send_carousel(self, cards: list[Card]) -> None:
         message = {
             'type': 'flex',
-            'altText': render.alt_text(cards[0]) if cards else 'Options',
+            'altText': render.alt_text(cards[0]),
             'contents': render.build_carousel(
                 cards, brand_color=self._brand_color, destructive_color=self._destructive_color
             ),
@@ -196,12 +194,13 @@ class LineOAuthBridge(StatefulOAuthBridge):
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(
-            title=i18n.t('authorization.header', self._lang),
-            links=[Link(text=i18n.t('authorization.button', self._lang), url=authorize_url)],
+            header=i18n.t('authorization.header', self._lang),
+            sections=[Section(text=i18n.t('authorization.body', self._lang))],
+            links=[Link(label=i18n.t('authorization.button', self._lang), url=authorize_url)],
         )
         message = {
             'type': 'flex',
             'altText': render.alt_text(card),
-            'contents': render.build_card_bubble(card, suggestion_placement='button', brand_color=self._brand_color),
+            'contents': render.build_card_bubble(card, brand_color=self._brand_color),
         }
         await self._slot.send(message)

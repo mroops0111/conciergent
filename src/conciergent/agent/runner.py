@@ -220,7 +220,7 @@ class ChatRunner:
     ) -> PendingApproval:
         tool_names = ', '.join(call.tool_name for call in approvals)
         card = Card(
-            title=i18n.t('approval.header', lang),
+            header=i18n.t('approval.header', lang),
             sections=[Section(text=i18n.t('approval.body', lang, tools=tool_names))],
             suggestions=[
                 Suggestion(label=i18n.t('approval.confirm', lang), prompt=i18n.t('approval.confirm', lang)),

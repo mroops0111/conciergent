@@ -8,6 +8,7 @@ approval:
 # The in-chat OAuth prompt pushed into the conversation, shared by every surface.
 authorization:
   header: Authorization needed
+  body: Tap the button below to authorize. Come back to this chat once authorization is complete.
   button: Authorize
 
 slack:

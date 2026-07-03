@@ -1,27 +1,26 @@
 import typing
 
 from conciergent.defaults import DEFAULTS
-from conciergent.reply import Card, Link, Section, Suggestion
+from conciergent.reply import Card, Link, Suggestion
 
 
 BRAND_COLOR = DEFAULTS.surface.brand_color
 DESTRUCTIVE_COLOR = DEFAULTS.surface.destructive_color
 
-# Where a card's suggestions land.
-# Chips ride the message envelope as quick replies and vanish after the next message,
-# buttons live in the bubble footer (a carousel bubble cannot carry chips),
-# and the destructive button is the emphasized HITL confirm.
+# Mid-gray for bullet list items inside a card body, slightly darker than the body text for gentle hierarchy.
+BULLET_TEXT_COLOR = '#555555'
+
+# Light gray for the footnote line at the bottom of a card, subtle enough to recede behind the body.
+FOOTNOTE_COLOR = '#888888'
+
+# The card header is reused as the push-notification alt text, capped to keep the preview compact.
+ALT_TEXT_MAX_LENGTH = 40
+
+# Where a card's suggestions land in the final LINE message.
+# * 'chip': quick-reply chips at message-envelope level (default for a normal reply card)
+# * 'button': inline buttons in the bubble footer, link style (carousel options)
+# * 'destructive_button': inline buttons in the bubble footer, primary red + secondary gray (HITL approval)
 SuggestionPlacement = typing.Literal['chip', 'button', 'destructive_button']
-
-
-_MUTED_COLOR = '#888888'
-
-# LINE's label and text caps, each held below the reply model's own length budget.
-# Alt text is capped at 400 but kept to the 40-character card title budget.
-_ALT_TEXT_MAX = 40
-# Quick-reply action labels cap at 20 characters, button action labels at 40.
-_CHIP_LABEL_MAX = 20
-_BUTTON_LABEL_MAX = 40
 
 
 def build_card_bubble(
@@ -32,19 +31,24 @@ def build_card_bubble(
     destructive_color: str = DESTRUCTIVE_COLOR,
 ) -> dict[str, typing.Any]:
     """Render one card to a Flex bubble."""
-    bubble: dict[str, typing.Any] = {'type': 'bubble', 'size': 'kilo'}
-    if card.title:
-        bubble['header'] = {
-            'type': 'box',
-            'layout': 'vertical',
-            'contents': [{'type': 'text', 'text': card.title, 'size': 'xs', 'weight': 'bold', 'color': brand_color}],
-        }
-    bubble['body'] = _build_body(card, footer_follows=bool(card.links or suggestion_placement != 'chip'))
-    footer = _build_footer(
-        card, suggestion_placement=suggestion_placement, brand_color=brand_color, destructive_color=destructive_color
-    )
-    if footer is not None:
-        bubble['footer'] = footer
+    in_footer_suggestions = [] if suggestion_placement == 'chip' else card.suggestions
+    has_footer = bool(card.links or in_footer_suggestions)
+    bubble: dict[str, typing.Any] = {
+        'type': 'bubble',
+        'size': 'kilo',
+        'header': _build_header(card.header, brand_color=brand_color),
+        'body': _build_body(card, has_footer=has_footer),
+    }
+    if card.hero_image_url:
+        bubble['hero'] = _build_hero(card.hero_image_url)
+    if has_footer:
+        bubble['footer'] = _build_footer(
+            card.links,
+            in_footer_suggestions,
+            suggestions_destructive=(suggestion_placement == 'destructive_button'),
+            brand_color=brand_color,
+            destructive_color=destructive_color,
+        )
     return bubble
 
 
@@ -63,89 +67,121 @@ def build_carousel(
     }
 
 
-def build_quick_reply(suggestions: list[Suggestion]) -> dict[str, typing.Any] | None:
-    """Render suggestions as quick-reply chips for the message envelope."""
-    if not suggestions:
-        return None
+def build_quick_reply(suggestions: list[Suggestion]) -> list[dict[str, typing.Any]]:
+    """Render suggestions as quick-reply chip actions for the message envelope."""
+    return [
+        {'type': 'action', 'action': {'type': 'message', 'label': suggestion.label, 'text': suggestion.prompt}}
+        for suggestion in suggestions
+    ]
+
+
+def alt_text(card: Card) -> str:
+    return card.header[:ALT_TEXT_MAX_LENGTH]
+
+
+def _build_header(header: str, *, brand_color: str) -> dict[str, typing.Any]:
     return {
-        'items': [
-            {
-                'type': 'action',
-                'action': {'type': 'message', 'label': item.label[:_CHIP_LABEL_MAX], 'text': item.prompt},
-            }
-            for item in suggestions
-        ]
+        'type': 'box',
+        'layout': 'vertical',
+        'paddingTop': 'xl',
+        'paddingBottom': 'sm',
+        'paddingStart': 'xl',
+        'paddingEnd': 'xl',
+        'contents': [{'type': 'text', 'text': header, 'size': 'xs', 'weight': 'bold', 'color': brand_color}],
     }
 
 
-def alt_text(card: Card, fallback: str = 'Message') -> str:
-    return (card.title or fallback)[:_ALT_TEXT_MAX]
-
-
-def _build_body(card: Card, *, footer_follows: bool) -> dict[str, typing.Any]:
+def _build_body(card: Card, *, has_footer: bool) -> dict[str, typing.Any]:
     contents: list[dict[str, typing.Any]] = []
     for section in card.sections:
-        contents.extend(_build_section(section))
+        if section.text:
+            contents.append({'type': 'text', 'text': section.text, 'size': 'md', 'wrap': True})
+        if section.bullets:
+            contents.append(
+                {
+                    'type': 'box',
+                    'layout': 'vertical',
+                    'spacing': 'sm',
+                    'contents': [
+                        {
+                            'type': 'text',
+                            'text': f'• {item.lstrip("•·▸-* ").strip()}',
+                            'size': 'sm',
+                            'wrap': True,
+                            'color': BULLET_TEXT_COLOR,
+                        }
+                        for item in section.bullets
+                    ],
+                }
+            )
     if card.footnote:
         contents.append({'type': 'separator', 'margin': 'md'})
-        contents.append({'type': 'text', 'text': card.footnote, 'size': 'xxs', 'color': _MUTED_COLOR, 'wrap': True})
+        contents.append(
+            {
+                'type': 'text',
+                'text': card.footnote,
+                'size': 'xxs',
+                'color': FOOTNOTE_COLOR,
+                'wrap': True,
+                'margin': 'sm',
+            }
+        )
     return {
         'type': 'box',
         'layout': 'vertical',
         'spacing': 'lg',
-        'paddingBottom': 'sm' if footer_follows else 'xl',
+        'paddingTop': 'md',
+        'paddingBottom': 'sm' if has_footer else 'xl',
+        'paddingStart': 'xl',
+        'paddingEnd': 'xl',
         'contents': contents,
     }
 
 
-def _build_section(section: Section) -> list[dict[str, typing.Any]]:
-    nodes: list[dict[str, typing.Any]] = []
-    if section.heading:
-        nodes.append({'type': 'text', 'text': section.heading, 'size': 'sm', 'weight': 'bold', 'wrap': True})
-    nodes.append({'type': 'text', 'text': section.text, 'size': 'md', 'wrap': True})
-    return nodes
-
-
 def _build_footer(
-    card: Card, *, suggestion_placement: SuggestionPlacement, brand_color: str, destructive_color: str
-) -> dict[str, typing.Any] | None:
-    buttons: list[dict[str, typing.Any]] = []
-    for index, link in enumerate(card.links):
-        buttons.append(_build_link_button(link, primary=index == 0, brand_color=brand_color))
-    if suggestion_placement != 'chip':
-        destructive = suggestion_placement == 'destructive_button'
-        for index, suggestion in enumerate(card.suggestions):
-            buttons.append(
-                _build_suggestion_button(
-                    suggestion, emphasized=destructive and index == 0, destructive_color=destructive_color
-                )
-            )
-    if not buttons:
-        return None
-    return {'type': 'box', 'layout': 'vertical', 'spacing': 'sm', 'contents': buttons}
-
-
-def _build_link_button(link: Link, *, primary: bool, brand_color: str) -> dict[str, typing.Any]:
-    button: dict[str, typing.Any] = {
-        'type': 'button',
-        'height': 'sm',
-        'style': 'primary' if primary else 'secondary',
-        'action': {'type': 'uri', 'label': link.text[:_BUTTON_LABEL_MAX], 'uri': link.url},
-    }
-    if primary:
-        button['color'] = brand_color
-    return button
-
-
-def _build_suggestion_button(
-    suggestion: Suggestion, *, emphasized: bool, destructive_color: str
+    links: list[Link],
+    suggestions: list[Suggestion],
+    *,
+    suggestions_destructive: bool,
+    brand_color: str,
+    destructive_color: str,
 ) -> dict[str, typing.Any]:
-    button: dict[str, typing.Any] = {
-        'type': 'button',
-        'height': 'sm',
-        'style': 'primary' if emphasized else 'link',
-        'action': {'type': 'message', 'label': suggestion.label[:_BUTTON_LABEL_MAX], 'text': suggestion.prompt},
+    contents: list[dict[str, typing.Any]] = []
+    for index, link in enumerate(links):
+        button: dict[str, typing.Any] = {
+            'type': 'button',
+            'style': 'primary' if index == 0 else 'secondary',
+            'height': 'sm',
+            'action': {'type': 'uri', 'label': link.label, 'uri': link.url},
+        }
+        if index == 0:
+            button['color'] = brand_color
+        contents.append(button)
+    for index, suggestion in enumerate(suggestions):
+        button = {
+            'type': 'button',
+            'height': 'sm',
+            'action': {'type': 'message', 'label': suggestion.label, 'text': suggestion.prompt},
+        }
+        if suggestions_destructive:
+            button['style'] = 'primary' if index == 0 else 'secondary'
+            if index == 0:
+                button['color'] = destructive_color
+        else:
+            button['style'] = 'link'
+        contents.append(button)
+    return {
+        'type': 'box',
+        'layout': 'vertical',
+        'spacing': 'sm',
+        'flex': 0,
+        'paddingTop': 'none',
+        'paddingBottom': 'lg',
+        'paddingStart': 'xl',
+        'paddingEnd': 'xl',
+        'contents': contents,
     }
-    if emphasized:
-        button['color'] = destructive_color
-    return button
+
+
+def _build_hero(image_url: str) -> dict[str, typing.Any]:
+    return {'type': 'image', 'url': image_url, 'size': 'full', 'aspectMode': 'cover', 'aspectRatio': '20:13'}

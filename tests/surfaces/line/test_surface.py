@@ -2,7 +2,7 @@ import typing
 
 import httpx
 
-from conciergent import Card, Suggestion
+from conciergent import Card, Section, Suggestion
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line.surface import LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
@@ -59,7 +59,9 @@ async def test_without_token_everything_pushes():
 async def test_card_with_suggestions_gets_quick_reply_chips():
     messenger = FakeMessenger()
     surface = LineReplySurface(_slot(messenger))
-    await surface.send_card(Card(title='T', suggestions=[Suggestion(label='More', prompt='more')]))
+    await surface.send_card(
+        Card(header='T', sections=[Section(text='b')], suggestions=[Suggestion(label='More', prompt='more')])
+    )
     message = messenger.replies[0]
     assert message['type'] == 'flex'
     assert message['quickReply']['items'][0]['action']['text'] == 'more'
@@ -68,7 +70,10 @@ async def test_card_with_suggestions_gets_quick_reply_chips():
 async def test_destructive_card_has_no_chips():
     messenger = FakeMessenger()
     surface = LineReplySurface(_slot(messenger))
-    await surface.send_card(Card(title='T', suggestions=[Suggestion(label='Yes', prompt='Yes')]), destructive=True)
+    await surface.send_card(
+        Card(header='T', sections=[Section(text='b')], suggestions=[Suggestion(label='Yes', prompt='Yes')]),
+        destructive=True,
+    )
     assert 'quickReply' not in messenger.replies[0]
 
 
@@ -81,12 +86,12 @@ async def test_processing_failure_is_swallowed():
     await surface.show_processing()
 
 
-async def test_long_text_is_sent_in_slices():
+async def test_text_is_sent_as_one_message():
     messenger = FakeMessenger()
     surface = LineReplySurface(_slot(messenger))
     await surface.send_text('x' * 5001)
     sent = [*messenger.replies, *messenger.pushes]
-    assert [len(message['text']) for message in sent] == [5000, 1]
+    assert [len(message['text']) for message in sent] == [5001]
 
 
 async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):

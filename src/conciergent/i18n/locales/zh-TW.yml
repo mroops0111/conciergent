@@ -6,6 +6,7 @@ approval:
 
 authorization:
   header: 需要授權
+  body: 請點下方按鈕完成授權，授權完成後再回到這裡繼續。
   button: 前往授權
 
 slack:

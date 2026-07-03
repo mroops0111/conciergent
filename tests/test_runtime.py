@@ -71,13 +71,14 @@ async def test_text_reply_is_dispatched(message_store: MessageStore):
 
 
 async def test_card_reply_is_dispatched_non_destructive(message_store: MessageStore):
-    card = Card(title='t', sections=[Section(text='b')])
+    card = Card(header='t', sections=[Section(text='b')])
     surface = await _drive_turn(card, message_store)
     assert any(kind == 'card' and payload[0] is card and payload[1] is False for kind, payload in surface.calls)
 
 
 async def test_carousel_reply_is_dispatched_with_fallback_last(message_store: MessageStore):
-    option, fallback = Card(title='a'), Card(title='b')
+    option = Card(header='a', sections=[Section(text='a')])
+    fallback = Card(header='b', sections=[Section(text='b')])
     surface = await _drive_turn(Carousel(options=[option], fallback=fallback), message_store)
     assert ('carousel', [option, fallback]) in surface.calls
 
@@ -90,7 +91,7 @@ async def test_history_is_persisted(message_store: MessageStore):
 
 
 async def test_pending_approval_parks_and_renders_destructive(message_store: MessageStore):
-    card = Card(title='Delete everything?')
+    card = Card(header='Delete everything?', sections=[Section(text='This cannot be undone.')])
     surface = await _drive_turn(PendingApproval(card=card, state={'resume': 'x'}), message_store)
     assert any(kind == 'card' and payload[1] is True for kind, payload in surface.calls)
     assert await message_store.take_approval('slack:T:U') == {'resume': 'x'}
@@ -99,7 +100,7 @@ async def test_pending_approval_parks_and_renders_destructive(message_store: Mes
 async def test_pending_approval_does_not_overwrite_history(message_store: MessageStore):
     surface = RecordingSurface()
     await message_store.append_history('slack:T:U', [{'role': 'user'}, {'role': 'assistant'}], ttl_seconds=60)
-    runner = _runner(PendingApproval(card=Card(title='?'), state={'resume': 'x'}))
+    runner = _runner(PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state={'resume': 'x'}))
     await run_turn('hi', principal='slack:T:U', runner=runner, surface=surface, message_store=message_store)
     assert await message_store.load_history('slack:T:U') == [{'role': 'user'}, {'role': 'assistant'}]
 

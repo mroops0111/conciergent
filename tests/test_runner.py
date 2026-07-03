@@ -183,7 +183,7 @@ async def test_approval_card_is_localized_to_the_user_language():
         'delete it', principal='p', history=[], pending_approval=None, surface=LangSurface(Lang.ZH_TW)
     )
     assert isinstance(result.output, PendingApproval)
-    assert result.output.card.title == i18n.t('approval.header', Lang.ZH_TW)
+    assert result.output.card.header == i18n.t('approval.header', Lang.ZH_TW)
     assert i18n.t('approval.confirm', Lang.ZH_TW) in [s.label for s in result.output.card.suggestions]
 
 
