@@ -166,8 +166,8 @@ class App:
 
 
 def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:
-    title = i18n.t(f'{key}_title', lang)
-    body = i18n.t(f'{key}_body', lang)
+    title = i18n.t(f'{key}.title', lang)
+    body = i18n.t(f'{key}.body', lang)
     return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
 
 

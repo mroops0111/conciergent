@@ -180,11 +180,13 @@ class SlackOAuthBridge(StatefulOAuthBridge):
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(
-            header=i18n.t('authorization.header', self._lang),
-            sections=[Section(text=i18n.t('authorization.body', self._lang))],
-            links=[Link(label=i18n.t('authorization.button', self._lang), url=authorize_url)],
+            header=i18n.t('slack.oauth.header', self._lang),
+            sections=[Section(text=i18n.t('slack.oauth.body', self._lang))],
+            links=[Link(label=i18n.t('slack.oauth.button', self._lang), url=authorize_url)],
         )
         payload = render.build_card_payload(card, brand_color=self._brand_color)
+        # Slack shows the top-level text as the push-notification preview, so use the dedicated notification copy.
+        payload['text'] = i18n.t('slack.oauth.notification', self._lang)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)
 
 

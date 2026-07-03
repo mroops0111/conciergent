@@ -182,6 +182,7 @@ class LineOAuthBridge(StatefulOAuthBridge):
         lang: Lang | None = None,
         wait_timeout_seconds: float | None = None,
         brand_color: str = render.BRAND_COLOR,
+        body_key: str = 'line.oauth.body',
     ) -> None:
         if wait_timeout_seconds is not None:
             super().__init__(message_store, wait_timeout_seconds=wait_timeout_seconds)
@@ -190,17 +191,19 @@ class LineOAuthBridge(StatefulOAuthBridge):
         self._slot = slot
         self._lang = lang
         self._brand_color = brand_color
+        # Which body copy the auth card shows; the follow greeting swaps in the welcome-flavored variant.
+        self._body_key = body_key
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         card = Card(
-            header=i18n.t('authorization.header', self._lang),
-            sections=[Section(text=i18n.t('authorization.body', self._lang))],
-            links=[Link(label=i18n.t('authorization.button', self._lang), url=authorize_url)],
+            header=i18n.t('line.oauth.header', self._lang),
+            sections=[Section(text=i18n.t(self._body_key, self._lang))],
+            links=[Link(label=i18n.t('line.oauth.button', self._lang), url=authorize_url)],
         )
         message = {
             'type': 'flex',
-            'altText': render.alt_text(card),
+            'altText': i18n.t('line.oauth.alt', self._lang),
             'contents': render.build_card_bubble(card, brand_color=self._brand_color),
         }
         await self._slot.send(message)

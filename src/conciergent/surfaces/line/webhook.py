@@ -96,6 +96,22 @@ async def _dispatch_event(
         slot = ReplyTokenSlot(messenger, user_id=user_id, reply_token=event.get('replyToken'))
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
+        if event.get('type') == 'follow':
+            # The add-time prompt shows the welcome-flavored body; only a follow event reaches here.
+            follow_bridge = LineOAuthBridge(
+                message_store,
+                slot,
+                lang=lang,
+                wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+                brand_color=settings.brand_color,
+                body_key='line.oauth.welcome_body',
+            )
+            await _greet_follower(runner=runner, principal=principal, bridge=follow_bridge, slot=slot, lang=lang)
+            return
+        message = event.get('message') or {}
+        user_text = message.get('text', '')
+        if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
+            return
         bridge = LineOAuthBridge(
             message_store,
             slot,
@@ -103,13 +119,6 @@ async def _dispatch_event(
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
             brand_color=settings.brand_color,
         )
-        if event.get('type') == 'follow':
-            await _greet_follower(runner=runner, principal=principal, bridge=bridge, slot=slot, lang=lang)
-            return
-        message = event.get('message') or {}
-        user_text = message.get('text', '')
-        if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
-            return
         surface = LineReplySurface(
             slot,
             lang=lang,
@@ -150,7 +159,7 @@ async def _greet_follower(
         if not is_handoff_expiry(error):
             logger.exception('LINE follow bootstrap failed for %s', principal)
         return
-    text = i18n.t('line.ready' if just_authorized else 'line.welcome', lang)
+    text = i18n.t('follow.ready' if just_authorized else 'follow.welcome_back', lang)
     await slot.send({'type': 'text', 'text': text})
 
 

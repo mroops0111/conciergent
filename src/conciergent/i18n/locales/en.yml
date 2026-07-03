@@ -1,3 +1,42 @@
+# The in-chat OAuth prompt pushed into a LINE conversation.
+line:
+  oauth:
+    alt: Authorize
+    header: Authorize
+    body: Tap the button below to authorize. Come back to this chat once authorization is complete.
+    welcome_body: Welcome! Tap the button below to authorize, then come back to start chatting.
+    button: Authorize
+
+slack:
+  # The in-chat OAuth prompt pushed into a Slack conversation.
+  oauth:
+    notification: Authorize to continue.
+    header: Authorize
+    body: Tap the button below to authorize. Come back to this conversation once authorization is complete.
+    button: Authorize
+  # The browser page shown when a Slack workspace install completes, rendered in the user's Accept-Language.
+  install:
+    completed:
+      title: Installation completed
+      body: The assistant has been added to {workspace}. You can close this tab.
+    failed:
+      title: Installation failed
+      body: Something went wrong. Please try installing again.
+
+# The browser page shown when an in-chat OAuth authorization returns.
+callback:
+  completed:
+    title: Authorization completed
+    body: Close this tab and return to the conversation to continue.
+  failed:
+    title: Authorization failed
+    body: Return to the conversation and try again.
+
+# The greeting sent when a user adds the bot, depending on whether a pending authorization just completed.
+follow:
+  ready: You're all set! Ask me anything to get started.
+  welcome_back: Welcome back! Ask me anything, anytime.
+
 # The in-chat human-in-the-loop confirmation, shown before a destructive tool runs.
 approval:
   header: Confirm
@@ -5,31 +44,7 @@ approval:
   confirm: Confirm
   cancel: Cancel
 
-# The in-chat OAuth prompt pushed into the conversation, shared by every surface.
-authorization:
-  header: Authorization needed
-  body: Tap the button below to authorize. Come back to this chat once authorization is complete.
-  button: Authorize
-
 # The two-phase status shown on a suggestion button after the user taps it.
 interaction:
   processing: "⏳ Processing: {label}"
   selected: "✓ Selected: {label}"
-
-line:
-  welcome: Hi! Send me a message to get started.
-  ready: You are all set. Send me a message to get started.
-
-# The browser page shown when a Slack workspace install completes, rendered in the user's Accept-Language.
-install:
-  completed_title: Installed
-  completed_body: You can close this window.
-  failed_title: Installation failed
-  failed_body: Something went wrong. Please try installing again.
-
-# The browser page shown when an in-chat OAuth authorization returns.
-callback:
-  completed_title: Authorized
-  completed_body: You can close this window and return to the conversation.
-  failed_title: Authorization failed
-  failed_body: Return to the conversation and try again.
