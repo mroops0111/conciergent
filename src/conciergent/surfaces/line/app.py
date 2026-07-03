@@ -1,5 +1,6 @@
+import typing
+
 import fastapi
-import typing_extensions
 
 from ..base import Surface, SurfaceContext
 from .webhook import LineWebhookSettings, build_router
@@ -12,7 +13,7 @@ class Line(Surface):
         self._channel_secret = channel_secret
         self._channel_access_token = channel_access_token
 
-    @typing_extensions.override
+    @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
         return [
             build_router(
