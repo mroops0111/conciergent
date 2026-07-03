@@ -8,6 +8,19 @@ from .install import SlackInstallSettings, build_install_router
 from .webhook import SlackWebhookSettings, build_router
 
 
+def _webhook_settings(
+    *, signing_secret: str, fallback_bot_token: str, text_formatting_instruction: str
+) -> SlackWebhookSettings:
+    """Build settings where an empty override falls back to the platform default."""
+    if text_formatting_instruction:
+        return SlackWebhookSettings(
+            signing_secret=signing_secret,
+            fallback_bot_token=fallback_bot_token,
+            text_formatting_instruction=text_formatting_instruction,
+        )
+    return SlackWebhookSettings(signing_secret=signing_secret, fallback_bot_token=fallback_bot_token)
+
+
 _DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')
 
 
@@ -22,12 +35,14 @@ class Slack(Surface):
         client_secret: str = '',
         scopes: collections.abc.Sequence[str] = _DEFAULT_SCOPES,
         bot_token: str = '',
+        text_formatting_instruction: str = '',
     ) -> None:
         self._signing_secret = signing_secret
         self._client_id = client_id
         self._client_secret = client_secret
         self._scopes = tuple(scopes)
         self._bot_token = bot_token
+        self._text_formatting_instruction = text_formatting_instruction
 
     @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:

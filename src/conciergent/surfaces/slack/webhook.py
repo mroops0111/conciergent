@@ -31,6 +31,7 @@ class SlackWebhookSettings(typing.NamedTuple):
 
     signing_secret: str
     fallback_bot_token: str = ''
+    text_formatting_instruction: str = render.TEXT_FORMATTING_INSTRUCTION
 
 
 def build_router(
@@ -142,6 +143,7 @@ async def _dispatch_turn(
             thread_ts=thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
+            text_formatting_instruction=settings.text_formatting_instruction,
         )
         bridge = SlackOAuthBridge(store, messenger, channel=channel, thread_ts=thread_ts)
         try:

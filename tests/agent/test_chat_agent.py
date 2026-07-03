@@ -2,8 +2,22 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic_ai.models.test import TestModel
 
-from conciergent import Card, Carousel, MemoryStore, PendingApproval
+from conciergent import Card, Carousel, MemoryStore, PendingApproval, ReplySurface
 from conciergent.agent import PydanticAIAgent
+
+
+class RecordingSurfaceBase(ReplySurface):
+    async def send_text(self, text: str) -> None:
+        return None
+
+    async def send_card(self, card: Card, *, destructive: bool = False) -> None:
+        return None
+
+    async def send_carousel(self, cards: list[Card]) -> None:
+        return None
+
+    async def show_processing(self) -> None:
+        return None
 
 
 _CONFIRM = 'CONFIRM'
@@ -115,3 +129,21 @@ async def test_bootstrap_opens_mcp_context_without_running_the_agent():
     agent = _agent(_destructive_server(calls))
     assert await agent.bootstrap('p') is False
     assert calls == []
+
+
+async def test_surface_formatting_hint_joins_the_instructions():
+    model = TestModel()
+    agent = PydanticAIAgent(model=model, system_prompt='be helpful')
+
+    class MarkerSurface(RecordingSurfaceBase):
+        @property
+        def text_formatting_instruction(self) -> str:
+            return 'MARKER-DIALECT-HINT'
+
+    await agent.run('hi', principal='p', history=[], pending=None, surface=MarkerSurface())
+    params = model.last_model_request_parameters
+    assert params is not None
+    assert params.instruction_parts is not None
+    instructions = ' '.join(part.content for part in params.instruction_parts)
+    assert 'be helpful' in instructions
+    assert 'MARKER-DIALECT-HINT' in instructions

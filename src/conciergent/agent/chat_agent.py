@@ -3,7 +3,7 @@ import contextlib
 import typing
 
 import pydantic
-from pydantic_ai import Agent, ToolOutput
+from pydantic_ai import Agent, RunContext, ToolOutput
 from pydantic_ai.mcp import MCPToolsetClient
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
 from pydantic_ai.models import Model
@@ -11,7 +11,7 @@ from pydantic_ai.output import OutputSpec
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
 
 from ..mcp.client import _DEFAULT_CLIENT_NAME, ApprovalPredicate, build_toolset, needs_approval
-from ..reply import Card, Carousel, Reply, Section, Suggestion
+from ..reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from ..runtime import AgentResult, ChatAgent, OAuthBridge, PendingApproval
 from ..stores.base import CredentialStore
 
@@ -20,8 +20,8 @@ _DEFAULT_CONFIRM_LABEL = 'Confirm'
 _DEFAULT_CANCEL_LABEL = 'Cancel'
 _DEFAULT_CONFIRM_PROMPT = 'Confirm'
 _DEFAULT_CANCEL_PROMPT = 'Cancel'
-_APPROVAL_TITLE = 'Confirm'
-_APPROVAL_BODY = 'I am about to "{tools}". This action may not be undone. Confirm to proceed.'
+_DEFAULT_APPROVAL_TITLE = 'Confirm'
+_DEFAULT_APPROVAL_BODY = 'I am about to "{tools}". This action may not be undone. Confirm to proceed.'
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
 _IGNORED_DENIAL = (
     'User skipped the approval and changed topic. Drop the pending action silently and answer their new message.'
@@ -49,6 +49,8 @@ class PydanticAIAgent(ChatAgent):
         cancel_label: str = _DEFAULT_CANCEL_LABEL,
         confirm_prompt: str = _DEFAULT_CONFIRM_PROMPT,
         cancel_prompt: str = _DEFAULT_CANCEL_PROMPT,
+        approval_title: str = _DEFAULT_APPROVAL_TITLE,
+        approval_body: str = _DEFAULT_APPROVAL_BODY,
     ) -> None:
         if mcp_servers and store is None:
             raise ValueError('store is required when mcp_servers are configured')
@@ -61,18 +63,26 @@ class PydanticAIAgent(ChatAgent):
         self._cancel_label = cancel_label
         self._confirm_prompt = confirm_prompt
         self._cancel_prompt = cancel_prompt
+        self._approval_title = approval_title
+        self._approval_body = approval_body
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
             ToolOutput(Carousel, name='reply_carousel'),
             DeferredToolRequests,
         ]
-        self._agent: Agent[None, Reply | DeferredToolRequests] = Agent(
+        self._agent: Agent[ReplySurface | None, Reply | DeferredToolRequests] = Agent(
             model,
+            deps_type=ReplySurface | None,
             output_type=output_type,
             instructions=system_prompt,
             retries=3,
         )
+
+        @self._agent.instructions
+        def surface_formatting(ctx: RunContext[ReplySurface | None]) -> str:
+            # Each surface renders a different dialect, so its hint joins the system prompt per turn.
+            return ctx.deps.text_formatting_instruction if ctx.deps is not None else ''
 
     @property
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
@@ -111,6 +121,7 @@ class PydanticAIAgent(ChatAgent):
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
+        surface: ReplySurface | None = None,
     ) -> AgentResult:
         toolsets = [
             build_toolset(
@@ -128,11 +139,13 @@ class PydanticAIAgent(ChatAgent):
         if resumption is not None:
             prompt, messages, deferred, held = resumption
             result = await self._agent.run(
-                prompt, message_history=messages, deferred_tool_results=deferred, toolsets=toolsets
+                prompt, message_history=messages, deferred_tool_results=deferred, toolsets=toolsets, deps=surface
             )
         else:
             held = []
-            result = await self._agent.run(user_input, message_history=_decode_history(history), toolsets=toolsets)
+            result = await self._agent.run(
+                user_input, message_history=_decode_history(history), toolsets=toolsets, deps=surface
+            )
 
         output = result.output
         new_messages = [*held, *ModelMessagesTypeAdapter.dump_python(result.new_messages(), mode='json')]
@@ -170,8 +183,8 @@ class PydanticAIAgent(ChatAgent):
     def _park(self, approvals: list[ToolCallPart], *, held_messages: list[typing.Any]) -> PendingApproval:
         tool_names = ', '.join(call.tool_name for call in approvals)
         card = Card(
-            title=_APPROVAL_TITLE,
-            sections=[Section(text=_APPROVAL_BODY.format(tools=tool_names))],
+            title=self._approval_title,
+            sections=[Section(text=self._approval_body.format(tools=tool_names))],
             suggestions=[
                 Suggestion(label=self._confirm_label, prompt=self._confirm_prompt),
                 Suggestion(label=self._cancel_label, prompt=self._cancel_prompt),

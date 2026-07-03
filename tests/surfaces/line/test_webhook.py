@@ -57,6 +57,7 @@ class EchoAgent(ChatAgent):
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
+        surface: typing.Any = None,
     ) -> AgentResult:
         self.inputs.append(user_input)
         return AgentResult(output=f'echo {user_input}', history=[])

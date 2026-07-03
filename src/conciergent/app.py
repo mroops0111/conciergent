@@ -77,6 +77,7 @@ class App:
                     client_secret=config.slack.client_secret,
                     scopes=config.slack.scopes,
                     bot_token=config.slack.bot_token,
+                    text_formatting_instruction=config.slack.text_formatting_instruction,
                 )
             )
         if config.line is not None:
@@ -84,6 +85,9 @@ class App:
                 Line(
                     channel_secret=config.line.channel_secret,
                     channel_access_token=config.line.channel_access_token,
+                    welcome_text=config.line.welcome_text,
+                    ready_text=config.line.ready_text,
+                    text_formatting_instruction=config.line.text_formatting_instruction,
                 )
             )
         return cls(

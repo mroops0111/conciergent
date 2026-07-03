@@ -89,6 +89,7 @@ class ChatAgent(abc.ABC):
         history: list[typing.Any],
         pending: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None,
+        surface: ReplySurface | None,
     ) -> AgentResult: ...
 
     async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
@@ -131,7 +132,9 @@ async def run_turn(
     pending = await store.take_approval(conversation)
 
     await surface.show_processing()
-    result = await agent.run(user_input, principal=principal, history=history, pending=pending, bridge=bridge)
+    result = await agent.run(
+        user_input, principal=principal, history=history, pending=pending, bridge=bridge, surface=surface
+    )
 
     output = result.output
     if isinstance(output, PendingApproval):

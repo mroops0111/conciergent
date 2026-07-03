@@ -11,7 +11,7 @@ from ...identity import ChatSurface, make_principal
 from ...oauth_handoff import is_handoff_expiry
 from ...runtime import ChatAgent, HistoryCompactor, run_turn
 from ...stores.base import Store
-from .surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
+from .surface import TEXT_FORMATTING_INSTRUCTION, LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ class LineWebhookSettings(typing.NamedTuple):
     channel_access_token: str
     welcome_text: str = 'Hi! Send me a message to get started.'
     ready_text: str = 'You are all set. Send me a message to get started.'
+    text_formatting_instruction: str = TEXT_FORMATTING_INSTRUCTION
 
 
 def build_router(
@@ -87,7 +88,7 @@ async def _dispatch_event(
         user_text = message.get('text', '')
         if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
             return
-        surface = LineReplySurface(slot)
+        surface = LineReplySurface(slot, text_formatting_instruction=settings.text_formatting_instruction)
         try:
             await run_turn(
                 user_text,

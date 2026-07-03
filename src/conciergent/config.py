@@ -30,6 +30,7 @@ class SlackSettings(pydantic.BaseModel):
         default_factory=lambda: ['chat:write', 'im:history', 'im:read', 'im:write', 'users:read']
     )
     bot_token: str = ''
+    text_formatting_instruction: str = ''
 
 
 class LineSettings(pydantic.BaseModel):
@@ -41,6 +42,9 @@ class LineSettings(pydantic.BaseModel):
 
     channel_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
     channel_access_token: typing.Annotated[str, pydantic.Field(min_length=1)]
+    welcome_text: str = ''
+    ready_text: str = ''
+    text_formatting_instruction: str = ''
 
 
 class StoreSettings(pydantic.BaseModel):

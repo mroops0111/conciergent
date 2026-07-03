@@ -85,13 +85,14 @@ class ReplyTokenSlot:
 class LineReplySurface(ReplySurface):
     """Render replies as LINE Flex messages through the reply-token slot."""
 
-    def __init__(self, slot: ReplyTokenSlot) -> None:
+    def __init__(self, slot: ReplyTokenSlot, *, text_formatting_instruction: str = TEXT_FORMATTING_INSTRUCTION) -> None:
         self._slot = slot
+        self._text_formatting_instruction = text_formatting_instruction
 
     @property
     @typing.override
     def text_formatting_instruction(self) -> str:
-        return TEXT_FORMATTING_INSTRUCTION
+        return self._text_formatting_instruction
 
     @typing.override
     async def send_text(self, text: str) -> None:

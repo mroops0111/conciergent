@@ -58,6 +58,7 @@ class SlackReplySurface(ReplySurface):
         response_url: str | None = None,
         interacted_message: dict[str, typing.Any] | None = None,
         processing_text: str = 'Working on it...',
+        text_formatting_instruction: str = render.TEXT_FORMATTING_INSTRUCTION,
     ) -> None:
         self._messenger = messenger
         self._channel = channel
@@ -65,11 +66,12 @@ class SlackReplySurface(ReplySurface):
         self._response_url = response_url
         self._interacted_message = interacted_message
         self._processing_text = processing_text
+        self._text_formatting_instruction = text_formatting_instruction
 
     @property
     @typing.override
     def text_formatting_instruction(self) -> str:
-        return render.TEXT_FORMATTING_INSTRUCTION
+        return self._text_formatting_instruction
 
     @typing.override
     async def send_text(self, text: str) -> None:
