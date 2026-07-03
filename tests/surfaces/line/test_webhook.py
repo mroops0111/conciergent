@@ -8,7 +8,7 @@ import fastapi
 import httpx
 import pytest
 
-from conciergent import TurnResult
+from conciergent import TurnResult, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import webhook
@@ -168,7 +168,7 @@ async def test_follow_event_bootstraps_and_sends_the_welcome(harness) -> None:
     await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
     assert agent.bootstrapped == ['line:U1']
-    assert FakeMessenger.replies and 'Welcome back' in FakeMessenger.replies[0]['text']
+    assert FakeMessenger.replies and FakeMessenger.replies[0]['text'] == i18n.t('follow.welcome_back', None)
 
 
 async def test_follow_greets_ready_after_a_fresh_authorization(harness) -> None:
@@ -176,4 +176,4 @@ async def test_follow_greets_ready_after_a_fresh_authorization(harness) -> None:
     agent.bootstrap_result = True
     body = _follow_body()
     await client.post('/line/events', content=body, headers=_signed_headers(body))
-    assert FakeMessenger.replies and FakeMessenger.replies[0]['text'].startswith("You're all set")
+    assert FakeMessenger.replies and FakeMessenger.replies[0]['text'] == i18n.t('follow.ready', None)
