@@ -52,26 +52,16 @@ class LineSettings(pydantic.BaseModel):
 
 
 class StoreSettings(pydantic.BaseModel):
-    """Which state backend to run on, the in-memory default needs no infrastructure.
+    """Where state lives, split by sensitivity across two backends.
 
-    The composite type splits by sensitivity, message-bearing state (history, approvals, dedupe,
-    OAuth handoff) goes to ``messages`` and long-lived credentials go to ``credentials``,
-    so conversations stay on expiring storage while tokens survive restarts.
+    Message-bearing state (history, approvals, dedupe, OAuth handoff) goes to the Redis
+    ``messages_url`` and ages out on its own, while long-lived credentials (MCP tokens and clients,
+    bot tokens) go to the SQL ``credentials_url`` and survive restarts.
     """
 
-    type: typing.Literal['memory', 'redis', 'postgres', 'composite'] = 'memory'
-    url: str = ''
-    messages: str = ''
-    credentials: str = ''
+    messages_url: typing.Annotated[str, pydantic.Field(min_length=1)]
+    credentials_url: typing.Annotated[str, pydantic.Field(min_length=1)]
     max_turns: int = DEFAULTS.store.max_turns
-
-    @pydantic.model_validator(mode='after')
-    def _require_backend_urls(self) -> typing.Self:
-        if self.type in ('redis', 'postgres') and not self.url:
-            raise ValueError(f'store.url is required for the {self.type} backend')
-        if self.type == 'composite' and (not self.messages or not self.credentials):
-            raise ValueError('the composite store needs both store.messages and store.credentials URLs')
-        return self
 
 
 class GatewaySpec(pydantic.BaseModel):
@@ -117,7 +107,7 @@ class AppConfig(pydantic.BaseModel):
     agent: AgentSettings
     slack: SlackSettings | None = None
     line: LineSettings | None = None
-    store: StoreSettings = pydantic.Field(default_factory=StoreSettings)
+    store: StoreSettings
     conversation: ConversationSettings = pydantic.Field(default_factory=ConversationSettings)
     gateway: GatewaySettings | None = None
     server: ServerSettings = pydantic.Field(default_factory=ServerSettings)

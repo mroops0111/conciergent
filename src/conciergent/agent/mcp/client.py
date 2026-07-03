@@ -9,13 +9,13 @@ from pydantic_ai.mcp import MCPToolset, MCPToolsetClient
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
+from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.defaults import DEFAULTS
-from conciergent.mcp.storage import OAuthTokenStorage
 from conciergent.runtime import OAuthBridge
-from conciergent.stores.base import CredentialStore
+from conciergent.store.credential import CredentialStore
 
 
-ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
+type ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
 
 
 def needs_approval(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_args: dict[str, typing.Any]) -> bool:
@@ -32,8 +32,8 @@ def build_toolset(
     server: MCPToolsetClient,
     *,
     principal: str,
-    store: CredentialStore | None = None,
-    bridge: OAuthBridge | None = None,
+    credential_store: CredentialStore | None = None,
+    oauth_bridge: OAuthBridge | None = None,
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
     client_name: str = DEFAULTS.agent.client_name,
@@ -45,18 +45,18 @@ def build_toolset(
     otherwise the server is reached unauthenticated.
     Every tool the server annotates as destructive is gated for approval before it runs.
     """
-    if (bridge is None) != (redirect_uri is None):
+    if (oauth_bridge is None) != (redirect_uri is None):
         raise ValueError('bridge and redirect_uri must be given together to enable MCP OAuth')
     if isinstance(server, str):
         auth = None
-        if bridge is not None and redirect_uri is not None:
-            if store is None:
-                raise ValueError('store is required to persist MCP OAuth tokens')
+        if oauth_bridge is not None and redirect_uri is not None:
+            if credential_store is None:
+                raise ValueError('a credential store is required to persist MCP OAuth tokens')
             auth = _oauth_provider(
                 server,
-                store=store,
+                credential_store=credential_store,
                 principal=principal,
-                bridge=bridge,
+                oauth_bridge=oauth_bridge,
                 redirect_uri=redirect_uri,
                 client_name=client_name,
             )
@@ -67,9 +67,15 @@ def build_toolset(
 
 
 def _oauth_provider(
-    url: str, *, store: CredentialStore, principal: str, bridge: OAuthBridge, redirect_uri: str, client_name: str
+    url: str,
+    *,
+    credential_store: CredentialStore,
+    principal: str,
+    oauth_bridge: OAuthBridge,
+    redirect_uri: str,
+    client_name: str,
 ) -> OAuthClientProvider:
-    callbacks = _BridgeCallbacks(bridge)
+    oauth_bridge_adapter = _OAuthBridgeAdapter(oauth_bridge)
     return OAuthClientProvider(
         server_url=url,
         client_metadata=OAuthClientMetadata(
@@ -78,21 +84,21 @@ def _oauth_provider(
             grant_types=['authorization_code', 'refresh_token'],
             response_types=['code'],
         ),
-        storage=OAuthTokenStorage(store, server=url, principal=principal),
-        redirect_handler=callbacks.redirect_handler,
-        callback_handler=callbacks.callback_handler,
+        storage=OAuthTokenStorage(credential_store, server=url, principal=principal),
+        redirect_handler=oauth_bridge_adapter.redirect_handler,
+        callback_handler=oauth_bridge_adapter.callback_handler,
     )
 
 
-class _BridgeCallbacks:
+class _OAuthBridgeAdapter:
     """Present one ``OAuthBridge`` as the pair of callbacks the SDK's ``OAuthClientProvider`` takes.
 
     The SDK calls ``redirect_handler`` with the authorize URL and then ``callback_handler`` for the code,
-    this class stores the URL from the first call and delegates the second to the bridge.
+    this class stores the URL from the first call and delegates the second to the oauth_bridge.
     """
 
-    def __init__(self, bridge: OAuthBridge) -> None:
-        self._bridge = bridge
+    def __init__(self, oauth_bridge: OAuthBridge) -> None:
+        self._oauth_bridge = oauth_bridge
         self._authorize_url: str | None = None
 
     async def redirect_handler(self, authorization_url: str) -> None:
@@ -101,5 +107,5 @@ class _BridgeCallbacks:
     async def callback_handler(self) -> tuple[str, str | None]:
         if self._authorize_url is None:
             raise RuntimeError('the redirect handler must run before the callback handler')
-        code = await self._bridge.request_authorization(self._authorize_url)
+        code = await self._oauth_bridge.request_authorization(self._authorize_url)
         return code, None

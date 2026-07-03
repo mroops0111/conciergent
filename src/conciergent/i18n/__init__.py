@@ -6,7 +6,7 @@ import typing
 
 import yaml
 
-from conciergent.lang import Lang
+from conciergent.i18n.lang import Lang
 
 
 # A locale directory is either a package resource (the shipped catalog) or a filesystem path (overrides).
@@ -46,7 +46,7 @@ def _merge_dir(catalog: dict[str, dict[Lang, str]], directory: LocaleDir) -> Non
 
 def _load_catalog(extra_dirs: collections.abc.Iterable[LocaleDir] = ()) -> dict[str, dict[Lang, str]]:
     catalog: dict[str, dict[Lang, str]] = {}
-    _merge_dir(catalog, importlib.resources.files('conciergent').joinpath('locales'))
+    _merge_dir(catalog, importlib.resources.files('conciergent.i18n').joinpath('locales'))
     for directory in extra_dirs:
         _merge_dir(catalog, directory)
     return catalog

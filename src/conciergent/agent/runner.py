@@ -12,12 +12,12 @@ from pydantic_ai.output import OutputSpec
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
 
 from conciergent import i18n
+from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
 from conciergent.defaults import DEFAULTS
-from conciergent.lang import Lang
-from conciergent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
+from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
-from conciergent.stores.base import CredentialStore
+from conciergent.store.credential import CredentialStore
 
 
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
@@ -55,17 +55,17 @@ class ChatRunner:
         model: Model | str,
         system_prompt: str,
         mcp_servers: collections.abc.Sequence[MCPToolsetClient] = (),
-        store: CredentialStore | None = None,
+        credential_store: CredentialStore | None = None,
         redirect_uri: str | None = None,
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = DEFAULTS.agent.client_name,
         mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
     ) -> None:
-        # store only holds MCP OAuth tokens, which redirect_uri enables; a public server needs neither.
-        if mcp_servers and redirect_uri is not None and store is None:
-            raise ValueError('store is required to persist the MCP OAuth tokens that redirect_uri enables')
+        # The credential store only holds MCP OAuth tokens, which redirect_uri enables; a public server needs neither.
+        if mcp_servers and redirect_uri is not None and credential_store is None:
+            raise ValueError('a credential store is required to persist the MCP OAuth tokens that redirect_uri enables')
         self._mcp_servers = list(mcp_servers)
-        self._store = store
+        self._credential_store = credential_store
         self._redirect_uri = redirect_uri
         self._approval_predicate = approval_predicate
         self._client_name = client_name
@@ -112,8 +112,8 @@ class ChatRunner:
             build_toolset(
                 server,
                 principal=principal,
-                store=self._store,
-                bridge=probe,
+                credential_store=self._credential_store,
+                oauth_bridge=probe,
                 redirect_uri=self._redirect_uri,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
@@ -140,8 +140,8 @@ class ChatRunner:
             build_toolset(
                 server,
                 principal=principal,
-                store=self._store,
-                bridge=bridge,
+                credential_store=self._credential_store,
+                oauth_bridge=bridge,
                 redirect_uri=self._redirect_uri,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,

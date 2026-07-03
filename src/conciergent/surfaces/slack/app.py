@@ -50,7 +50,8 @@ class Slack(Surface):
                     brand_color=self._brand_color,
                     destructive_color=self._destructive_color,
                 ),
-                store=context.store,
+                message_store=context.message_store,
+                credential_store=context.credential_store,
                 runner=context.runner,
                 compactor=context.compactor,
             )
@@ -64,7 +65,8 @@ class Slack(Surface):
                         scopes=self._scopes,
                         base_url=context.base_url,
                     ),
-                    store=context.store,
+                    message_store=context.message_store,
+                    credential_store=context.credential_store,
                 )
             )
         return routers

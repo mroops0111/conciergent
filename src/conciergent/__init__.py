@@ -3,7 +3,8 @@ from conciergent.config import AppConfig
 from conciergent.identity import ChatSurface, make_principal, parse_principal
 from conciergent.reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import OAuthBridge, PendingApproval, StatefulOAuthBridge, TurnResult
-from conciergent.stores import MemoryStore, Store
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 from conciergent.turn import run_turn
 
 
@@ -15,15 +16,15 @@ __all__ = [
     'Card',
     'Carousel',
     'ChatSurface',
+    'CredentialStore',
     'Link',
-    'MemoryStore',
+    'MessageStore',
     'OAuthBridge',
     'PendingApproval',
     'Reply',
     'ReplySurface',
     'Section',
     'StatefulOAuthBridge',
-    'Store',
     'Suggestion',
     'TurnResult',
     'make_principal',

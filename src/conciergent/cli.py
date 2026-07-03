@@ -41,11 +41,12 @@ slack:
 #   history_ttl_seconds: 604800
 #   oauth_wait_timeout_seconds: 240
 
-# store:
-#   type: composite                # memory | redis | postgres | composite
-#   messages: redis://localhost:6379/0
-#   credentials: postgresql+asyncpg://localhost/conciergent
-#   max_turns: 10
+# Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
+# while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.
+store:
+  messages_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}
+  credentials_url: ${CONCIERGENT_CREDENTIALS_URL:-postgresql+asyncpg://localhost/conciergent}
+  # max_turns: 10
 
 server:
   host: 127.0.0.1

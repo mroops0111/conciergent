@@ -3,7 +3,7 @@ import typing
 
 import pydantic
 
-from conciergent.lang import Lang
+from conciergent.i18n.lang import Lang
 
 
 class Link(pydantic.BaseModel):

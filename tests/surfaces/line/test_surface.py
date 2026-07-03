@@ -2,7 +2,8 @@ import typing
 
 import httpx
 
-from conciergent import Card, MemoryStore, Suggestion
+from conciergent import Card, Suggestion
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.line.surface import LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
 
@@ -88,12 +89,11 @@ async def test_long_text_is_sent_in_slices():
     assert [len(message['text']) for message in sent] == [5000, 1]
 
 
-async def test_oauth_bridge_renders_a_link_bubble():
+async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
     messenger = FakeMessenger()
     slot = _slot(messenger)
-    store = MemoryStore()
-    bridge = LineOAuthBridge(store, slot)
-    await store.deliver_oauth_code('s1', 'code-1')
+    bridge = LineOAuthBridge(message_store, slot)
+    await message_store.deliver_oauth_code('s1', 'code-1')
     code = await bridge.request_authorization('https://example.com/authorize?state=s1')
     assert code == 'code-1'
     rendered = messenger.replies[0]

@@ -39,7 +39,7 @@ class Line(Surface):
                     brand_color=self._brand_color,
                     destructive_color=self._destructive_color,
                 ),
-                store=context.store,
+                message_store=context.message_store,
                 runner=context.runner,
                 compactor=context.compactor,
             )

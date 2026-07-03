@@ -10,7 +10,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
-from conciergent.compactor import HistorySummarizer
+from conciergent.agent.compactor import HistorySummarizer
 
 
 def _history(*, latest_input_tokens: int) -> list[typing.Any]:

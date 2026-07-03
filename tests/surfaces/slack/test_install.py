@@ -2,10 +2,12 @@ import typing
 import urllib.parse
 
 import fastapi
-import fastapi.testclient
+import httpx
 import pytest
 
-from conciergent import ChatSurface, MemoryStore
+from conciergent import ChatSurface
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import install
 from conciergent.surfaces.slack.install import SlackInstallSettings, build_install_router
 
@@ -19,16 +21,21 @@ _SETTINGS = SlackInstallSettings(
 
 
 @pytest.fixture
-def harness() -> tuple[fastapi.testclient.TestClient, MemoryStore]:
-    store = MemoryStore()
+async def harness(
+    message_store: MessageStore, credential_store: CredentialStore
+) -> typing.AsyncIterator[tuple[httpx.AsyncClient, CredentialStore]]:
     app = fastapi.FastAPI()
-    app.include_router(build_install_router(settings=_SETTINGS, store=store))
-    return fastapi.testclient.TestClient(app, follow_redirects=False), store
+    app.include_router(
+        build_install_router(settings=_SETTINGS, message_store=message_store, credential_store=credential_store)
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+        yield client, credential_store
 
 
-def test_install_redirects_to_slack_with_state(harness) -> None:
+async def test_install_redirects_to_slack_with_state(harness) -> None:
     client, _ = harness
-    response = client.get('/oauth/slack/install')
+    response = await client.get('/oauth/slack/install')
     assert response.status_code == 307
     location = urllib.parse.urlparse(response.headers['location'])
     query = urllib.parse.parse_qs(location.query)
@@ -39,52 +46,51 @@ def test_install_redirects_to_slack_with_state(harness) -> None:
     assert query['state'][0]
 
 
-def test_callback_with_unknown_state_fails(harness) -> None:
+async def test_callback_with_unknown_state_fails(harness) -> None:
     client, _ = harness
-    response = client.get('/oauth/slack/callback', params={'code': 'c', 'state': 'forged'})
+    response = await client.get('/oauth/slack/callback', params={'code': 'c', 'state': 'forged'})
     assert response.status_code == 400
 
 
-def test_callback_stores_the_bot_token(harness, monkeypatch: pytest.MonkeyPatch) -> None:
-    client, store = harness
+async def test_callback_stores_the_bot_token(harness, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, credential_store = harness
 
     async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
         assert code == 'the-code'
         return 'T77', 'xoxb-77'
 
     monkeypatch.setattr(install, '_exchange_code', fake_exchange)
-    state = _issued_state(client)
-    response = client.get('/oauth/slack/callback', params={'code': 'the-code', 'state': state})
+    state = await _issued_state(client)
+    response = await client.get('/oauth/slack/callback', params={'code': 'the-code', 'state': state})
     assert response.status_code == 200
-    import asyncio
-
-    assert asyncio.run(store.resolve_bot_token(ChatSurface.slack, 'T77')) == 'xoxb-77'
+    assert await credential_store.resolve_bot_token(ChatSurface.slack, 'T77') == 'xoxb-77'
 
 
-def test_exchange_failure_renders_the_failure_page(harness, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_exchange_failure_renders_the_failure_page(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = harness
 
     async def failing_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
         raise RuntimeError('invalid_code')
 
     monkeypatch.setattr(install, '_exchange_code', failing_exchange)
-    state = _issued_state(client)
-    response = client.get('/oauth/slack/callback', params={'code': 'stale', 'state': state})
+    state = await _issued_state(client)
+    response = await client.get('/oauth/slack/callback', params={'code': 'stale', 'state': state})
     assert response.status_code == 400
 
 
-def test_state_is_single_use(harness, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_state_is_single_use(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = harness
 
     async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
         return 'T77', 'xoxb-77'
 
     monkeypatch.setattr(install, '_exchange_code', fake_exchange)
-    state = _issued_state(client)
-    assert client.get('/oauth/slack/callback', params={'code': 'c', 'state': state}).status_code == 200
-    assert client.get('/oauth/slack/callback', params={'code': 'c', 'state': state}).status_code == 400
+    state = await _issued_state(client)
+    assert (await client.get('/oauth/slack/callback', params={'code': 'c', 'state': state})).status_code == 200
+    assert (await client.get('/oauth/slack/callback', params={'code': 'c', 'state': state})).status_code == 400
 
 
-def _issued_state(client: fastapi.testclient.TestClient) -> str:
-    location = client.get('/oauth/slack/install').headers['location']
+async def _issued_state(client: httpx.AsyncClient) -> str:
+    response = await client.get('/oauth/slack/install')
+    location = response.headers['location']
     return urllib.parse.parse_qs(urllib.parse.urlparse(location).query)['state'][0]

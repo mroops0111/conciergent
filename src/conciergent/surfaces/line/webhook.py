@@ -8,13 +8,13 @@ import typing
 import fastapi
 
 from conciergent import i18n
-from conciergent.compactor import HistorySummarizer
+from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
-from conciergent.lang import Lang
-from conciergent.oauth_handoff import is_handoff_expiry
-from conciergent.runner import ChatRunner
-from conciergent.stores.base import Store
+from conciergent.runtime import is_handoff_expiry
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import render
 from conciergent.surfaces.line.surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 from conciergent.turn import run_turn
@@ -41,7 +41,7 @@ class LineWebhookSettings(typing.NamedTuple):
 def build_router(
     *,
     settings: LineWebhookSettings,
-    store: Store,
+    message_store: MessageStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None = None,
 ) -> fastapi.APIRouter:
@@ -64,10 +64,15 @@ def build_router(
             event_id = event.get('webhookEventId')
             # Without an id there is nothing to deduplicate on, and a shared placeholder key
             # would swallow every later id-less event for a day.
-            if event_id and await store.dedupe(f'line:event:{event_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
+            if event_id and await message_store.dedupe(f'line:event:{event_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
                 continue
             background.add_task(
-                _dispatch_event, settings=settings, store=store, runner=runner, compactor=compactor, event=event
+                _dispatch_event,
+                settings=settings,
+                message_store=message_store,
+                runner=runner,
+                compactor=compactor,
+                event=event,
             )
         return {}
 
@@ -77,7 +82,7 @@ def build_router(
 async def _dispatch_event(
     *,
     settings: LineWebhookSettings,
-    store: Store,
+    message_store: MessageStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None,
     event: dict[str, typing.Any],
@@ -92,7 +97,7 @@ async def _dispatch_event(
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
         bridge = LineOAuthBridge(
-            store,
+            message_store,
             slot,
             lang=lang,
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
@@ -117,7 +122,7 @@ async def _dispatch_event(
                 principal=principal,
                 runner=runner,
                 surface=surface,
-                store=store,
+                message_store=message_store,
                 bridge=bridge,
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,

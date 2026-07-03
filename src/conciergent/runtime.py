@@ -4,9 +4,21 @@ import typing
 import urllib.parse
 
 from conciergent.defaults import DEFAULTS
-from conciergent.oauth_handoff import OAuthHandoffExpiredError
 from conciergent.reply import Card, Reply
-from conciergent.stores.base import OAuthCodeStore
+from conciergent.store.message import MessageStore
+
+
+class OAuthHandoffExpiredError(Exception):
+    """The user received the authorization link but never completed the flow in time."""
+
+
+def is_handoff_expiry(error: BaseException) -> bool:
+    """Report whether ``error`` is a handoff expiry, unwrapping the groups task runners nest it in."""
+    if isinstance(error, OAuthHandoffExpiredError):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return bool(error.exceptions) and all(is_handoff_expiry(inner) for inner in error.exceptions)
+    return False
 
 
 @dataclasses.dataclass
@@ -47,9 +59,12 @@ class StatefulOAuthBridge(OAuthBridge):
     """
 
     def __init__(
-        self, store: OAuthCodeStore, *, wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
+        self,
+        message_store: MessageStore,
+        *,
+        wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
     ) -> None:
-        self._store = store
+        self._message_store = message_store
         self._wait_timeout_seconds = wait_timeout_seconds
 
     @typing.override
@@ -59,7 +74,7 @@ class StatefulOAuthBridge(OAuthBridge):
         if not states:
             raise ValueError('the authorization URL carries no state parameter')
         await self._render_authorization_ui(authorize_url)
-        code = await self._store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
+        code = await self._message_store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
         if code is None:
             raise OAuthHandoffExpiredError
         return code

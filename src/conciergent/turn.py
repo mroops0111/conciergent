@@ -1,9 +1,9 @@
-from conciergent.compactor import HistorySummarizer
+from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Carousel, ReplySurface
-from conciergent.runner import ChatRunner
 from conciergent.runtime import OAuthBridge, PendingApproval
-from conciergent.stores.base import Store
+from conciergent.store.message import MessageStore
 
 
 async def run_turn(
@@ -12,7 +12,7 @@ async def run_turn(
     principal: str,
     runner: ChatRunner,
     surface: ReplySurface,
-    store: Store,
+    message_store: MessageStore,
     conversation: str | None = None,
     bridge: OAuthBridge | None = None,
     compactor: HistorySummarizer | None = None,
@@ -27,13 +27,13 @@ async def run_turn(
     This is side-effect only, the surface sends and the appended history turn.
     """
     conversation = conversation or principal
-    history = await store.load_history(conversation)
+    history = await message_store.load_history(conversation)
     if compactor is not None and history:
         compacted = await compactor.compact_if_needed(history)
         if compacted is not None:
-            await store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
+            await message_store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
             history = compacted
-    pending_approval = await store.take_approval(conversation)
+    pending_approval = await message_store.take_approval(conversation)
 
     await surface.show_processing()
     result = await runner.run(
@@ -51,7 +51,7 @@ async def run_turn(
         # The in-flight messages ride on ``output.state`` and are replayed via ``pending_approval`` on resume,
         # so committing ``result.history`` here would either wipe the conversation with the empty default,
         # or orphan the tool-call turn from its later result.
-        await store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds)
+        await message_store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds)
         await surface.send_card(output.card, destructive=True)
         return
 
@@ -62,4 +62,4 @@ async def run_turn(
     else:
         await surface.send_text(output)
 
-    await store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)
+    await message_store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)

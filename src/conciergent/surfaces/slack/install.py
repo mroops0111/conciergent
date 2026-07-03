@@ -8,9 +8,10 @@ import fastapi.responses
 import httpx
 
 from conciergent import i18n
+from conciergent.i18n.lang import Lang, parse_accept_language
 from conciergent.identity import ChatSurface
-from conciergent.lang import Lang, parse_accept_language
-from conciergent.stores.base import Store
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 
 
 _AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize'
@@ -30,17 +31,21 @@ class SlackInstallSettings(typing.NamedTuple):
     base_url: str
 
 
-def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fastapi.APIRouter:
-    """Build the workspace install routes, persisting the bot token per team through the store."""
+def build_install_router(
+    *, settings: SlackInstallSettings, message_store: MessageStore, credential_store: CredentialStore
+) -> fastapi.APIRouter:
+    """Build the workspace install routes, stashing the CSRF state in Redis and persisting the bot token in SQL."""
     router = fastapi.APIRouter()
     redirect_uri = f'{settings.base_url.rstrip("/")}/oauth/slack/callback'
 
     @router.get('/oauth/slack/install')
     async def install() -> fastapi.responses.RedirectResponse:
         state = secrets.token_urlsafe(32)
-        # The approval store doubles as the CSRF stash,
+        # The approval parking lot doubles as the CSRF stash,
         # park and take give the same one-shot set-with-ttl and consume semantics the state check needs.
-        await store.park_approval(f'{_STATE_KEY_PREFIX}:{state}', {'issued': True}, ttl_seconds=_STATE_TTL_SECONDS)
+        await message_store.park_approval(
+            f'{_STATE_KEY_PREFIX}:{state}', {'issued': True}, ttl_seconds=_STATE_TTL_SECONDS
+        )
         query = urllib.parse.urlencode(
             {
                 'client_id': settings.client_id,
@@ -56,7 +61,7 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
         code: str = '', state: str = '', accept_language: str = fastapi.Header(default='')
     ) -> fastapi.responses.HTMLResponse:
         lang = parse_accept_language(accept_language)
-        issued = await store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
+        issued = await message_store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
         if not code or issued is None:
             return _page(lang, 'install.failed', status_code=400)
         try:
@@ -67,7 +72,7 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
             # A stale or already-consumed code is a routine OAuth ending, not a server error.
             logger.warning('Slack install code exchange failed', exc_info=True)
             return _page(lang, 'install.failed', status_code=400)
-        await store.set_bot_token(ChatSurface.slack, team_id, bot_token)
+        await credential_store.set_bot_token(ChatSurface.slack, team_id, bot_token)
         return _page(lang, 'install.completed')
 
     return router

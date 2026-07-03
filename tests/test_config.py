@@ -5,10 +5,15 @@ import pytest
 from conciergent.config import build_app_config, yaml_layer
 
 
+_STORE = {'messages_url': 'redis://localhost:6379/0', 'credentials_url': 'postgresql+asyncpg://localhost/db'}
+
 _MINIMAL = """\
 agent:
   model: gemini-3-flash
   system_prompt: be helpful
+store:
+  messages_url: redis://localhost:6379/0
+  credentials_url: postgresql+asyncpg://localhost/db
 """
 
 
@@ -46,25 +51,24 @@ def test_later_layers_win(tmp_path: pathlib.Path):
     assert config.server.host == '127.0.0.1'
 
 
-def test_networked_store_requires_a_url():
-    with pytest.raises(ValueError, match=r'store\.url'):
-        build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'type': 'redis'}})
-
-
-def test_composite_store_requires_both_urls():
-    with pytest.raises(ValueError, match='composite'):
-        build_app_config(
-            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'type': 'composite', 'messages': 'redis://x'}}
-        )
+def test_store_requires_both_urls():
+    with pytest.raises(ValueError, match='credentials_url'):
+        build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'messages_url': 'redis://x'}})
 
 
 def test_empty_secret_fails_fast():
     # An unset env var resolves to an empty string, which must not silently become a forgeable secret.
     with pytest.raises(ValueError):
-        build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'slack': {'signing_secret': ''}})
+        build_app_config(
+            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': _STORE, 'slack': {'signing_secret': ''}}
+        )
     with pytest.raises(ValueError):
         build_app_config(
-            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'line': {'channel_secret': '', 'channel_access_token': 't'}}
+            {
+                'agent': {'model': 'm', 'system_prompt': 'p'},
+                'store': _STORE,
+                'line': {'channel_secret': '', 'channel_access_token': 't'},
+            }
         )
 
 
@@ -72,6 +76,7 @@ def test_gateway_specs_parse():
     config = build_app_config(
         {
             'agent': {'model': 'm', 'system_prompt': 'p'},
+            'store': _STORE,
             'gateway': {'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
         }
     )
@@ -86,7 +91,7 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
             'slack': {'signing_secret': 's', 'brand_color': '#123456'},
             'line': {'channel_secret': 'cs', 'channel_access_token': 't'},
             'conversation': {'approval_ttl_seconds': 900},
-            'store': {'max_turns': 20},
+            'store': {**_STORE, 'max_turns': 20},
         }
     )
     # An unset knob resolves to the real value from defaults.yml, not an empty sentinel.

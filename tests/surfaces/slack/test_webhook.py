@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import hmac
 import json
@@ -7,11 +6,13 @@ import typing
 import urllib.parse
 
 import fastapi
-import fastapi.testclient
+import httpx
 import pytest
 
-from conciergent import ChatSurface, MemoryStore, TurnResult
-from conciergent.runner import ChatRunner
+from conciergent import ChatSurface, TurnResult
+from conciergent.agent.runner import ChatRunner
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import webhook
 from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
 
@@ -61,23 +62,29 @@ class EchoAgent:
 
 
 @pytest.fixture
-def harness(monkeypatch: pytest.MonkeyPatch) -> tuple[fastapi.testclient.TestClient, EchoAgent, MemoryStore]:
+async def harness(
+    monkeypatch: pytest.MonkeyPatch, message_store: MessageStore, credential_store: CredentialStore
+) -> typing.AsyncIterator[tuple[httpx.AsyncClient, EchoAgent, MessageStore, CredentialStore]]:
     FakeMessenger.posts = []
     FakeMessenger.patches = []
     monkeypatch.setattr(webhook, 'SlackMessenger', FakeMessenger)
-    store = MemoryStore()
     agent = EchoAgent()
     app = fastapi.FastAPI()
     app.include_router(
         build_router(
-            settings=SlackWebhookSettings(signing_secret=_SECRET), store=store, runner=typing.cast(ChatRunner, agent)
+            settings=SlackWebhookSettings(signing_secret=_SECRET),
+            message_store=message_store,
+            credential_store=credential_store,
+            runner=typing.cast(ChatRunner, agent),
         )
     )
-    return fastapi.testclient.TestClient(app), agent, store
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+        yield client, agent, message_store, credential_store
 
 
-def _install(store: MemoryStore) -> None:
-    asyncio.run(store.set_bot_token(ChatSurface.slack, 'T1', 'xoxb-1'))
+async def _install(credential_store: CredentialStore) -> None:
+    await credential_store.set_bot_token(ChatSurface.slack, 'T1', 'xoxb-1')
 
 
 def _signed_headers(body: bytes) -> dict[str, str]:
@@ -99,71 +106,81 @@ def _event_body(*, event_id: str = 'Ev1', text: str = 'hello', **event_overrides
     return json.dumps({'type': 'event_callback', 'event_id': event_id, 'team_id': 'T1', 'event': event}).encode()
 
 
-def test_url_verification_answers_challenge(harness) -> None:
-    client, _, _ = harness
+async def test_url_verification_answers_challenge(harness) -> None:
+    client, _, _, _ = harness
     body = json.dumps({'type': 'url_verification', 'challenge': 'c123'}).encode()
-    response = client.post('/slack/events', content=body, headers=_signed_headers(body))
+    response = await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert response.json() == {'challenge': 'c123'}
 
 
-def test_bad_signature_is_rejected(harness) -> None:
-    client, _, _ = harness
+async def test_bad_signature_is_rejected(harness) -> None:
+    client, _, _, _ = harness
     body = _event_body()
     headers = _signed_headers(body)
     headers['X-Slack-Signature'] = 'v0=deadbeef'
-    assert client.post('/slack/events', content=body, headers=headers).status_code == 401
+    assert (await client.post('/slack/events', content=body, headers=headers)).status_code == 401
 
 
-def test_message_event_runs_a_turn_and_replies(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_message_event_runs_a_turn_and_replies(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
     body = _event_body(text='hi there')
-    response = client.post('/slack/events', content=body, headers=_signed_headers(body))
+    response = await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert response.status_code == 200
     assert agent.inputs == ['hi there']
     assert FakeMessenger.posts and FakeMessenger.posts[0][0] == 'D1'
 
 
-def test_duplicate_event_delivery_is_dropped(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_duplicate_event_delivery_is_dropped(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
     body = _event_body(event_id='Ev-dup')
-    client.post('/slack/events', content=body, headers=_signed_headers(body))
-    client.post('/slack/events', content=body, headers=_signed_headers(body))
+    await client.post('/slack/events', content=body, headers=_signed_headers(body))
+    await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == ['hello']
 
 
-def test_bot_echo_is_ignored(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_bot_echo_is_ignored(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
     body = _event_body(bot_id='B99')
-    client.post('/slack/events', content=body, headers=_signed_headers(body))
+    await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
 
 
-def test_uninstalled_team_is_ignored(harness) -> None:
-    client, agent, _ = harness
+async def test_uninstalled_team_is_ignored(harness) -> None:
+    client, agent, _, _ = harness
     body = _event_body()
-    client.post('/slack/events', content=body, headers=_signed_headers(body))
+    await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
 
 
-def test_fallback_bot_token_serves_single_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_fallback_bot_token_serves_single_workspace(
+    monkeypatch: pytest.MonkeyPatch, message_store: MessageStore, credential_store: CredentialStore
+) -> None:
     FakeMessenger.posts = []
     monkeypatch.setattr(webhook, 'SlackMessenger', FakeMessenger)
     agent = EchoAgent()
     app = fastapi.FastAPI()
     settings = SlackWebhookSettings(signing_secret=_SECRET, fallback_bot_token='xoxb-static')
-    app.include_router(build_router(settings=settings, store=MemoryStore(), runner=typing.cast(ChatRunner, agent)))
-    client = fastapi.testclient.TestClient(app)
-    body = _event_body()
-    client.post('/slack/events', content=body, headers=_signed_headers(body))
+    app.include_router(
+        build_router(
+            settings=settings,
+            message_store=message_store,
+            credential_store=credential_store,
+            runner=typing.cast(ChatRunner, agent),
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+        body = _event_body()
+        await client.post('/slack/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == ['hello']
 
 
-def test_suggestion_interaction_runs_the_prompt(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_suggestion_interaction_runs_the_prompt(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
     payload = {
         'type': 'block_actions',
         'team': {'id': 'T1'},
@@ -174,14 +191,14 @@ def test_suggestion_interaction_runs_the_prompt(harness) -> None:
         'actions': [{'action_id': 'suggestion:open:0:0', 'value': 'List more tasks'}],
     }
     body = urllib.parse.urlencode({'payload': json.dumps(payload)}).encode()
-    client.post('/slack/interactions', content=body, headers=_signed_headers(body))
+    await client.post('/slack/interactions', content=body, headers=_signed_headers(body))
     assert agent.inputs == ['List more tasks']
     assert FakeMessenger.patches, 'the interacted message is patched to show processing'
 
 
-def test_open_interaction_allows_a_fresh_click(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_open_interaction_allows_a_fresh_click(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
 
     def body_for(action_ts: str) -> bytes:
         payload = {
@@ -197,15 +214,15 @@ def test_open_interaction_allows_a_fresh_click(harness) -> None:
     first = body_for('1000.1')
     redelivery = body_for('1000.1')
     fresh_click = body_for('2000.2')
-    client.post('/slack/interactions', content=first, headers=_signed_headers(first))
-    client.post('/slack/interactions', content=redelivery, headers=_signed_headers(redelivery))
-    client.post('/slack/interactions', content=fresh_click, headers=_signed_headers(fresh_click))
+    await client.post('/slack/interactions', content=first, headers=_signed_headers(first))
+    await client.post('/slack/interactions', content=redelivery, headers=_signed_headers(redelivery))
+    await client.post('/slack/interactions', content=fresh_click, headers=_signed_headers(fresh_click))
     assert agent.inputs == ['refresh', 'refresh']
 
 
-def test_exclusive_interaction_consumes_the_whole_message(harness) -> None:
-    client, agent, store = harness
-    _install(store)
+async def test_exclusive_interaction_consumes_the_whole_message(harness) -> None:
+    client, agent, _, credential_store = harness
+    await _install(credential_store)
 
     def body_for(button: int) -> bytes:
         payload = {
@@ -220,17 +237,17 @@ def test_exclusive_interaction_consumes_the_whole_message(harness) -> None:
 
     first = body_for(0)
     second = body_for(1)
-    client.post('/slack/interactions', content=first, headers=_signed_headers(first))
-    client.post('/slack/interactions', content=second, headers=_signed_headers(second))
+    await client.post('/slack/interactions', content=first, headers=_signed_headers(first))
+    await client.post('/slack/interactions', content=second, headers=_signed_headers(second))
     assert agent.inputs == ['pick 0']
 
 
-def test_threads_are_separate_conversations(harness) -> None:
-    client, _, store = harness
-    _install(store)
+async def test_threads_are_separate_conversations(harness) -> None:
+    client, _, message_store, credential_store = harness
+    await _install(credential_store)
     first = _event_body(event_id='EvT1', text='in thread one', thread_ts='100.1')
     second = _event_body(event_id='EvT2', text='in thread two', thread_ts='200.2')
-    client.post('/slack/events', content=first, headers=_signed_headers(first))
-    client.post('/slack/events', content=second, headers=_signed_headers(second))
-    assert asyncio.run(store.load_history('slack:T1:U1:100.1')) == [{'seen': 'in thread one'}]
-    assert asyncio.run(store.load_history('slack:T1:U1:200.2')) == [{'seen': 'in thread two'}]
+    await client.post('/slack/events', content=first, headers=_signed_headers(first))
+    await client.post('/slack/events', content=second, headers=_signed_headers(second))
+    assert await message_store.load_history('slack:T1:U1:100.1') == [{'seen': 'in thread one'}]
+    assert await message_store.load_history('slack:T1:U1:200.2') == [{'seen': 'in thread two'}]

@@ -8,13 +8,13 @@ import fastapi.responses
 import uvicorn
 
 from conciergent import i18n
-from conciergent.compactor import HistorySummarizer
-from conciergent.config import AppConfig, GatewaySettings, StoreSettings, build_app_config, yaml_layer
+from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.runner import ChatRunner
+from conciergent.config import AppConfig, GatewaySettings, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
-from conciergent.lang import Lang, parse_accept_language
-from conciergent.runner import ChatRunner
-from conciergent.stores.base import Store
-from conciergent.stores.memory import MemoryStore
+from conciergent.i18n.lang import Lang, parse_accept_language
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.line.app import Line
 from conciergent.surfaces.slack.app import Slack
@@ -33,7 +33,8 @@ class App:
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
-        store: Store | None = None,
+        message_store: MessageStore,
+        credential_store: CredentialStore,
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
@@ -45,7 +46,8 @@ class App:
         self.host = host
         self.port = port
         self.base_url = base_url or f'http://{host}:{port}'
-        self._store = store if store is not None else MemoryStore()
+        self._message_store = message_store
+        self._credential_store = credential_store
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
@@ -65,7 +67,8 @@ class App:
         if config.locales_dir is not None:
             # Layer the app-builder's translations over the shipped catalog before any surface renders text.
             i18n.load_overrides([pathlib.Path(config.locales_dir).expanduser()])
-        store = _build_store(config.store)
+        message_store = MessageStore.from_url(config.store.messages_url, max_turns=config.store.max_turns)
+        credential_store = CredentialStore.from_url(config.store.credentials_url)
         redirect_uri = f'{config.server.url.rstrip("/")}/oauth/mcp/callback'
         mcp_servers = list(config.agent.mcp_servers)
         if config.gateway is not None:
@@ -75,7 +78,7 @@ class App:
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
             mcp_servers=mcp_servers,
-            store=store,
+            credential_store=credential_store,
             redirect_uri=redirect_uri,
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
             client_name=config.agent.client_name,
@@ -108,7 +111,8 @@ class App:
             )
         return cls(
             runner=runner,
-            store=store,
+            message_store=message_store,
+            credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
             gateway=config.gateway,
@@ -125,7 +129,7 @@ class App:
 
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
-            await self._store.prepare()
+            await self._credential_store.prepare()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
                     # The mounted MCP sub-apps only serve while their session managers run,
@@ -149,11 +153,12 @@ class App:
             lang = parse_accept_language(accept_language)
             if not code or not state:
                 return _callback_page(lang, 'callback.failed', status_code=400)
-            await self._store.deliver_oauth_code(state, code)
+            await self._message_store.deliver_oauth_code(state, code)
             return _callback_page(lang, 'callback.completed')
 
         context = SurfaceContext(
-            store=self._store,
+            message_store=self._message_store,
+            credential_store=self._credential_store,
             runner=self._runner,
             compactor=self._compactor,
             base_url=self.base_url,
@@ -176,36 +181,6 @@ def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fa
     title = i18n.t(f'{key}_title', lang)
     body = i18n.t(f'{key}_body', lang)
     return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
-
-
-def _build_store(settings: StoreSettings) -> Store:
-    if settings.type == 'redis':
-        return _store_from_url(settings.url, max_turns=settings.max_turns)
-    if settings.type == 'postgres':
-        return _store_from_url(settings.url, max_turns=settings.max_turns)
-    if settings.type == 'composite':
-        from conciergent.stores.composite import CompositeStore
-
-        return CompositeStore(
-            messages=_store_from_url(settings.messages, max_turns=settings.max_turns),
-            credentials=_store_from_url(settings.credentials, max_turns=settings.max_turns),
-        )
-    return MemoryStore(max_turns=settings.max_turns)
-
-
-def _store_from_url(url: str, *, max_turns: int) -> Store:
-    # The networked backends import lazily, so the core works without their optional extras installed.
-    if url.startswith('redis'):
-        try:
-            from conciergent.stores.redis import RedisStore
-        except ImportError as error:
-            raise RuntimeError('the redis backend needs the extra: pip install conciergent[redis]') from error
-        return RedisStore.from_url(url, max_turns=max_turns)
-    try:
-        from conciergent.stores.postgres import PostgresStore
-    except ImportError as error:
-        raise RuntimeError('the postgres backend needs the extra: pip install conciergent[postgres]') from error
-    return PostgresStore.from_url(url, max_turns=max_turns)
 
 
 def _build_gateway(settings: GatewaySettings) -> typing.Any:

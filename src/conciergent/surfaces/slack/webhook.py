@@ -8,12 +8,13 @@ import urllib.parse
 
 import fastapi
 
-from conciergent.compactor import HistorySummarizer
+from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
 from conciergent.identity import ChatSurface, make_principal
-from conciergent.oauth_handoff import is_handoff_expiry
-from conciergent.runner import ChatRunner
-from conciergent.stores.base import Store
+from conciergent.runtime import is_handoff_expiry
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import render
 from conciergent.surfaces.slack.surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
 from conciergent.turn import run_turn
@@ -45,7 +46,8 @@ class SlackWebhookSettings(typing.NamedTuple):
 def build_router(
     *,
     settings: SlackWebhookSettings,
-    store: Store,
+    message_store: MessageStore,
+    credential_store: CredentialStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None = None,
 ) -> fastapi.APIRouter:
@@ -72,12 +74,13 @@ def build_router(
         event = payload.get('event') or {}
         if not _is_direct_user_message(event):
             return {}
-        if await store.dedupe(f'slack:event:{payload.get("event_id")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
+        if await message_store.dedupe(f'slack:event:{payload.get("event_id")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
         background.add_task(
             _dispatch_turn,
             settings=settings,
-            store=store,
+            message_store=message_store,
+            credential_store=credential_store,
             runner=runner,
             compactor=compactor,
             team_id=payload.get('team_id', ''),
@@ -103,12 +106,13 @@ def build_router(
         message = payload.get('message') or {}
         channel = (payload.get('channel') or {}).get('id', '')
         dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message)
-        if await store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
+        if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
         background.add_task(
             _dispatch_turn,
             settings=settings,
-            store=store,
+            message_store=message_store,
+            credential_store=credential_store,
             runner=runner,
             compactor=compactor,
             team_id=(payload.get('team') or {}).get('id', ''),
@@ -127,7 +131,8 @@ def build_router(
 async def _dispatch_turn(
     *,
     settings: SlackWebhookSettings,
-    store: Store,
+    message_store: MessageStore,
+    credential_store: CredentialStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None,
     team_id: str,
@@ -138,7 +143,7 @@ async def _dispatch_turn(
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
 ) -> None:
-    bot_token = await store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
+    bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
     principal = make_principal(ChatSurface.slack, team_id, user_id)
@@ -158,7 +163,7 @@ async def _dispatch_turn(
             destructive_color=settings.destructive_color,
         )
         bridge = SlackOAuthBridge(
-            store,
+            message_store,
             messenger,
             channel=channel,
             thread_ts=thread_ts,
@@ -172,7 +177,7 @@ async def _dispatch_turn(
                 principal=principal,
                 runner=runner,
                 surface=surface,
-                store=store,
+                message_store=message_store,
                 conversation=conversation,
                 bridge=bridge,
                 compactor=compactor,

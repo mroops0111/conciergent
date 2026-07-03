@@ -5,10 +5,10 @@ import httpx
 
 from conciergent import i18n
 from conciergent.defaults import DEFAULTS
-from conciergent.lang import Lang
+from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Link, ReplySurface
 from conciergent.runtime import StatefulOAuthBridge
-from conciergent.stores.base import OAuthCodeStore
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import render
 
 
@@ -178,7 +178,7 @@ class LineOAuthBridge(StatefulOAuthBridge):
 
     def __init__(
         self,
-        store: OAuthCodeStore,
+        message_store: MessageStore,
         slot: ReplyTokenSlot,
         *,
         lang: Lang | None = None,
@@ -186,9 +186,9 @@ class LineOAuthBridge(StatefulOAuthBridge):
         brand_color: str = render.BRAND_COLOR,
     ) -> None:
         if wait_timeout_seconds is not None:
-            super().__init__(store, wait_timeout_seconds=wait_timeout_seconds)
+            super().__init__(message_store, wait_timeout_seconds=wait_timeout_seconds)
         else:
-            super().__init__(store)
+            super().__init__(message_store)
         self._slot = slot
         self._lang = lang
         self._brand_color = brand_color

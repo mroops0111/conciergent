@@ -2,9 +2,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic_ai.models.test import TestModel
 
-from conciergent import Card, Carousel, MemoryStore, PendingApproval, ReplySurface, i18n
-from conciergent.lang import Lang
-from conciergent.runner import ChatRunner
+from conciergent import Card, Carousel, PendingApproval, ReplySurface, i18n
+from conciergent.agent.runner import ChatRunner
+from conciergent.i18n.lang import Lang
 
 
 class RecordingSurfaceBase(ReplySurface):
@@ -42,7 +42,6 @@ def _agent(server: FastMCP) -> ChatRunner:
         model=TestModel(),
         system_prompt='be helpful',
         mcp_servers=[server],
-        store=MemoryStore(),
     )
 
 

@@ -5,11 +5,12 @@ import json
 import typing
 
 import fastapi
-import fastapi.testclient
+import httpx
 import pytest
 
-from conciergent import MemoryStore, TurnResult
-from conciergent.runner import ChatRunner
+from conciergent import TurnResult
+from conciergent.agent.runner import ChatRunner
+from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import webhook
 from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
@@ -68,15 +69,21 @@ class EchoAgent:
 
 
 @pytest.fixture
-def harness(monkeypatch: pytest.MonkeyPatch) -> tuple[fastapi.testclient.TestClient, EchoAgent]:
+async def harness(
+    monkeypatch: pytest.MonkeyPatch, message_store: MessageStore
+) -> typing.AsyncIterator[tuple[httpx.AsyncClient, EchoAgent]]:
     FakeMessenger.replies = []
     FakeMessenger.pushes = []
     monkeypatch.setattr(webhook, 'LineMessenger', FakeMessenger)
     agent = EchoAgent()
     app = fastapi.FastAPI()
     settings = LineWebhookSettings(channel_secret=_SECRET, channel_access_token='token')
-    app.include_router(build_router(settings=settings, store=MemoryStore(), runner=typing.cast(ChatRunner, agent)))
-    return fastapi.testclient.TestClient(app), agent
+    app.include_router(
+        build_router(settings=settings, message_store=message_store, runner=typing.cast(ChatRunner, agent))
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as client:
+        yield client, agent
 
 
 def _signed_headers(body: bytes) -> dict[str, str]:
@@ -95,30 +102,31 @@ def _message_body(*, event_id: str = 'ev1', text: str = 'hello') -> bytes:
     return json.dumps({'destination': 'x', 'events': [event]}).encode()
 
 
-def test_bad_signature_is_rejected(harness) -> None:
+async def test_bad_signature_is_rejected(harness) -> None:
     client, _ = harness
     body = _message_body()
-    assert client.post('/line/events', content=body, headers={'X-Line-Signature': 'bogus'}).status_code == 401
+    response = await client.post('/line/events', content=body, headers={'X-Line-Signature': 'bogus'})
+    assert response.status_code == 401
 
 
-def test_text_message_runs_a_turn_and_replies_with_the_token(harness) -> None:
+async def test_text_message_runs_a_turn_and_replies_with_the_token(harness) -> None:
     client, agent = harness
     body = _message_body(text='hi there')
-    response = client.post('/line/events', content=body, headers=_signed_headers(body))
+    response = await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert response.status_code == 200
     assert agent.inputs == ['hi there']
     assert FakeMessenger.replies and FakeMessenger.replies[0]['text'] == 'echo hi there'
 
 
-def test_duplicate_delivery_is_dropped(harness) -> None:
+async def test_duplicate_delivery_is_dropped(harness) -> None:
     client, agent = harness
     body = _message_body(event_id='dup')
-    client.post('/line/events', content=body, headers=_signed_headers(body))
-    client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == ['hello']
 
 
-def test_non_text_messages_are_ignored(harness) -> None:
+async def test_non_text_messages_are_ignored(harness) -> None:
     client, agent = harness
     event = {
         'type': 'message',
@@ -127,11 +135,11 @@ def test_non_text_messages_are_ignored(harness) -> None:
         'message': {'type': 'sticker'},
     }
     body = json.dumps({'events': [event]}).encode()
-    client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
 
 
-def test_event_without_id_still_dispatches(harness) -> None:
+async def test_event_without_id_still_dispatches(harness) -> None:
     client, agent = harness
     event = {
         'type': 'message',
@@ -140,7 +148,7 @@ def test_event_without_id_still_dispatches(harness) -> None:
         'message': {'type': 'text', 'text': 'no id'},
     }
     body = json.dumps({'events': [event, dict(event)]}).encode()
-    client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == ['no id', 'no id']
 
 
@@ -154,18 +162,18 @@ def _follow_body() -> bytes:
     return json.dumps({'events': [event]}).encode()
 
 
-def test_follow_event_bootstraps_and_sends_the_welcome(harness) -> None:
+async def test_follow_event_bootstraps_and_sends_the_welcome(harness) -> None:
     client, agent = harness
     body = _follow_body()
-    client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert agent.inputs == []
     assert agent.bootstrapped == ['line:U1']
     assert FakeMessenger.replies and 'get started' in FakeMessenger.replies[0]['text']
 
 
-def test_follow_greets_ready_after_a_fresh_authorization(harness) -> None:
+async def test_follow_greets_ready_after_a_fresh_authorization(harness) -> None:
     client, agent = harness
     agent.bootstrap_result = True
     body = _follow_body()
-    client.post('/line/events', content=body, headers=_signed_headers(body))
+    await client.post('/line/events', content=body, headers=_signed_headers(body))
     assert FakeMessenger.replies and FakeMessenger.replies[0]['text'].startswith('You are all set')

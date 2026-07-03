@@ -2,9 +2,12 @@ import asyncio
 import typing
 
 import fastapi.testclient
+import pytest
 
-from conciergent import App, AppConfig, MemoryStore, TurnResult
-from conciergent.runner import ChatRunner
+from conciergent import App, AppConfig, TurnResult
+from conciergent.agent.runner import ChatRunner
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 
 
 class SilentAgent:
@@ -21,22 +24,36 @@ class SilentAgent:
         return TurnResult(output='ok', history=[])
 
 
+@pytest.fixture
+def stores(messages_url: str, credentials_url: str) -> dict[str, typing.Any]:
+    # The store objects the App needs; the containers back real Redis and Postgres.
+    return {
+        'message_store': MessageStore.from_url(messages_url),
+        'credential_store': CredentialStore.from_url(credentials_url),
+    }
+
+
+@pytest.fixture
+def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
+    return {'messages_url': messages_url, 'credentials_url': credentials_url}
+
+
 def _client(app: App) -> fastapi.testclient.TestClient:
     return fastapi.testclient.TestClient(app.build_asgi(), follow_redirects=False)
 
 
-def test_healthz():
-    app = App(runner=typing.cast(ChatRunner, SilentAgent()))
+def test_healthz(stores):
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()), **stores)
     assert _client(app).get('/healthz').json() == {'status': 'ok'}
 
 
-def test_mcp_oauth_callback_delivers_the_code():
-    store = MemoryStore()
-    app = App(runner=typing.cast(ChatRunner, SilentAgent()), store=store)
+def test_mcp_oauth_callback_delivers_the_code(stores):
+    message_store: MessageStore = stores['message_store']
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()), **stores)
     client = _client(app)
 
     async def scenario() -> str | None:
-        waiter = asyncio.create_task(store.await_oauth_code('s9', timeout_seconds=5))
+        waiter = asyncio.create_task(message_store.await_oauth_code('s9', timeout_seconds=5))
         await asyncio.sleep(0)
         response = await asyncio.to_thread(client.get, '/oauth/mcp/callback', params={'code': 'c9', 'state': 's9'})
         assert response.status_code == 200
@@ -45,17 +62,18 @@ def test_mcp_oauth_callback_delivers_the_code():
     assert asyncio.run(scenario()) == 'c9'
 
 
-def test_mcp_oauth_callback_rejects_missing_params():
-    app = App(runner=typing.cast(ChatRunner, SilentAgent()))
+def test_mcp_oauth_callback_rejects_missing_params(stores):
+    app = App(runner=typing.cast(ChatRunner, SilentAgent()), **stores)
     assert _client(app).get('/oauth/mcp/callback').status_code == 400
 
 
-def test_from_app_config_mounts_configured_surfaces():
+def test_from_app_config_mounts_configured_surfaces(store_config):
     config = AppConfig.model_validate(
         {
             'agent': {'model': 'test', 'system_prompt': 'x'},
             'slack': {'signing_secret': 'sek', 'client_id': 'cid', 'client_secret': 'cs'},
             'line': {'channel_secret': 'ls', 'channel_access_token': 'lt'},
+            'store': store_config,
         }
     )
     client = _client(App.from_app_config(config))
@@ -66,18 +84,19 @@ def test_from_app_config_mounts_configured_surfaces():
     assert client.post('/line/events', content=b'{}').status_code == 401
 
 
-def test_surfaces_absent_when_not_configured():
-    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent())))
+def test_surfaces_absent_when_not_configured(stores):
+    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent()), **stores))
     assert client.post('/slack/events', content=b'{}').status_code == 404
     assert client.post('/line/events', content=b'{}').status_code == 404
 
 
-def test_gateway_urls_join_the_agent_mcp_servers():
+def test_gateway_urls_join_the_agent_mcp_servers(store_config):
     config = AppConfig.model_validate(
         {
             'agent': {'model': 'test', 'system_prompt': 'x', 'mcp_servers': ['https://example.com/mcp']},
             'gateway': {'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
             'server': {'url': 'https://example.com'},
+            'store': store_config,
         }
     )
     app = App.from_app_config(config)
@@ -85,7 +104,7 @@ def test_gateway_urls_join_the_agent_mcp_servers():
     assert app._runner.mcp_servers == ('https://example.com/mcp', 'https://example.com/petstore/mcp')
 
 
-def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
+def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
     import builtins
 
     real_import = builtins.__import__
@@ -101,6 +120,7 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
     app = App(
         runner=typing.cast(ChatRunner, SilentAgent()),
         gateway=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]),
+        **stores,
     )
     try:
         app.build_asgi()
@@ -110,7 +130,7 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch):
         raise AssertionError('a missing gateway extra should raise')
 
 
-def test_a_custom_surface_mounts_without_touching_app():
+def test_a_custom_surface_mounts_without_touching_app(stores):
     import fastapi as fastapi_module
 
     from conciergent.surfaces import Surface, SurfaceContext
@@ -125,16 +145,18 @@ def test_a_custom_surface_mounts_without_touching_app():
 
             return [router]
 
-    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent()), surfaces=[Teams()]))
+    client = _client(App(runner=typing.cast(ChatRunner, SilentAgent()), surfaces=[Teams()], **stores))
     assert client.post('/teams/events').json() == {'ok': 'yes'}
 
 
-def test_locales_dir_override_rebrands_shipped_text(tmp_path):
+def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     from conciergent import i18n
-    from conciergent.lang import Lang
+    from conciergent.i18n.lang import Lang
 
     (tmp_path / 'zh-TW.yml').write_text('approval:\n  header: 請稍候確認\n', encoding='utf-8')
-    config = AppConfig.model_validate({'agent': {'model': 'test', 'system_prompt': 'x'}, 'locales_dir': str(tmp_path)})
+    config = AppConfig.model_validate(
+        {'agent': {'model': 'test', 'system_prompt': 'x'}, 'locales_dir': str(tmp_path), 'store': store_config}
+    )
     try:
         App.from_app_config(config)
         # The override wins for its one key and language, while untouched keys stay on the shipped catalog.
