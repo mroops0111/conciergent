@@ -31,6 +31,8 @@ class BotToken(Base):
     surface: Mapped[str] = mapped_column(sqlalchemy.String(64), primary_key=True)
     tenant: Mapped[str] = mapped_column(sqlalchemy.String(255), primary_key=True)
     token: Mapped[str] = mapped_column(sqlalchemy.String(512))
+    # The principal of the user who installed the app, kept so a later flow can attribute the install.
+    installed_principal: Mapped[str | None] = mapped_column(sqlalchemy.String(255), nullable=True)
 
 
 class CredentialStore:
@@ -76,6 +78,10 @@ class CredentialStore:
             row = await session.get(BotToken, (surface, tenant))
             return row.token if row is not None else None
 
-    async def set_bot_token(self, surface: str, tenant: str, token: str) -> None:
+    async def set_bot_token(
+        self, surface: str, tenant: str, token: str, *, installed_principal: str | None = None
+    ) -> None:
         async with self._sessions.begin() as session:
-            await session.merge(BotToken(surface=surface, tenant=tenant, token=token))
+            await session.merge(
+                BotToken(surface=surface, tenant=tenant, token=token, installed_principal=installed_principal)
+            )

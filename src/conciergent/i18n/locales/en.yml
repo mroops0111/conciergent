@@ -11,8 +11,10 @@ authorization:
   body: Tap the button below to authorize. Come back to this chat once authorization is complete.
   button: Authorize
 
-slack:
-  processing: Working on it...
+# The two-phase status shown on a suggestion button after the user taps it.
+interaction:
+  processing: "⏳ Processing: {label}"
+  selected: "✓ Selected: {label}"
 
 line:
   welcome: Hi! Send me a message to get started.

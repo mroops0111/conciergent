@@ -76,6 +76,7 @@ class SlackReplySurface(ReplySurface):
         thread_ts: str | None = None,
         response_url: str | None = None,
         interacted_message: dict[str, typing.Any] | None = None,
+        button_label: str = '',
         lang: Lang | None = None,
         brand_color: str = render.BRAND_COLOR,
         destructive_color: str = render.DESTRUCTIVE_COLOR,
@@ -85,9 +86,12 @@ class SlackReplySurface(ReplySurface):
         self._thread_ts = thread_ts
         self._response_url = response_url
         self._interacted_message = interacted_message
+        self._button_label = button_label
         self._lang = lang
         self._brand_color = brand_color
         self._destructive_color = destructive_color
+        # Set once show_processing patches the clicked message; the next send finalizes it to "selected".
+        self._processing_active = False
 
     @property
     @typing.override
@@ -101,10 +105,12 @@ class SlackReplySurface(ReplySurface):
 
     @typing.override
     async def send_text(self, text: str) -> None:
+        await self._finalize_processing_if_active()
         await self._messenger.post_message(self._channel, {'text': text}, thread_ts=self._thread_ts)
 
     @typing.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
+        await self._finalize_processing_if_active()
         payload = render.build_card_payload(
             card, destructive=destructive, brand_color=self._brand_color, destructive_color=self._destructive_color
         )
@@ -112,21 +118,39 @@ class SlackReplySurface(ReplySurface):
 
     @typing.override
     async def send_carousel(self, cards: list[Card]) -> None:
+        await self._finalize_processing_if_active()
         payload = render.build_carousel_payload(cards, brand_color=self._brand_color)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)
 
     @typing.override
     async def show_processing(self) -> None:
-        """Patch the interacted message to disable its buttons, a no-op on plain message events."""
+        """Patch the clicked message to disable its buttons and show a processing line, a no-op on plain events.
+
+        The next reply replaces that line with a "selected" line via the finalize helper.
+        """
         if self._response_url is None or self._interacted_message is None:
             return
         # The patch is cosmetic and must never abort the turn.
         try:
-            status_text = i18n.t('slack.processing', self._lang)
+            status_text = i18n.t('interaction.processing', self._lang, label=self._button_label)
             patch = render.build_processing_patch(self._interacted_message, status_text)
             await self._messenger.respond_via_response_url(self._response_url, patch)
         except Exception:
             logger.warning('Slack processing patch failed', exc_info=True)
+            return
+        self._processing_active = True
+
+    async def _finalize_processing_if_active(self) -> None:
+        # Replace the "processing" line show_processing appended with the "selected" line, then clear the flag.
+        if not self._processing_active or self._response_url is None or self._interacted_message is None:
+            return
+        self._processing_active = False
+        try:
+            status_text = i18n.t('interaction.selected', self._lang, label=self._button_label)
+            patch = render.build_processing_patch(self._interacted_message, status_text)
+            await self._messenger.respond_via_response_url(self._response_url, patch)
+        except Exception:
+            logger.warning('Slack selected patch failed', exc_info=True)
 
 
 class SlackOAuthBridge(StatefulOAuthBridge):

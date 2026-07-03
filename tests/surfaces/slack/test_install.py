@@ -55,9 +55,9 @@ async def test_callback_with_unknown_state_fails(harness) -> None:
 async def test_callback_stores_the_bot_token(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, credential_store = harness
 
-    async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
+    async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str, str | None]:
         assert code == 'the-code'
-        return 'T77', 'xoxb-77'
+        return 'T77', 'xoxb-77', 'slack:T77:U9'
 
     monkeypatch.setattr(install, '_exchange_code', fake_exchange)
     state = await _issued_state(client)
@@ -66,10 +66,17 @@ async def test_callback_stores_the_bot_token(harness, monkeypatch: pytest.Monkey
     assert await credential_store.resolve_bot_token(ChatSurface.slack, 'T77') == 'xoxb-77'
 
 
+async def test_callback_with_error_param_fails(harness) -> None:
+    client, _ = harness
+    state = await _issued_state(client)
+    response = await client.get('/oauth/slack/callback', params={'error': 'access_denied', 'state': state})
+    assert response.status_code == 400
+
+
 async def test_exchange_failure_renders_the_failure_page(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = harness
 
-    async def failing_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
+    async def failing_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str, str | None]:
         raise RuntimeError('invalid_code')
 
     monkeypatch.setattr(install, '_exchange_code', failing_exchange)
@@ -81,8 +88,8 @@ async def test_exchange_failure_renders_the_failure_page(harness, monkeypatch: p
 async def test_state_is_single_use(harness, monkeypatch: pytest.MonkeyPatch) -> None:
     client, _ = harness
 
-    async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str]:
-        return 'T77', 'xoxb-77'
+    async def fake_exchange(code: str, **kwargs: typing.Any) -> tuple[str, str, str | None]:
+        return 'T77', 'xoxb-77', None
 
     monkeypatch.setattr(install, '_exchange_code', fake_exchange)
     state = await _issued_state(client)

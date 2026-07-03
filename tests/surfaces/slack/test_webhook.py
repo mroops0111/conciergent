@@ -196,27 +196,27 @@ async def test_suggestion_interaction_runs_the_prompt(harness) -> None:
     assert FakeMessenger.patches, 'the interacted message is patched to show processing'
 
 
-async def test_open_interaction_allows_a_fresh_click(harness) -> None:
+async def test_open_interaction_dedupes_per_action_id(harness) -> None:
     client, agent, _, credential_store = harness
     await _install(credential_store)
 
-    def body_for(action_ts: str) -> bytes:
+    def body_for(action_id: str) -> bytes:
         payload = {
             'type': 'block_actions',
             'team': {'id': 'T1'},
             'user': {'id': 'U1'},
             'channel': {'id': 'D1'},
             'message': {'ts': '111.222'},
-            'actions': [{'action_id': 'suggestion:open:0:0', 'value': 'refresh', 'action_ts': action_ts}],
+            'actions': [{'action_id': action_id, 'value': 'refresh'}],
         }
         return urllib.parse.urlencode({'payload': json.dumps(payload)}).encode()
 
-    first = body_for('1000.1')
-    redelivery = body_for('1000.1')
-    fresh_click = body_for('2000.2')
-    await client.post('/slack/interactions', content=first, headers=_signed_headers(first))
-    await client.post('/slack/interactions', content=redelivery, headers=_signed_headers(redelivery))
-    await client.post('/slack/interactions', content=fresh_click, headers=_signed_headers(fresh_click))
+    first = body_for('suggestion:open:0:0')
+    reclick = body_for('suggestion:open:0:0')
+    other_button = body_for('suggestion:open:0:1')
+    for body in (first, reclick, other_button):
+        await client.post('/slack/interactions', content=body, headers=_signed_headers(body))
+    # An open button dedupes on re-click; a different button on the same message still dispatches.
     assert agent.inputs == ['refresh', 'refresh']
 
 

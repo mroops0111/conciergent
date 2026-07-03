@@ -9,8 +9,9 @@ authorization:
   body: 請點下方按鈕完成授權，授權完成後再回到這裡繼續。
   button: 前往授權
 
-slack:
-  processing: 處理中...
+interaction:
+  processing: "⏳ 處理中：{label}"
+  selected: "✓ 已選擇：{label}"
 
 line:
   welcome: 嗨！傳個訊息給我就可以開始了。

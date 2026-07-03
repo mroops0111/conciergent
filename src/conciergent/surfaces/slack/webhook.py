@@ -122,6 +122,7 @@ def build_router(
             user_text=action.get('value', ''),
             response_url=payload.get('response_url'),
             interacted_message=message,
+            button_label=(action.get('text') or {}).get('text') or action.get('value', ''),
         )
         return {}
 
@@ -142,6 +143,7 @@ async def _dispatch_turn(
     user_text: str,
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
+    button_label: str = '',
 ) -> None:
     bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
@@ -158,6 +160,7 @@ async def _dispatch_turn(
             thread_ts=thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
+            button_label=button_label,
             lang=lang,
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
@@ -223,6 +226,6 @@ def _interaction_dedupe_key(
     if scope == 'exclusive':
         # An exclusive pick consumes the whole message, so every button shares one key.
         return f'slack:interaction:{channel}:{message_ts}'
-    # The per-click action_ts keeps redeliveries deduplicated while a fresh click stays usable.
+    # An open button is dedup'd per action_id, so each distinct button dispatches at most once.
     action = (payload.get('actions') or [{}])[0]
-    return f'slack:interaction:{channel}:{message_ts}:{action.get("action_id", "")}:{action.get("action_ts", "")}'
+    return f'slack:interaction:{channel}:{message_ts}:{action.get("action_id", "")}'

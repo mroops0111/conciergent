@@ -9,7 +9,7 @@ import httpx
 
 from conciergent import i18n
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.identity import ChatSurface
+from conciergent.identity import ChatSurface, make_principal
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -58,21 +58,27 @@ def build_install_router(
 
     @router.get('/oauth/slack/callback')
     async def callback(
-        code: str = '', state: str = '', accept_language: str = fastapi.Header(default='')
+        code: str = '', state: str = '', error: str = '', accept_language: str = fastapi.Header(default='')
     ) -> fastapi.responses.HTMLResponse:
         lang = parse_accept_language(accept_language)
-        issued = await message_store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
-        if not code or issued is None:
+        # Slack sends ``error`` when the user declines the install; treat it like any other failed return.
+        if error or not code or not state:
+            return _page(lang, 'install.failed', status_code=400)
+        if await message_store.take_approval(f'{_STATE_KEY_PREFIX}:{state}') is None:
             return _page(lang, 'install.failed', status_code=400)
         try:
-            team_id, bot_token = await _exchange_code(
+            team_id, bot_token, installed_principal = await _exchange_code(
                 code, client_id=settings.client_id, client_secret=settings.client_secret, redirect_uri=redirect_uri
             )
         except (RuntimeError, httpx.HTTPError):
             # A stale or already-consumed code is a routine OAuth ending, not a server error.
             logger.warning('Slack install code exchange failed', exc_info=True)
             return _page(lang, 'install.failed', status_code=400)
-        await credential_store.set_bot_token(ChatSurface.slack, team_id, bot_token)
+        if not team_id or not bot_token:
+            return _page(lang, 'install.failed', status_code=400)
+        await credential_store.set_bot_token(
+            ChatSurface.slack, team_id, bot_token, installed_principal=installed_principal
+        )
         return _page(lang, 'install.completed')
 
     return router
@@ -84,7 +90,9 @@ def _page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.res
     return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
 
 
-async def _exchange_code(code: str, *, client_id: str, client_secret: str, redirect_uri: str) -> tuple[str, str]:
+async def _exchange_code(
+    code: str, *, client_id: str, client_secret: str, redirect_uri: str
+) -> tuple[str, str, str | None]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             _ACCESS_URL,
@@ -99,4 +107,8 @@ async def _exchange_code(code: str, *, client_id: str, client_secret: str, redir
     data = response.json()
     if not data.get('ok'):
         raise RuntimeError(f'Slack oauth.v2.access failed: {data.get("error")}')
-    return data['team']['id'], data['access_token']
+    team_id = (data.get('team') or {}).get('id') or ''
+    bot_token = data.get('access_token') or ''
+    authed_user_id = (data.get('authed_user') or {}).get('id') or ''
+    installed_principal = make_principal(ChatSurface.slack, team_id, authed_user_id) if team_id and authed_user_id else None
+    return team_id, bot_token, installed_principal
