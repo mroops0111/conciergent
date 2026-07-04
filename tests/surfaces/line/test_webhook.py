@@ -45,9 +45,7 @@ async def test_follow_greets_ready_after_a_fresh_authorization(
     assert harness.replies and harness.replies[0]['text'] == i18n.t('follow.ready', None)
 
 
-async def test_bad_signature_is_rejected(
-    harness: LineHarness, message_event: BuildEvent, line_body: BuildBody
-) -> None:
+async def test_bad_signature_is_rejected(harness: LineHarness, message_event: BuildEvent, line_body: BuildBody) -> None:
     body = line_body(message_event())
 
     response = await harness.client.post('/line/events', content=body, headers={'X-Line-Signature': 'bogus'})

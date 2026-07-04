@@ -137,7 +137,12 @@ def event_body() -> collections.abc.Callable[..., bytes]:
 @pytest.fixture
 def interaction_body() -> collections.abc.Callable[..., bytes]:
     def _body(
-        action_id: str, *, value: str, message_ts: str = MESSAGE_TS, text: str | None = None, response_url: str | None = None
+        action_id: str,
+        *,
+        value: str,
+        message_ts: str = MESSAGE_TS,
+        text: str | None = None,
+        response_url: str | None = None,
     ) -> bytes:
         message: dict[str, typing.Any] = {'ts': message_ts}
         if text is not None:

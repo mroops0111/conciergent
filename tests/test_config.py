@@ -39,7 +39,11 @@ def test_env_references_resolve(
         {
             **_MINIMAL_CONFIG,
             'surface': {
-                'slack': {'enabled': True, 'signing_secret': '${TEST_SIGNING}', 'bot_token': '${TEST_MISSING:-fallback-token}'},
+                'slack': {
+                    'enabled': True,
+                    'signing_secret': '${TEST_SIGNING}',
+                    'bot_token': '${TEST_MISSING:-fallback-token}',
+                },
             },
         }
     )

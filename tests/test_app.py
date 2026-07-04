@@ -166,7 +166,9 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     (tmp_path / 'zh-TW.yml').write_text(
         yaml.safe_dump({'approval': {'header': override_header}}, allow_unicode=True), encoding='utf-8'
     )
-    config = _app_config(store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}}, locales_dir=str(tmp_path))
+    config = _app_config(
+        store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}}, locales_dir=str(tmp_path)
+    )
 
     try:
         App.from_app_config(config)

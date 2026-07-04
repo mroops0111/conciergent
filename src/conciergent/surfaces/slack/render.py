@@ -52,7 +52,9 @@ def build_card_blocks(
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': card.footnote}]})
     if card.links:
         blocks.append(_build_links_block(card.links))
-    suggestions = _build_suggestions_block(card.suggestions, scope=scope, card_index=card_index, destructive=destructive)
+    suggestions = _build_suggestions_block(
+        card.suggestions, scope=scope, card_index=card_index, destructive=destructive
+    )
     if suggestions is not None:
         blocks.append(suggestions)
     return blocks

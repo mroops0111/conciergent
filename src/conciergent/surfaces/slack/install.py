@@ -84,7 +84,9 @@ def build_install_router(
     return router
 
 
-def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200, workspace: str = '') -> fastapi.responses.HTMLResponse:
+def _callback_page(
+    lang: Lang | None, key: str, *, status_code: int = 200, workspace: str = ''
+) -> fastapi.responses.HTMLResponse:
     title = i18n.t(f'{key}.title', lang, workspace=workspace)
     body = i18n.t(f'{key}.body', lang, workspace=workspace)
     return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
@@ -112,5 +114,7 @@ async def _exchange_code(
     team_name = team.get('name') or ''
     bot_token = data.get('access_token') or ''
     authed_user_id = (data.get('authed_user') or {}).get('id') or ''
-    installed_principal = make_principal(ChatSurface.slack, team_id, authed_user_id) if team_id and authed_user_id else None
+    installed_principal = (
+        make_principal(ChatSurface.slack, team_id, authed_user_id) if team_id and authed_user_id else None
+    )
     return team_id, team_name, bot_token, installed_principal
