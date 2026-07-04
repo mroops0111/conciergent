@@ -23,9 +23,9 @@ class Slack(Surface):
         client_secret: str = '',
         scopes: collections.abc.Sequence[str] = DEFAULT_SCOPES,
         bot_token: str = '',
-        brand_color: str = DEFAULTS.surface.brand_color,
-        destructive_color: str = DEFAULTS.surface.destructive_color,
-        api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds,
+        brand_color: str = DEFAULTS.surface.slack.brand_color,
+        destructive_color: str = DEFAULTS.surface.slack.destructive_color,
+        api_timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds,
     ) -> None:
         self._signing_secret = signing_secret
         self._client_id = client_id

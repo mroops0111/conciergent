@@ -9,7 +9,7 @@ import yaml
 
 from conciergent import App, AppConfig, TurnResult, i18n
 from conciergent.agent.runner import ChatRunner
-from conciergent.config import GatewaySettings, GatewaySpec
+from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
@@ -50,7 +50,7 @@ def _silent_app(stores: dict[str, typing.Any], **overrides: typing.Any) -> App:
 
 def _app_config(store_config: dict[str, str], **sections: typing.Any) -> AppConfig:
     agent = {'model': 'test', 'system_prompt': 'x', **sections.pop('agent', {})}
-    return AppConfig.model_validate({'agent': agent, 'store': store_config, **sections})
+    return build_app_config({'agent': agent, 'store': store_config, **sections})
 
 
 def _client(app: App) -> fastapi.testclient.TestClient:
@@ -88,8 +88,10 @@ def test_mcp_oauth_callback_rejects_missing_params(stores):
 def test_from_app_config_mounts_configured_surfaces(store_config):
     config = _app_config(
         store_config,
-        slack={'signing_secret': 'sek', 'client_id': 'cid', 'client_secret': 'cs'},
-        line={'channel_secret': 'ls', 'channel_access_token': 'lt'},
+        surface={
+            'slack': {'enabled': True, 'signing_secret': 'sek', 'client_id': 'cid', 'client_secret': 'cs'},
+            'line': {'enabled': True, 'channel_secret': 'ls', 'channel_access_token': 'lt'},
+        },
     )
 
     client = _client(App.from_app_config(config))
@@ -113,8 +115,8 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
     config = _app_config(
         store_config,
         agent={'mcp_servers': [mcp_server]},
-        slack={'signing_secret': 'sek'},
-        gateway={'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
+        surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
+        gateway={'enabled': True, 'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
         server={'url': 'https://example.com'},
     )
 
@@ -133,7 +135,9 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, '__import__', no_gateway)
-    app = _silent_app(stores, gateway_settings=GatewaySettings(specs=[GatewaySpec(name='petstore', spec='./x.json')]))
+    app = _silent_app(
+        stores, gateway_settings=GatewaySettings(enabled=True, specs=[GatewaySpec(name='petstore', spec='./x.json')])
+    )
 
     with pytest.raises(RuntimeError, match=r'conciergent\[gateway\]'):
         app.build_asgi()
@@ -162,7 +166,7 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     (tmp_path / 'zh-TW.yml').write_text(
         yaml.safe_dump({'approval': {'header': override_header}}, allow_unicode=True), encoding='utf-8'
     )
-    config = _app_config(store_config, slack={'signing_secret': 'sek'}, locales_dir=str(tmp_path))
+    config = _app_config(store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}}, locales_dir=str(tmp_path))
 
     try:
         App.from_app_config(config)

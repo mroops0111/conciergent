@@ -30,7 +30,7 @@ class LineMessenger:
     """A thin async client for the handful of LINE Messaging API calls the surface needs."""
 
     def __init__(
-        self, channel_access_token: str, *, timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+        self, channel_access_token: str, *, timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=_API_BASE_URL,

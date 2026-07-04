@@ -20,7 +20,7 @@ _API_BASE_URL = 'https://slack.com/api'
 class SlackMessenger:
     """A thin async client for the handful of Slack Web API calls the surface needs."""
 
-    def __init__(self, bot_token: str, *, timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds) -> None:
+    def __init__(self, bot_token: str, *, timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds) -> None:
         self._client = httpx.AsyncClient(
             base_url=_API_BASE_URL,
             timeout=timeout_seconds,

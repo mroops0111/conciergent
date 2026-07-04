@@ -1,40 +1,39 @@
-# A fully commented conciergent configuration.
-# Required and commonly-set fields are uncommented; every commented line shows its shipped default,
-# so you only uncomment what you want to change. Secrets come from the environment via ${VAR} or ${VAR:-default}.
+# A conciergent configuration, deep-merged over the shipped defaults.
+# Set what you need; commented lines show the shipped default.
+# Secrets come from the environment via ${VAR} or ${VAR:-default}, and a surface runs only when its `enabled` is true.
 
-# Where the webhook app listens, and the public URL external services reach it at.
 server:
   host: 127.0.0.1                   # 0.0.0.0 to accept connections from other hosts
   port: 8000
   # url: https://your-public-url    # the public URL external services reach; defaults from host/port
 
 agent:
-  model: gemini-3-flash
+  model: gpt-4o-mini
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers:
     - http://localhost:9000/mcp
   # input_token_limit: 1048576      # set to enable history compaction; unset means no compaction
-  # mcp_read_timeout_seconds: 120   # how long one MCP tool call may run
+  # mcp_read_timeout_seconds: 120
   # client_name: conciergent        # name shown on the MCP OAuth screen
 
-slack:
-  signing_secret: ${SLACK_SIGNING_SECRET}
-  # A single-workspace bot only needs bot_token. For multi-workspace install, set client_id/secret
-  # and point the Slack app's redirect at {server.url}/oauth/slack/callback.
-  bot_token: ${SLACK_BOT_TOKEN:-}
-  # client_id: ${SLACK_CLIENT_ID:-}
-  # client_secret: ${SLACK_CLIENT_SECRET:-}
-  # brand_color: '#586af2'
-  # destructive_color: '#DC3545'
-  # api_timeout_seconds: 30
-
-# line:
-#   channel_secret: ${LINE_CHANNEL_SECRET}
-#   channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
-#   brand_color: '#586af2'
-#   destructive_color: '#DC3545'
-#   api_timeout_seconds: 30
+surface:
+  slack:
+    enabled: true
+    signing_secret: ${SLACK_SIGNING_SECRET}
+    # bot_token: ${SLACK_BOT_TOKEN:-}         # a single-workspace bot only needs this
+    # client_id: ${SLACK_CLIENT_ID:-}         # set client_id/secret for the multi-workspace install flow
+    # client_secret: ${SLACK_CLIENT_SECRET:-}
+    # brand_color: '#586af2'
+    # destructive_color: '#DC3545'
+    # api_timeout_seconds: 30
+  line:
+    enabled: false
+    # channel_secret: ${LINE_CHANNEL_SECRET}
+    # channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
+    # brand_color: '#586af2'
+    # destructive_color: '#DC3545'
+    # api_timeout_seconds: 30
 
 # Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
 # while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.
@@ -43,10 +42,11 @@ store:
   credentials_url: ${CONCIERGENT_CREDENTIALS_URL:-postgresql+asyncpg://localhost/conciergent}
   # max_turns: 10                   # how many recent turns to keep in history
 
-# gateway:                          # optional: embed openapi-mcp-gateway so a spec becomes MCP tools
-#   specs:
-#     - name: petstore
-#       spec: ./petstore.json
+gateway:
+  enabled: false
+  # specs:                          # embed openapi-mcp-gateway so a spec becomes MCP tools
+  #   - name: petstore
+  #     spec: ./petstore.json
 
 # conversation:
 #   approval_ttl_seconds: 600       # how long a pending approval waits for a decision

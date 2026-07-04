@@ -4,8 +4,8 @@ from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Link, Section, Suggestion
 
 
-BRAND_COLOR = DEFAULTS.surface.brand_color
-DESTRUCTIVE_COLOR = DEFAULTS.surface.destructive_color
+BRAND_COLOR = DEFAULTS.surface.slack.brand_color
+DESTRUCTIVE_COLOR = DEFAULTS.surface.slack.destructive_color
 
 # The action_id prefixes tagging an interactive element, so the webhook routes a click back to its source.
 SUGGESTION_ACTION_PREFIX = 'suggestion'

@@ -15,9 +15,9 @@ class Line(Surface):
         *,
         channel_secret: str,
         channel_access_token: str,
-        brand_color: str = DEFAULTS.surface.brand_color,
-        destructive_color: str = DEFAULTS.surface.destructive_color,
-        api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds,
+        brand_color: str = DEFAULTS.surface.line.brand_color,
+        destructive_color: str = DEFAULTS.surface.line.destructive_color,
+        api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds,
     ) -> None:
         self._channel_secret = channel_secret
         self._channel_access_token = channel_access_token

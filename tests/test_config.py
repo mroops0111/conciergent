@@ -27,7 +27,7 @@ def test_minimal_config_validates(write_config: collections.abc.Callable[[dict[s
     config = build_app_config(yaml_layer(write_config(_MINIMAL_CONFIG)))
 
     assert config.agent.model == 'gemini-3-flash'
-    assert config.slack is None
+    assert config.surface.slack.enabled is False
     assert config.server.url == 'http://127.0.0.1:8000'
 
 
@@ -38,15 +38,17 @@ def test_env_references_resolve(
     path = write_config(
         {
             **_MINIMAL_CONFIG,
-            'slack': {'signing_secret': '${TEST_SIGNING}', 'bot_token': '${TEST_MISSING:-fallback-token}'},
+            'surface': {
+                'slack': {'enabled': True, 'signing_secret': '${TEST_SIGNING}', 'bot_token': '${TEST_MISSING:-fallback-token}'},
+            },
         }
     )
 
     config = build_app_config(yaml_layer(path))
 
-    assert config.slack is not None
-    assert config.slack.signing_secret == 'sek'
-    assert config.slack.bot_token == 'fallback-token'
+    assert config.surface.slack.enabled is True
+    assert config.surface.slack.signing_secret == 'sek'
+    assert config.surface.slack.bot_token == 'fallback-token'
 
 
 def test_later_layers_win(write_config: collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]):
@@ -61,19 +63,13 @@ def test_store_requires_both_urls():
         build_app_config({'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': {'messages_url': 'redis://x'}})
 
 
-def test_empty_secret_fails_fast():
-    # An unset env var resolves to an empty string, which must not silently become a forgeable secret.
+def test_enabled_surface_requires_its_secret():
+    # An empty secret would make every webhook signature forgeable, so an enabled surface must set one.
+    with pytest.raises(ValueError):
+        build_app_config({'store': _STORE, 'surface': {'slack': {'enabled': True, 'signing_secret': ''}}})
     with pytest.raises(ValueError):
         build_app_config(
-            {'agent': {'model': 'm', 'system_prompt': 'p'}, 'store': _STORE, 'slack': {'signing_secret': ''}}
-        )
-    with pytest.raises(ValueError):
-        build_app_config(
-            {
-                'agent': {'model': 'm', 'system_prompt': 'p'},
-                'store': _STORE,
-                'line': {'channel_secret': '', 'channel_access_token': 't'},
-            }
+            {'store': _STORE, 'surface': {'line': {'enabled': True, 'channel_secret': '', 'channel_access_token': 't'}}}
         )
 
 
@@ -93,9 +89,10 @@ def test_gateway_specs_parse():
 def test_non_text_knobs_parse_and_default_to_the_shipped_values():
     config = build_app_config(
         {
-            'agent': {'model': 'm', 'system_prompt': 'p'},
-            'slack': {'signing_secret': 's', 'brand_color': '#123456'},
-            'line': {'channel_secret': 'cs', 'channel_access_token': 't'},
+            'surface': {
+                'slack': {'enabled': True, 'signing_secret': 's', 'brand_color': '#123456'},
+                'line': {'enabled': True, 'channel_secret': 'cs', 'channel_access_token': 't'},
+            },
             'conversation': {'approval_ttl_seconds': 900},
             'store': {**_STORE, 'max_turns': 20},
         }
@@ -103,10 +100,10 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
 
     # An unset knob resolves to the real value from defaults.yml, not an empty sentinel.
     assert config.agent.mcp_read_timeout_seconds == 120.0
-    assert config.slack is not None and config.slack.brand_color == '#123456'
-    assert config.slack.destructive_color == '#DC3545'
-    assert config.slack.api_timeout_seconds == 30.0
-    assert config.line is not None and config.line.brand_color == '#586af2'
+    assert config.surface.slack.brand_color == '#123456'
+    assert config.surface.slack.destructive_color == '#DC3545'
+    assert config.surface.slack.api_timeout_seconds == 30.0
+    assert config.surface.line.brand_color == '#586af2'
     assert config.conversation.approval_ttl_seconds == 900
     assert config.conversation.history_ttl_seconds == 604800
     assert config.conversation.oauth_wait_timeout_seconds == 240.0
@@ -120,6 +117,6 @@ def test_shipped_example_config_validates(monkeypatch: pytest.MonkeyPatch):
 
     config = build_app_config(yaml_layer(example))
 
-    assert config.slack is not None
+    assert config.surface.slack.enabled is True
     assert config.store.messages_url and config.store.credentials_url
     assert (config.server.host, config.server.port) == (DEFAULTS.server.host, DEFAULTS.server.port)

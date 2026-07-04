@@ -71,7 +71,7 @@ class App:
         credential_store = CredentialStore.from_url(config.store.credentials_url)
         redirect_uri = f'{config.server.url.rstrip("/")}/oauth/mcp/callback'
         mcp_servers = list(config.agent.mcp_servers)
-        if config.gateway is not None:
+        if config.gateway.enabled:
             # Each embedded spec is served by this same process, so the agent dials back into itself.
             mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
         runner = ChatRunner(
@@ -86,9 +86,9 @@ class App:
         compactor: HistorySummarizer | None = None
         if config.agent.input_token_limit is not None:
             compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
-        surfaces = [settings.build() for settings in config.surface_settings()]
+        surfaces = config.surface.enabled_surfaces()
         if not surfaces:
-            raise ValueError('configure at least one surface: add a slack or line section')
+            raise ValueError('enable at least one surface: set surface.slack.enabled or surface.line.enabled')
         return cls(
             runner=runner,
             message_store=message_store,
@@ -106,7 +106,9 @@ class App:
         )
 
     def build_asgi(self) -> fastapi.FastAPI:
-        gateway = _build_gateway(self._gateway_settings) if self._gateway_settings is not None else None
+        gateway = None
+        if self._gateway_settings is not None and self._gateway_settings.enabled:
+            gateway = _build_gateway(self._gateway_settings)
 
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:

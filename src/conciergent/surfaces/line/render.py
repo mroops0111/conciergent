@@ -4,8 +4,8 @@ from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Link, Suggestion
 
 
-BRAND_COLOR = DEFAULTS.surface.brand_color
-DESTRUCTIVE_COLOR = DEFAULTS.surface.destructive_color
+BRAND_COLOR = DEFAULTS.surface.line.brand_color
+DESTRUCTIVE_COLOR = DEFAULTS.surface.line.destructive_color
 
 # Mid-gray for bullet list items inside a card body, slightly darker than the body text for gentle hierarchy.
 BULLET_TEXT_COLOR = '#555555'

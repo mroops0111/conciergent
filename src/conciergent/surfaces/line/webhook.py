@@ -33,7 +33,7 @@ class LineWebhookSettings(typing.NamedTuple):
     approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
     history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
     oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
-    api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
+    api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
 

@@ -1,40 +1,55 @@
+# The base config every run starts from; a user's conciergent.yml is deep-merged on top of it.
+# Required fields are left empty here so validation fails fast until the user sets them.
+
 server:
-  # The address the webhook app binds to; use 0.0.0.0 to accept connections from other hosts.
   host: 127.0.0.1
-  # The port the webhook app listens on.
   port: 8000
+  url: ''
 
 agent:
-  # How long an MCP tool call may run before it times out, in seconds.
+  model: gpt-4o-mini
+  system_prompt: |
+    You are a helpful assistant. Use your tools to answer the user's requests.
+  mcp_servers: []
+  input_token_limit: null
   mcp_read_timeout_seconds: 120
-  # The app name shown on the MCP server's OAuth authorization screen.
-  # Override with your own product name so users see who is asking, not the framework.
   client_name: conciergent
 
 surface:
-  # The accent color of reply cards.
-  brand_color: '#586af2'
-  # The accent color of destructive-action confirmation cards.
-  destructive_color: '#DC3545'
-  # How long a call to a surface's chat API may run before it times out, in seconds.
-  api_timeout_seconds: 30
+  slack:
+    enabled: false
+    signing_secret: ''
+    client_id: ''
+    client_secret: ''
+    bot_token: ''
+    brand_color: '#586af2'
+    destructive_color: '#DC3545'
+    api_timeout_seconds: 30
+  line:
+    enabled: false
+    channel_secret: ''
+    channel_access_token: ''
+    brand_color: '#586af2'
+    destructive_color: '#DC3545'
+    api_timeout_seconds: 30
 
 store:
-  # How many of the most recent conversation turns to keep in history.
+  messages_url: ''
+  credentials_url: ''
   max_turns: 10
 
+gateway:
+  enabled: false
+  specs: []
+
 conversation:
-  # How long a parked human-in-the-loop approval waits for a decision before it expires, in seconds.
   approval_ttl_seconds: 600
-  # How long conversation history is retained, in seconds (one week).
   history_ttl_seconds: 604800
-  # How long an in-chat OAuth handoff blocks waiting for the user to finish authorizing, in seconds.
-  # Authorization codes expire within minutes, so keep this below any outer MCP initialization timeout,
-  # and a timeout then surfaces here as a clear expiry instead of being swallowed by an outer cancellation.
   oauth_wait_timeout_seconds: 240
 
 logger:
-  # The lowest level to emit, one of DEBUG, INFO, WARNING, ERROR, CRITICAL.
   level: INFO
-  # The log line format, text for humans or json for one object per line.
   format: text
+  file: null
+
+locales_dir: null
