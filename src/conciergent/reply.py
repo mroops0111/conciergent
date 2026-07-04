@@ -160,7 +160,7 @@ class Carousel(pydantic.BaseModel):
     ]
 
 
-# The terminal output of a turn, either plain text, a single card, or a carousel of cards.
+# The terminal output of a turn.
 Reply = str | Card | Carousel
 
 

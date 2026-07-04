@@ -4,7 +4,7 @@ from conciergent import TurnResult
 
 
 class EchoAgent:
-    # Stands in for ChatRunner across the surface webhook tests: records each call and echoes the input back.
+    # Stands in for ChatRunner across the surface webhook tests, recording each call and echoing the input back.
     def __init__(self) -> None:
         self.inputs: list[str] = []
         self.bootstrapped: list[str] = []
