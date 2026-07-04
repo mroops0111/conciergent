@@ -1,22 +1,18 @@
 import importlib.resources
+import typing
 
 import pydantic
 import yaml
 
 
-class ConversationDefaults(pydantic.BaseModel):
-    approval_ttl_seconds: int
-    history_ttl_seconds: int
-    oauth_wait_timeout_seconds: float
+class ServerDefaults(pydantic.BaseModel):
+    host: str
+    port: int
 
 
 class AgentDefaults(pydantic.BaseModel):
     mcp_read_timeout_seconds: float
     client_name: str
-
-
-class StoreDefaults(pydantic.BaseModel):
-    max_turns: int
 
 
 class SurfaceDefaults(pydantic.BaseModel):
@@ -25,11 +21,28 @@ class SurfaceDefaults(pydantic.BaseModel):
     api_timeout_seconds: float
 
 
+class StoreDefaults(pydantic.BaseModel):
+    max_turns: int
+
+
+class ConversationDefaults(pydantic.BaseModel):
+    approval_ttl_seconds: int
+    history_ttl_seconds: int
+    oauth_wait_timeout_seconds: float
+
+
+class LoggerDefaults(pydantic.BaseModel):
+    level: str
+    format: typing.Literal['text', 'json']
+
+
 class Defaults(pydantic.BaseModel):
-    conversation: ConversationDefaults
+    server: ServerDefaults
     agent: AgentDefaults
-    store: StoreDefaults
     surface: SurfaceDefaults
+    store: StoreDefaults
+    conversation: ConversationDefaults
+    logger: LoggerDefaults
 
 
 def _load() -> Defaults:

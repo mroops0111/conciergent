@@ -3,14 +3,15 @@ import json
 import logging
 import os
 import sys
+import typing
 
 
 LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
 FORMATS = ('text', 'json')
 TEXT_FORMAT = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 
-# Loggers whose own handlers are cleared so their records propagate through this configuration:
-# conciergent's own tree, the embedded gateway, and the servers it runs under.
+# Loggers whose own handlers are cleared so their records propagate through this configuration,
+# namely conciergent's own tree, the embedded gateway, and the servers it runs under.
 MANAGED_PREFIXES = ('conciergent', 'openapi_mcp_gateway', 'uvicorn', 'mcp')
 
 LEVEL_COLORS = {
@@ -32,6 +33,7 @@ def iso_time(record: logging.LogRecord) -> str:
 class JsonFormatter(logging.Formatter):
     """Emit one JSON object per log line (time, level, logger, message)."""
 
+    @typing.override
     def format(self, record: logging.LogRecord) -> str:
         return json.dumps(
             {
@@ -54,6 +56,7 @@ class TextFormatter(logging.Formatter):
         super().__init__(TEXT_FORMAT)
         self.use_color = use_color
 
+    @typing.override
     def format(self, record: logging.LogRecord) -> str:
         if not self.use_color:
             return super().format(record)

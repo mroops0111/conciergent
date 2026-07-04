@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from conciergent.config import build_app_config, yaml_layer
+from conciergent.defaults import DEFAULTS
 
 
 _STORE = {'messages_url': 'redis://localhost:6379/0', 'credentials_url': 'postgresql+asyncpg://localhost/db'}
@@ -110,3 +111,15 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
     assert config.conversation.history_ttl_seconds == 604800
     assert config.conversation.oauth_wait_timeout_seconds == 240.0
     assert config.store.max_turns == 20
+
+
+def test_shipped_example_config_validates(monkeypatch: pytest.MonkeyPatch):
+    # The documented example must stay loadable and show the shipped defaults, guarding against config drift.
+    monkeypatch.setenv('SLACK_SIGNING_SECRET', 'dummy')
+    example = pathlib.Path(__file__).parents[1] / 'examples' / 'conciergent.yml'
+
+    config = build_app_config(yaml_layer(example))
+
+    assert config.slack is not None
+    assert config.store.messages_url and config.store.credentials_url
+    assert (config.server.host, config.server.port) == (DEFAULTS.server.host, DEFAULTS.server.port)

@@ -50,6 +50,7 @@ class SlackSettings(SurfaceSettings):
     destructive_color: str = DEFAULTS.surface.destructive_color
     api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
 
+    @typing.override
     def build(self) -> Surface:
         return Slack(
             signing_secret=self.signing_secret,
@@ -75,6 +76,7 @@ class LineSettings(SurfaceSettings):
     destructive_color: str = DEFAULTS.surface.destructive_color
     api_timeout_seconds: float = DEFAULTS.surface.api_timeout_seconds
 
+    @typing.override
     def build(self) -> Surface:
         return Line(
             channel_secret=self.channel_secret,
@@ -123,16 +125,16 @@ class ConversationSettings(pydantic.BaseModel):
 class LoggerSettings(pydantic.BaseModel):
     """How the process logs, applied once at startup by ``conciergent.logger.setup``."""
 
-    level: str = 'INFO'
-    format: typing.Literal['text', 'json'] = 'text'
+    level: str = DEFAULTS.logger.level
+    format: typing.Literal['text', 'json'] = DEFAULTS.logger.format
     file: str | None = None
 
 
 class ServerSettings(pydantic.BaseModel):
     """Where the webhook app listens, and the public URL external services reach it at."""
 
-    host: str = '127.0.0.1'
-    port: int = 8000
+    host: str = DEFAULTS.server.host
+    port: int = DEFAULTS.server.port
     url: str = ''
 
     @pydantic.model_validator(mode='after')

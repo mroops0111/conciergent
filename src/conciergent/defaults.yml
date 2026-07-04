@@ -1,3 +1,28 @@
+server:
+  # The address the webhook app binds to; use 0.0.0.0 to accept connections from other hosts.
+  host: 127.0.0.1
+  # The port the webhook app listens on.
+  port: 8000
+
+agent:
+  # How long an MCP tool call may run before it times out, in seconds.
+  mcp_read_timeout_seconds: 120
+  # The app name shown on the MCP server's OAuth authorization screen.
+  # Override with your own product name so users see who is asking, not the framework.
+  client_name: conciergent
+
+surface:
+  # The accent color of reply cards.
+  brand_color: '#586af2'
+  # The accent color of destructive-action confirmation cards.
+  destructive_color: '#DC3545'
+  # How long a call to a surface's chat API may run before it times out, in seconds.
+  api_timeout_seconds: 30
+
+store:
+  # How many of the most recent conversation turns to keep in history.
+  max_turns: 10
+
 conversation:
   # How long a parked human-in-the-loop approval waits for a decision before it expires, in seconds.
   approval_ttl_seconds: 600
@@ -8,21 +33,8 @@ conversation:
   # and a timeout then surfaces here as a clear expiry instead of being swallowed by an outer cancellation.
   oauth_wait_timeout_seconds: 240
 
-agent:
-  # How long an MCP tool call may run before it times out, in seconds.
-  mcp_read_timeout_seconds: 120
-  # The app name shown on the MCP server's OAuth authorization screen.
-  # Override with your own product name so users see who is asking, not the framework.
-  client_name: conciergent
-
-store:
-  # How many of the most recent conversation turns to keep in history.
-  max_turns: 10
-
-surface:
-  # The accent color of reply cards.
-  brand_color: '#586af2'
-  # The accent color of destructive-action confirmation cards.
-  destructive_color: '#DC3545'
-  # How long a call to a surface's chat API may run before it times out, in seconds.
-  api_timeout_seconds: 30
+logger:
+  # The lowest level to emit, one of DEBUG, INFO, WARNING, ERROR, CRITICAL.
+  level: INFO
+  # The log line format, text for humans or json for one object per line.
+  format: text
