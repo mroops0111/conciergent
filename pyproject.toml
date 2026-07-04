@@ -89,7 +89,6 @@ ignore = [
     "T201",   # print statements
     "B008",   # do not perform function calls in argument defaults
     "RUF012", # mutable class attributes should be annotated with ClassVar
-    "S603",   # subprocess call; fires on any Popen even with a fixed argv (cloudflared tunnel)
 ]
 
 fixable = ["ALL"]
@@ -124,10 +123,6 @@ split-on-trailing-comma = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-m 'not smoke'"
-markers = [
-    "smoke: external-dependency smoke tests (live Slack/LINE/MCP endpoints); skipped by default. Run explicitly with `pytest -m smoke`.",
-]
 
 [tool.basedpyright]
 venvPath = "."

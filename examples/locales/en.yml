@@ -1,7 +1,7 @@
 # An example locale override, holding the shipped English defaults so you can edit any line to rebrand it.
 # Only the keys you keep here override the catalog; delete the rest and they stay on the shipped text.
-# Add another file like zh-TW.yml in this directory to translate, and point config at it with
-# `locales_dir: ./examples/locales`. conciergent picks each user's language from their Slack or LINE profile.
+# Add another file like zh-TW.yml here to translate, and point config at it with `locales_dir: ./examples/locales`.
+# conciergent picks each user's language from their Slack or LINE profile.
 
 # The in-chat OAuth prompt pushed into a LINE conversation.
 line:

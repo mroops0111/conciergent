@@ -92,7 +92,7 @@ class MessageStore:
         if timeout_seconds <= 0:
             # BLPOP treats a zero timeout as block-forever, so a non-positive wait checks once instead.
             popped_now = await self._redis.lpop(f'{_PREFIX}:oauth-code:{state}')
-            return _text(popped_now) if isinstance(popped_now, (bytes, str)) else None
+            return _text(popped_now) if isinstance(popped_now, bytes | str) else None
         popped = await self._redis.blpop([f'{_PREFIX}:oauth-code:{state}'], timeout=timeout_seconds)
         if popped is None:
             return None

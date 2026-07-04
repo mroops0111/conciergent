@@ -64,7 +64,7 @@ async def test_reply_passes_through_and_serialises_history():
     result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
 
     assert not isinstance(result.output, PendingApproval)
-    assert isinstance(result.output, (str, Card, Carousel))
+    assert isinstance(result.output, str | Card | Carousel)
     assert isinstance(result.history, list) and result.history
 
 
