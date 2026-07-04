@@ -1,0 +1,32 @@
+# Create a Slack app from this manifest at https://api.slack.com/apps (Create New App, From a manifest).
+# Replace YOUR-PUBLIC-URL with the public URL your conciergent server is reachable at.
+#
+# conciergent replies to users in direct messages only, through the message.im event below.
+# The in-chat OAuth authorization for MCP tools also happens in that DM.
+# So the bot needs only im scopes, not channel scopes, and channel scopes will not make it reply in channels.
+display_information:
+  name: My conciergent bot
+features:
+  bot_user:
+    display_name: my-conciergent-bot
+    always_online: true
+oauth_config:
+  redirect_urls:
+    - https://YOUR-PUBLIC-URL/oauth/slack/callback
+  scopes:
+    bot:
+      - chat:write
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+settings:
+  event_subscriptions:
+    request_url: https://YOUR-PUBLIC-URL/slack/events
+    bot_events:
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR-PUBLIC-URL/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false

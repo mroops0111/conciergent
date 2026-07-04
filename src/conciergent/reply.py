@@ -3,17 +3,53 @@ import typing
 
 import pydantic
 
+from conciergent.i18n.lang import Lang
 
-class Link(pydantic.BaseModel):
-    """A labelled hyperlink, rendered as a link or a button depending on the surface."""
+
+class Section(pydantic.BaseModel):
+    """A block of body text within a card, with an optional bulleted list."""
 
     text: typing.Annotated[
         str,
         pydantic.Field(
-            min_length=1, max_length=50, description='The visible label for the link, at most 50 characters.'
+            min_length=1,
+            max_length=100,
+            description='One paragraph of plain text, at most 100 characters. No markdown.',
         ),
     ]
-    url: typing.Annotated[str, pydantic.Field(description='The destination URL, an absolute http(s) URL.')]
+    bullets: list[str] = pydantic.Field(
+        default_factory=list,
+        max_length=10,
+        description=(
+            'A list of items. Each item should be a single short statement. '
+            'Provide only the item content. '
+            'The renderer adds the bullet marker. '
+            'Do not prefix items with `•`, `-`, `*`, or any other bullet character.'
+        ),
+    )
+
+    @pydantic.model_validator(mode='after')
+    def _require_text_or_bullets(self) -> typing.Self:
+        if not self.text and not self.bullets:
+            raise ValueError('Section must have `text`, and optionally `bullets`.')
+        return self
+
+
+class Link(pydantic.BaseModel):
+    """A labelled hyperlink, rendered as a link or a button depending on the surface."""
+
+    label: typing.Annotated[
+        str,
+        pydantic.Field(
+            min_length=1,
+            max_length=50,
+            description='Button label, at most 50 characters. A short verb-led phrase such as "Open Task".',
+        ),
+    ]
+    url: typing.Annotated[
+        str,
+        pydantic.Field(description='Target URL the user reaches when activating the button.'),
+    ]
 
 
 class Suggestion(pydantic.BaseModel):
@@ -25,7 +61,12 @@ class Suggestion(pydantic.BaseModel):
     label: typing.Annotated[
         str,
         pydantic.Field(
-            min_length=1, max_length=50, description='Short button text shown to the user, at most 50 characters.'
+            min_length=1,
+            max_length=50,
+            description=(
+                'Button label that the user sees, at most 50 characters, e.g. "Show details" or "List more". '
+                'Be precise if the suggestion is about a specific entity (e.g. "Show details of NDA-Acme").'
+            ),
         ),
     ]
     prompt: typing.Annotated[
@@ -33,57 +74,73 @@ class Suggestion(pydantic.BaseModel):
         pydantic.Field(
             min_length=1,
             max_length=100,
-            description='The message sent back to the agent when the user taps this suggestion, at most 100 characters.',
-        ),
-    ]
-    exclusive: typing.Annotated[
-        bool,
-        pydantic.Field(
             description=(
-                'If true, selecting this suggestion consumes the whole message, for example a pick-one choice, '
-                'and the other suggestions on the message stop accepting input.'
+                'Text posted to the agent as if the user typed it when the button is tapped, at most 100 characters. '
+                'Phrase it as a natural follow-up question in the user\'s language, e.g. "Show details of NDA-Acme".'
             ),
         ),
-    ] = False
-
-
-class Section(pydantic.BaseModel):
-    """A block of text within a card."""
-
-    text: typing.Annotated[
-        str,
-        pydantic.Field(
-            min_length=1,
-            max_length=100,
-            description='Body text for this section, at most 100 characters. Keep it concise, one idea per section.',
-        ),
     ]
-    heading: typing.Annotated[
-        str | None,
-        pydantic.Field(max_length=40, description='Optional bold heading shown above the text, at most 40 characters.'),
-    ] = None
 
 
 class Card(pydantic.BaseModel):
-    """A rich reply with an optional title, text sections, and optional links and suggestions."""
+    """A rich reply with a header, text sections, an optional hero image, and optional links and suggestions."""
 
-    title: typing.Annotated[
+    header: typing.Annotated[
+        str,
+        pydantic.Field(
+            min_length=1,
+            max_length=40,
+            description=(
+                'Concise one-line title, at most 40 characters. '
+                'For a single card, a category label like "Tasks" or "Task Status". '
+                'For a carousel option, the entity name (e.g. a template or task name). '
+                'Keep it a short label or name, never a sentence or description.'
+            ),
+        ),
+    ]
+    hero_image_url: typing.Annotated[
         str | None,
-        pydantic.Field(max_length=40, description='Optional card title, a short label of at most 40 characters.'),
+        pydantic.Field(
+            description=(
+                'Optional hero image rendered above the header. '
+                'Use for a single-entity card that has a thumbnail (a task detail, a template, a seal, etc.). '
+                'Skip for list cards.'
+            ),
+        ),
     ] = None
     sections: list[Section] = pydantic.Field(
-        default_factory=list, max_length=6, description='Ordered content blocks, at most 6.'
-    )
-    links: list[Link] = pydantic.Field(
-        default_factory=list, max_length=5, description='Optional link or button actions, at most 5.'
-    )
-    suggestions: list[Suggestion] = pydantic.Field(
-        default_factory=list, max_length=3, description='Optional quick replies offered to the user, at most 3.'
+        min_length=1,
+        max_length=6,
+        description='Body content. Rendered top to bottom.',
     )
     footnote: typing.Annotated[
         str | None,
-        pydantic.Field(max_length=100, description='Optional small print shown at the bottom, at most 100 characters.'),
+        pydantic.Field(
+            max_length=100,
+            description=(
+                'Optional small note rendered under the body for caveats or context, at most 100 characters. '
+                'Example: "Active templates only" or "Last refreshed 5 minutes ago". '
+                'Keep it concise.'
+            ),
+        ),
     ] = None
+    links: list[Link] = pydantic.Field(
+        default_factory=list,
+        max_length=5,
+        description=(
+            'Optional URL buttons rendered after the body. '
+            'The first link is emphasized as the primary action; put the most likely next action first.'
+        ),
+    )
+    suggestions: list[Suggestion] = pydantic.Field(
+        default_factory=list,
+        max_length=3,
+        description=(
+            'Optional quick-reply buttons. '
+            "Tapping one posts the suggestion's prompt back to the agent as a user message. "
+            'Use to nudge a likely follow-up question.'
+        ),
+    )
 
 
 class Carousel(pydantic.BaseModel):
@@ -103,7 +160,7 @@ class Carousel(pydantic.BaseModel):
     ]
 
 
-# The terminal output of a turn, either plain text, a single card, or a carousel of cards.
+# The terminal output of a turn.
 Reply = str | Card | Carousel
 
 
@@ -121,6 +178,15 @@ class ReplySurface(abc.ABC):
         For example, the markdown dialect the surface understands; empty by default.
         """
         return ''
+
+    @property
+    def lang(self) -> Lang | None:
+        """The user's resolved UI language for this conversation, or None when the surface cannot tell.
+
+        The agent renders localized text and asks the model to reply in this language.
+        None falls back to English and to the language of the user's own message.
+        """
+        return None
 
     @abc.abstractmethod
     async def send_text(self, text: str) -> None: ...

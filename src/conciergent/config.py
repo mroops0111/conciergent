@@ -6,6 +6,26 @@ import typing
 import pydantic
 import yaml
 
+from conciergent.defaults import defaults_layer
+from conciergent.surfaces.base import Surface
+from conciergent.surfaces.line.app import Line
+from conciergent.surfaces.slack.app import Slack
+
+
+class ServerSettings(pydantic.BaseModel):
+    """Where the webhook app listens, and the public URL external services reach it at."""
+
+    host: str
+    port: int
+    url: str = ''
+
+    @pydantic.model_validator(mode='after')
+    def _default_url(self) -> typing.Self:
+        if not self.url:
+            host = 'localhost' if self.host == '0.0.0.0' else self.host
+            self.url = f'http://{host}:{self.port}'
+        return self
+
 
 class AgentSettings(pydantic.BaseModel):
     """The batteries-included agent, a model plus a prompt plus MCP server URLs."""
@@ -13,56 +33,92 @@ class AgentSettings(pydantic.BaseModel):
     model: str
     system_prompt: str
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
-    token_limit: int | None = None
+    input_token_limit: int | None = None
+    mcp_read_timeout_seconds: float
+    client_name: str
 
 
 class SlackSettings(pydantic.BaseModel):
     """Slack app credentials, created once in the Slack app dashboard.
 
-    An empty secret would make every webhook signature forgeable, so required fields reject it,
-    catching an unset environment variable at startup instead.
+    UI text is not configured here, it lives in the locale catalog so it can be translated (see ``locales_dir``).
     """
 
-    signing_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
+    enabled: bool = False
+    signing_secret: str = ''
     client_id: str = ''
     client_secret: str = ''
-    scopes: list[str] = pydantic.Field(
-        default_factory=lambda: ['chat:write', 'im:history', 'im:read', 'im:write', 'users:read']
-    )
     bot_token: str = ''
+    brand_color: str
+    destructive_color: str
+    api_timeout_seconds: float
+
+    @pydantic.model_validator(mode='after')
+    def _require_secret_when_enabled(self) -> typing.Self:
+        # An empty secret would make every webhook signature forgeable, so an enabled surface must set one.
+        if self.enabled and not self.signing_secret:
+            raise ValueError('surface.slack.signing_secret is required when slack is enabled')
+        return self
+
+    def build(self) -> Surface:
+        return Slack(
+            signing_secret=self.signing_secret,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bot_token=self.bot_token,
+            brand_color=self.brand_color,
+            destructive_color=self.destructive_color,
+            api_timeout_seconds=self.api_timeout_seconds,
+        )
 
 
 class LineSettings(pydantic.BaseModel):
-    """LINE Messaging API channel credentials, created once in the LINE developers console.
+    """LINE Messaging API channel credentials, created once in the LINE developers console."""
 
-    An empty secret would make every webhook signature forgeable, so both fields reject it,
-    catching an unset environment variable at startup instead.
-    """
+    enabled: bool = False
+    channel_secret: str = ''
+    channel_access_token: str = ''
+    brand_color: str
+    destructive_color: str
+    api_timeout_seconds: float
 
-    channel_secret: typing.Annotated[str, pydantic.Field(min_length=1)]
-    channel_access_token: typing.Annotated[str, pydantic.Field(min_length=1)]
+    @pydantic.model_validator(mode='after')
+    def _require_credentials_when_enabled(self) -> typing.Self:
+        if self.enabled and not (self.channel_secret and self.channel_access_token):
+            raise ValueError('surface.line channel_secret and channel_access_token are required when line is enabled')
+        return self
+
+    def build(self) -> Surface:
+        return Line(
+            channel_secret=self.channel_secret,
+            channel_access_token=self.channel_access_token,
+            brand_color=self.brand_color,
+            destructive_color=self.destructive_color,
+            api_timeout_seconds=self.api_timeout_seconds,
+        )
+
+
+class SurfaceSettings(pydantic.BaseModel):
+    """The chat surfaces, each turned on by its own ``enabled`` flag."""
+
+    slack: SlackSettings
+    line: LineSettings
+
+    def enabled_surfaces(self) -> list[Surface]:
+        return [settings.build() for settings in (self.slack, self.line) if settings.enabled]
 
 
 class StoreSettings(pydantic.BaseModel):
-    """Which state backend to run on, the in-memory default needs no infrastructure.
+    """Where state lives, split by sensitivity across two backends.
 
-    The composite type splits by sensitivity, message-bearing state (history, approvals, dedupe,
-    OAuth handoff) goes to ``messages`` and long-lived credentials go to ``credentials``,
-    so conversations stay on expiring storage while tokens survive restarts.
+    Message-bearing state (history, approvals, dedupe, OAuth handoff) goes to the Redis ``messages_url``
+    and ages out on its own, while long-lived credentials (MCP tokens and clients, bot tokens) go to the
+    SQL ``credentials_url`` and survive restarts.
     """
 
-    type: typing.Literal['memory', 'redis', 'postgres', 'composite'] = 'memory'
-    url: str = ''
-    messages: str = ''
-    credentials: str = ''
-
-    @pydantic.model_validator(mode='after')
-    def _require_backend_urls(self) -> typing.Self:
-        if self.type in ('redis', 'postgres') and not self.url:
-            raise ValueError(f'store.url is required for the {self.type} backend')
-        if self.type == 'composite' and (not self.messages or not self.credentials):
-            raise ValueError('the composite store needs both store.messages and store.credentials URLs')
-        return self
+    messages_url: typing.Annotated[str, pydantic.Field(min_length=1)]
+    credentials_url: typing.Annotated[str, pydantic.Field(min_length=1)]
+    max_turns: int
 
 
 class GatewaySpec(pydantic.BaseModel):
@@ -76,33 +132,38 @@ class GatewaySpec(pydantic.BaseModel):
 class GatewaySettings(pydantic.BaseModel):
     """Embed openapi-mcp-gateway in process, so a spec file becomes MCP tools without a separate server."""
 
-    specs: list[GatewaySpec]
+    enabled: bool = False
+    specs: list[GatewaySpec] = pydantic.Field(default_factory=list)
 
 
-class ServerSettings(pydantic.BaseModel):
-    """Where the webhook app listens, and the public URL external services reach it at."""
+class ConversationSettings(pydantic.BaseModel):
+    """How long conversation state lives, matching the reference defaults."""
 
-    host: str = '127.0.0.1'
-    port: int = 8000
-    url: str = ''
+    approval_ttl_seconds: int
+    history_ttl_seconds: int
+    oauth_wait_timeout_seconds: float
 
-    @pydantic.model_validator(mode='after')
-    def _default_url(self) -> typing.Self:
-        if not self.url:
-            host = 'localhost' if self.host == '0.0.0.0' else self.host
-            self.url = f'http://{host}:{self.port}'
-        return self
+
+class LoggerSettings(pydantic.BaseModel):
+    """How the process logs, applied once at startup by ``conciergent.logger.setup``."""
+
+    level: str
+    format: typing.Literal['text', 'json']
+    file: str | None = None
 
 
 class AppConfig(pydantic.BaseModel):
     """The whole conciergent configuration, one agent plus surfaces plus a server."""
 
+    server: ServerSettings
     agent: AgentSettings
-    slack: SlackSettings | None = None
-    line: LineSettings | None = None
-    store: StoreSettings = pydantic.Field(default_factory=StoreSettings)
-    gateway: GatewaySettings | None = None
-    server: ServerSettings = pydantic.Field(default_factory=ServerSettings)
+    surface: SurfaceSettings
+    store: StoreSettings
+    gateway: GatewaySettings
+    conversation: ConversationSettings
+    logger: LoggerSettings
+    # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
+    locales_dir: str | None = None
 
 
 def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:
@@ -112,8 +173,8 @@ def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:
 
 
 def build_app_config(*layers: dict[str, typing.Any]) -> AppConfig:
-    """Merge config layers left to right, later layers win, then validate the result."""
-    merged: dict[str, typing.Any] = {}
+    """Deep-merge the given layers over the shipped defaults, later layers win, then validate the result."""
+    merged = defaults_layer()
     for layer in layers:
         merged = _deep_merge(merged, layer)
     return AppConfig.model_validate(merged)

@@ -21,7 +21,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --extra dev --extra redis --extra postgres
+      - run: uv sync --extra dev
       - run: uv run ruff check src/ tests/
       - run: uv run ruff format --check src/ tests/
 
@@ -33,7 +33,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --extra dev --extra redis --extra postgres
+      - run: uv sync --extra dev
       - run: uv run basedpyright src/ tests/
 
   test:
@@ -42,14 +42,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --extra dev --extra redis --extra postgres
+      - run: uv sync --extra dev
       - run: uv run pytest tests/ -v --tb=short
 
   build:

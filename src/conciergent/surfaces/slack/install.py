@@ -7,8 +7,11 @@ import fastapi
 import fastapi.responses
 import httpx
 
-from ...identity import ChatSurface
-from ...stores.base import Store
+from conciergent import i18n
+from conciergent.i18n.lang import Lang, parse_accept_language
+from conciergent.identity import ChatSurface, make_principal
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 
 
 _AUTHORIZE_URL = 'https://slack.com/oauth/v2/authorize'
@@ -28,17 +31,21 @@ class SlackInstallSettings(typing.NamedTuple):
     base_url: str
 
 
-def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fastapi.APIRouter:
-    """Build the workspace install routes, persisting the bot token per team through the store."""
+def build_install_router(
+    *, settings: SlackInstallSettings, message_store: MessageStore, credential_store: CredentialStore
+) -> fastapi.APIRouter:
+    """Build the workspace install routes, stashing the CSRF state in Redis and persisting the bot token in SQL."""
     router = fastapi.APIRouter()
     redirect_uri = f'{settings.base_url.rstrip("/")}/oauth/slack/callback'
 
     @router.get('/oauth/slack/install')
     async def install() -> fastapi.responses.RedirectResponse:
         state = secrets.token_urlsafe(32)
-        # The approval store doubles as the CSRF stash,
+        # The approval parking lot doubles as the CSRF stash,
         # park and take give the same one-shot set-with-ttl and consume semantics the state check needs.
-        await store.park_approval(f'{_STATE_KEY_PREFIX}:{state}', {'issued': True}, ttl_seconds=_STATE_TTL_SECONDS)
+        await message_store.park_approval(
+            f'{_STATE_KEY_PREFIX}:{state}', {'issued': True}, ttl_seconds=_STATE_TTL_SECONDS
+        )
         query = urllib.parse.urlencode(
             {
                 'client_id': settings.client_id,
@@ -50,25 +57,44 @@ def build_install_router(*, settings: SlackInstallSettings, store: Store) -> fas
         return fastapi.responses.RedirectResponse(f'{_AUTHORIZE_URL}?{query}')
 
     @router.get('/oauth/slack/callback')
-    async def callback(code: str = '', state: str = '') -> fastapi.responses.HTMLResponse:
-        issued = await store.take_approval(f'{_STATE_KEY_PREFIX}:{state}')
-        if not code or issued is None:
-            return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
+    async def callback(
+        code: str = '', state: str = '', error: str = '', accept_language: str = fastapi.Header(default='')
+    ) -> fastapi.responses.HTMLResponse:
+        lang = parse_accept_language(accept_language)
+        # Slack sends ``error`` when the user declines the install; treat it like any other failed return.
+        if error or not code or not state:
+            return _callback_page(lang, 'slack.install.failed', status_code=400)
+        if await message_store.take_approval(f'{_STATE_KEY_PREFIX}:{state}') is None:
+            return _callback_page(lang, 'slack.install.failed', status_code=400)
         try:
-            team_id, bot_token = await _exchange_code(
+            team_id, team_name, bot_token, installed_principal = await _exchange_code(
                 code, client_id=settings.client_id, client_secret=settings.client_secret, redirect_uri=redirect_uri
             )
         except (RuntimeError, httpx.HTTPError):
             # A stale or already-consumed code is a routine OAuth ending, not a server error.
             logger.warning('Slack install code exchange failed', exc_info=True)
-            return fastapi.responses.HTMLResponse('<h1>Installation failed</h1>', status_code=400)
-        await store.set_bot_token(ChatSurface.slack, team_id, bot_token)
-        return fastapi.responses.HTMLResponse('<h1>Installed. You can close this window.</h1>')
+            return _callback_page(lang, 'slack.install.failed', status_code=400)
+        if not team_id or not bot_token:
+            return _callback_page(lang, 'slack.install.failed', status_code=400)
+        await credential_store.set_bot_token(
+            ChatSurface.slack, team_id, bot_token, installed_principal=installed_principal
+        )
+        return _callback_page(lang, 'slack.install.completed', workspace=team_name)
 
     return router
 
 
-async def _exchange_code(code: str, *, client_id: str, client_secret: str, redirect_uri: str) -> tuple[str, str]:
+def _callback_page(
+    lang: Lang | None, key: str, *, status_code: int = 200, workspace: str = ''
+) -> fastapi.responses.HTMLResponse:
+    title = i18n.t(f'{key}.title', lang, workspace=workspace)
+    body = i18n.t(f'{key}.body', lang, workspace=workspace)
+    return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
+
+
+async def _exchange_code(
+    code: str, *, client_id: str, client_secret: str, redirect_uri: str
+) -> tuple[str, str, str, str | None]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
             _ACCESS_URL,
@@ -83,4 +109,12 @@ async def _exchange_code(code: str, *, client_id: str, client_secret: str, redir
     data = response.json()
     if not data.get('ok'):
         raise RuntimeError(f'Slack oauth.v2.access failed: {data.get("error")}')
-    return data['team']['id'], data['access_token']
+    team = data.get('team') or {}
+    team_id = team.get('id') or ''
+    team_name = team.get('name') or ''
+    bot_token = data.get('access_token') or ''
+    authed_user_id = (data.get('authed_user') or {}).get('id') or ''
+    installed_principal = (
+        make_principal(ChatSurface.slack, team_id, authed_user_id) if team_id and authed_user_id else None
+    )
+    return team_id, team_name, bot_token, installed_principal

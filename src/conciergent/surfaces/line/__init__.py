@@ -1,5 +1,5 @@
-from .surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
-from .webhook import LineWebhookSettings, build_router
+from conciergent.surfaces.line.surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
+from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
 
 __all__ = [

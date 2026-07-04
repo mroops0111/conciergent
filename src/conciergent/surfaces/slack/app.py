@@ -1,17 +1,19 @@
 import collections.abc
+import typing
 
 import fastapi
 
-from ..base import Surface, SurfaceContext
-from .install import SlackInstallSettings, build_install_router
-from .webhook import SlackWebhookSettings, build_router
-
-
-_DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')
+from conciergent.defaults import DEFAULTS
+from conciergent.surfaces.base import Surface, SurfaceContext
+from conciergent.surfaces.slack.install import SlackInstallSettings, build_install_router
+from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
 
 
 class Slack(Surface):
     """The Slack platform, webhook routes plus the optional multi-workspace install flow."""
+
+    # The scopes the bot needs to function, so they are fixed by the surface rather than configured.
+    DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')
 
     def __init__(
         self,
@@ -19,21 +21,38 @@ class Slack(Surface):
         signing_secret: str,
         client_id: str = '',
         client_secret: str = '',
-        scopes: collections.abc.Sequence[str] = _DEFAULT_SCOPES,
+        scopes: collections.abc.Sequence[str] = DEFAULT_SCOPES,
         bot_token: str = '',
+        brand_color: str = DEFAULTS.surface.slack.brand_color,
+        destructive_color: str = DEFAULTS.surface.slack.destructive_color,
+        api_timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds,
     ) -> None:
         self._signing_secret = signing_secret
         self._client_id = client_id
         self._client_secret = client_secret
         self._scopes = tuple(scopes)
         self._bot_token = bot_token
+        self._brand_color = brand_color
+        self._destructive_color = destructive_color
+        self._api_timeout_seconds = api_timeout_seconds
 
+    @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
         routers = [
             build_router(
-                settings=SlackWebhookSettings(signing_secret=self._signing_secret, fallback_bot_token=self._bot_token),
-                store=context.store,
-                agent=context.agent,
+                settings=SlackWebhookSettings(
+                    signing_secret=self._signing_secret,
+                    fallback_bot_token=self._bot_token,
+                    approval_ttl_seconds=context.approval_ttl_seconds,
+                    history_ttl_seconds=context.history_ttl_seconds,
+                    oauth_wait_timeout_seconds=context.oauth_wait_timeout_seconds,
+                    api_timeout_seconds=self._api_timeout_seconds,
+                    brand_color=self._brand_color,
+                    destructive_color=self._destructive_color,
+                ),
+                message_store=context.message_store,
+                credential_store=context.credential_store,
+                runner=context.runner,
                 compactor=context.compactor,
             )
         ]
@@ -46,7 +65,8 @@ class Slack(Surface):
                         scopes=self._scopes,
                         base_url=context.base_url,
                     ),
-                    store=context.store,
+                    message_store=context.message_store,
+                    credential_store=context.credential_store,
                 )
             )
         return routers

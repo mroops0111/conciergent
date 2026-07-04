@@ -1,0 +1,31 @@
+server:
+  host: 127.0.0.1
+  port: 8300
+
+agent:
+  model: gpt-4o-mini
+  system_prompt: |
+    You are a helpful assistant. Use your tools to answer the user's requests.
+  mcp_servers:
+    - http://localhost:8000/mcp
+
+# A surface runs only when its `enabled` is true.
+surface:
+  slack:
+    enabled: true
+    signing_secret: ${SLACK_SIGNING_SECRET}
+    client_id: ${SLACK_CLIENT_ID:-}
+    client_secret: ${SLACK_CLIENT_SECRET:-}
+    bot_token: ${SLACK_BOT_TOKEN:-}
+  # line:
+  #   enabled: true
+  #   channel_secret: ${LINE_CHANNEL_SECRET}
+  #   channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
+
+# Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
+# while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.
+store:
+  messages_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}
+  credentials_url: ${CONCIERGENT_CREDENTIALS_URL:-postgresql+asyncpg://localhost/conciergent}
+
+# See examples/conciergent.yml for every tunable: colors, timeouts, logger, gateway, and locales_dir.

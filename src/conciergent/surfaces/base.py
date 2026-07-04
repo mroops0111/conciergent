@@ -3,17 +3,24 @@ import typing
 
 import fastapi
 
-from ..runtime import ChatAgent, HistoryCompactor
-from ..stores.base import Store
+from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.runner import ChatRunner
+from conciergent.defaults import DEFAULTS
+from conciergent.store.credential import CredentialStore
+from conciergent.store.message import MessageStore
 
 
 class SurfaceContext(typing.NamedTuple):
     """Everything the application hands a surface when it mounts."""
 
-    store: Store
-    agent: ChatAgent
-    compactor: HistoryCompactor | None
+    message_store: MessageStore
+    credential_store: CredentialStore
+    runner: ChatRunner
+    compactor: HistorySummarizer | None
     base_url: str
+    approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds
+    history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds
+    oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
 
 
 class Surface(abc.ABC):

@@ -13,8 +13,7 @@ def make_principal(surface: ChatSurface | str, *parts: str) -> str:
 
     For example, ``make_principal(ChatSurface.slack, team_id, user_id)`` yields ``'slack:T1:U1'``.
 
-    Segments are joined with ``':'``, so a segment containing a colon is rejected to keep
-    ``parse_principal`` an exact inverse.
+    Segments are joined with ``':'``, so a segment containing a colon is rejected for reversibility.
     """
     surface_value = surface.value if isinstance(surface, ChatSurface) else surface
     segments = [surface_value, *parts]

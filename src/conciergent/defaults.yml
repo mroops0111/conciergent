@@ -1,0 +1,55 @@
+# The base config every run starts from; a user's conciergent.yml is deep-merged on top of it.
+# Required fields are left empty here so validation fails fast until the user sets them.
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  url: ''
+
+agent:
+  model: gpt-4o-mini
+  system_prompt: |
+    You are a helpful assistant. Use your tools to answer the user's requests.
+  mcp_servers: []
+  input_token_limit: null
+  mcp_read_timeout_seconds: 120
+  client_name: conciergent
+
+surface:
+  slack:
+    enabled: false
+    signing_secret: ''
+    client_id: ''
+    client_secret: ''
+    bot_token: ''
+    brand_color: '#586af2'
+    destructive_color: '#DC3545'
+    api_timeout_seconds: 30
+  line:
+    enabled: false
+    channel_secret: ''
+    channel_access_token: ''
+    brand_color: '#586af2'
+    destructive_color: '#DC3545'
+    api_timeout_seconds: 30
+
+store:
+  messages_url: ''
+  credentials_url: ''
+  max_turns: 10
+
+gateway:
+  enabled: false
+  specs: []
+
+conversation:
+  approval_ttl_seconds: 600
+  history_ttl_seconds: 604800
+  oauth_wait_timeout_seconds: 240
+
+logger:
+  level: INFO
+  format: text
+  file: null
+
+locales_dir: null
