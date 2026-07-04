@@ -34,8 +34,10 @@ def _slot(messenger: FakeMessenger, *, reply_token: str | None = 'tok') -> Reply
 async def test_first_send_uses_reply_then_push():
     messenger = FakeMessenger()
     slot = _slot(messenger)
+
     await slot.send({'type': 'text', 'text': 'one'})
     await slot.send({'type': 'text', 'text': 'two'})
+
     assert [m['text'] for m in messenger.replies] == ['one']
     assert [m['text'] for m in messenger.pushes] == ['two']
 
@@ -43,7 +45,9 @@ async def test_first_send_uses_reply_then_push():
 async def test_failed_reply_falls_back_to_push():
     messenger = FakeMessenger(reply_fails=True)
     slot = _slot(messenger)
+
     await slot.send({'type': 'text', 'text': 'one'})
+
     assert messenger.replies == []
     assert [m['text'] for m in messenger.pushes] == ['one']
 
@@ -51,7 +55,9 @@ async def test_failed_reply_falls_back_to_push():
 async def test_without_token_everything_pushes():
     messenger = FakeMessenger()
     slot = _slot(messenger, reply_token=None)
+
     await slot.send({'type': 'text', 'text': 'one'})
+
     assert messenger.replies == []
     assert len(messenger.pushes) == 1
 
@@ -59,9 +65,11 @@ async def test_without_token_everything_pushes():
 async def test_card_with_suggestions_gets_quick_reply_chips():
     messenger = FakeMessenger()
     surface = LineReplySurface(_slot(messenger))
+
     await surface.send_card(
         Card(header='T', sections=[Section(text='b')], suggestions=[Suggestion(label='More', prompt='more')])
     )
+
     message = messenger.replies[0]
     assert message['type'] == 'flex'
     assert message['quickReply']['items'][0]['action']['text'] == 'more'
@@ -70,11 +78,23 @@ async def test_card_with_suggestions_gets_quick_reply_chips():
 async def test_destructive_card_has_no_chips():
     messenger = FakeMessenger()
     surface = LineReplySurface(_slot(messenger))
+
     await surface.send_card(
         Card(header='T', sections=[Section(text='b')], suggestions=[Suggestion(label='Yes', prompt='Yes')]),
         destructive=True,
     )
+
     assert 'quickReply' not in messenger.replies[0]
+
+
+async def test_text_is_sent_as_one_message():
+    messenger = FakeMessenger()
+    surface = LineReplySurface(_slot(messenger))
+
+    await surface.send_text('x' * 5001)
+
+    sent = [*messenger.replies, *messenger.pushes]
+    assert [len(message['text']) for message in sent] == [5001]
 
 
 async def test_processing_failure_is_swallowed():
@@ -83,25 +103,21 @@ async def test_processing_failure_is_swallowed():
             raise RuntimeError('nope')
 
     surface = LineReplySurface(_slot(ExplodingMessenger()))
+
     await surface.show_processing()
 
 
-async def test_text_is_sent_as_one_message():
-    messenger = FakeMessenger()
-    surface = LineReplySurface(_slot(messenger))
-    await surface.send_text('x' * 5001)
-    sent = [*messenger.replies, *messenger.pushes]
-    assert [len(message['text']) for message in sent] == [5001]
-
-
 async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
+    state = 's1'
+    authorize_url = f'https://example.com/authorize?state={state}'
     messenger = FakeMessenger()
-    slot = _slot(messenger)
-    bridge = LineOAuthBridge(message_store, slot)
-    await message_store.deliver_oauth_code('s1', 'code-1')
-    code = await bridge.request_authorization('https://example.com/authorize?state=s1')
+    bridge = LineOAuthBridge(message_store, _slot(messenger))
+    await message_store.deliver_oauth_code(state, 'code-1')
+
+    code = await bridge.request_authorization(authorize_url)
+
     assert code == 'code-1'
     rendered = messenger.replies[0]
     assert rendered['type'] == 'flex'
     button = rendered['contents']['footer']['contents'][0]
-    assert button['action']['uri'] == 'https://example.com/authorize?state=s1'
+    assert button['action']['uri'] == authorize_url

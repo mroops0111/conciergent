@@ -5,12 +5,17 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     TextPart,
+    ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
 from conciergent.agent.compactor import HistorySummarizer
+
+
+_SUMMARY = 'the summary'
 
 
 def _history(*, latest_input_tokens: int) -> list[typing.Any]:
@@ -24,9 +29,7 @@ def _history(*, latest_input_tokens: int) -> list[typing.Any]:
 
 
 def _compactor(input_token_limit: int = 1000) -> HistorySummarizer:
-    return HistorySummarizer(
-        TestModel(call_tools=[], custom_output_text='the summary'), input_token_limit=input_token_limit
-    )
+    return HistorySummarizer(TestModel(call_tools=[], custom_output_text=_SUMMARY), input_token_limit=input_token_limit)
 
 
 async def test_below_threshold_keeps_history():
@@ -36,12 +39,13 @@ async def test_below_threshold_keeps_history():
 async def test_above_threshold_summarizes_older_turns_and_keeps_the_last_exchange():
     replacement = await _compactor().compact_if_needed(_history(latest_input_tokens=900))
     assert replacement is not None
+
     messages = ModelMessagesTypeAdapter.validate_python(replacement)
     assert isinstance(messages[0], ModelRequest)
     assert isinstance(messages[1], ModelResponse)
     summary_part = messages[1].parts[0]
     assert isinstance(summary_part, TextPart)
-    assert summary_part.content == 'the summary'
+    assert summary_part.content == _SUMMARY
     last_request = messages[2]
     assert isinstance(last_request, ModelRequest)
     question_part = last_request.parts[0]
@@ -50,8 +54,6 @@ async def test_above_threshold_summarizes_older_turns_and_keeps_the_last_exchang
 
 
 async def test_split_never_orphans_a_tool_return():
-    from pydantic_ai.messages import ToolCallPart, ToolReturnPart
-
     tool_turn = [
         ModelResponse(
             parts=[ToolCallPart(tool_name='t', args={}, tool_call_id='c1')], usage=RequestUsage(input_tokens=900)
@@ -68,7 +70,9 @@ async def test_split_never_orphans_a_tool_return():
         *tool_turn,
     ]
     history = list(ModelMessagesTypeAdapter.dump_python(messages, mode='json'))
+
     replacement = await _compactor().compact_if_needed(history)
+
     assert replacement is not None
     decoded = ModelMessagesTypeAdapter.validate_python(replacement)
     kept_kinds = [type(part).__name__ for message in decoded for part in message.parts]
@@ -77,6 +81,7 @@ async def test_split_never_orphans_a_tool_return():
     # With no clean boundary before the tool turn, compaction declines instead of orphaning.
     unsplittable = [ModelRequest(parts=[UserPromptPart('do it')]), *tool_turn]
     history = list(ModelMessagesTypeAdapter.dump_python(unsplittable, mode='json'))
+
     assert await _compactor().compact_if_needed(history) is None
 
 
