@@ -1,0 +1,52 @@
+# Brings up Redis, Postgres, and conciergent together.
+#
+#   cp examples/openapi-chat.yml conciergent.yml
+#   export SLACK_SIGNING_SECRET=...  SLACK_BOT_TOKEN=xoxb-...  OPENAI_API_KEY=sk-...
+#   docker compose up
+#
+# The app serves on http://localhost:8000. Put a tunnel in front of that port and paste its
+# URL into your Slack app (and into server.url in conciergent.yml) to receive events.
+
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: conciergent
+      POSTGRES_PASSWORD: conciergent
+      POSTGRES_DB: conciergent
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conciergent"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      CONCIERGENT_HOST: 0.0.0.0
+      CONCIERGENT_MESSAGES_URL: redis://redis:6379/0
+      CONCIERGENT_CREDENTIALS_URL: postgresql+asyncpg://conciergent:conciergent@postgres/conciergent
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./conciergent.yml:/home/app/conciergent.yml:ro
