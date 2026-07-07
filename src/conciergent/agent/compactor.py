@@ -57,7 +57,9 @@ class HistorySummarizer:
         target_ratio: float = _COMPACTION_TARGET_RATIO,
     ) -> None:
         # An unset limit is auto-detected from the model, so compaction is on by default.
-        self._input_token_limit = input_token_limit if input_token_limit is not None else resolve_input_token_limit(model)
+        self._input_token_limit = (
+            input_token_limit if input_token_limit is not None else resolve_input_token_limit(model)
+        )
         self._trigger_ratio = trigger_ratio
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
