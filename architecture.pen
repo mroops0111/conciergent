@@ -1,0 +1,1416 @@
+{
+  "version": "2.14",
+  "children": [
+    {
+      "type": "frame",
+      "id": "KRVRT",
+      "x": 0,
+      "y": 0,
+      "name": "Architecture",
+      "fill": "$panel",
+      "cornerRadius": 24,
+      "layout": "vertical",
+      "gap": 14,
+      "padding": 48,
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "K23tR",
+          "name": "Surfaces Band",
+          "width": 880,
+          "layout": "vertical",
+          "gap": 10,
+          "children": [
+            {
+              "type": "frame",
+              "id": "QuGbT",
+              "name": "Label",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "cornerRadius": 2,
+                  "id": "m00X09",
+                  "name": "Tick",
+                  "fill": "$accent",
+                  "width": 7,
+                  "height": 7
+                },
+                {
+                  "type": "text",
+                  "id": "AE9Il",
+                  "name": "T",
+                  "fill": "$textMuted",
+                  "content": "Chat Surfaces · Ports",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.3
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yYvvR",
+              "name": "Surfaces Card",
+              "width": "fill_container",
+              "fill": "$card",
+              "cornerRadius": 16,
+              "stroke": "$tileStroke",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "fH4xv",
+                  "name": "Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "NAJtI",
+                      "name": "Title Row",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "B7NKJF",
+                          "name": "I",
+                          "width": 20,
+                          "height": 20,
+                          "icon": "messages-square",
+                          "library": "lucide",
+                          "fill": "$accent"
+                        },
+                        {
+                          "type": "text",
+                          "id": "a6X3LN",
+                          "name": "Title",
+                          "fill": "$textPrimary",
+                          "content": "Slack, LINE & More",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "FFuTt",
+                      "name": "Subtitle",
+                      "fill": "$textMuted",
+                      "content": "where your users chat with the bot",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "gvAPq",
+                  "name": "Surface Chips",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "YEVvF",
+                      "name": "Slack Chip",
+                      "fill": "$tile",
+                      "cornerRadius": 999,
+                      "gap": 9,
+                      "padding": [
+                        8,
+                        14
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "oIzmj",
+                          "name": "Logo Box",
+                          "width": 16,
+                          "height": 16,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "path",
+                              "id": "RrQqS",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Logo",
+                              "geometry": "M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523 2.528 2.528 0 0 1-2.522-2.523 2.527 2.527 0 0 1 2.522-2.52h2.52v2.52z m1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313a2.528 2.528 0 0 1-2.521 2.522 2.528 2.528 0 0 1-2.521-2.522v-6.313z m2.521-10.123a2.528 2.528 0 0 1-2.521-2.52 2.528 2.528 0 0 1 2.521-2.522 2.528 2.528 0 0 1 2.521 2.522v2.52h-2.521z m0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521h-6.312a2.528 2.528 0 0 1-2.522-2.521 2.528 2.528 0 0 1 2.522-2.521h6.312z m10.122 2.521a2.528 2.528 0 0 1 2.522-2.521 2.528 2.528 0 0 1 2.522 2.521 2.528 2.528 0 0 1-2.522 2.521h-2.522v-2.521z m-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521v-6.312a2.527 2.527 0 0 1 2.52-2.522 2.528 2.528 0 0 1 2.523 2.522v6.312z m-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522 2.528 2.528 0 0 1-2.523 2.522 2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52z m0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313a2.527 2.527 0 0 1 2.522 2.52 2.528 2.528 0 0 1-2.522 2.523h-6.313z",
+                              "viewBox": [
+                                0,
+                                0,
+                                24,
+                                24
+                              ],
+                              "fill": "#4A154B",
+                              "width": 16,
+                              "height": 16
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "k6oa9U",
+                          "name": "L",
+                          "fill": "$textPrimary",
+                          "content": "Slack",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "My5I1",
+                      "name": "LINE Chip",
+                      "fill": "$tile",
+                      "cornerRadius": 999,
+                      "gap": 9,
+                      "padding": [
+                        8,
+                        14
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "vt3W3",
+                          "name": "Logo Box",
+                          "width": 16,
+                          "height": 16,
+                          "layout": "none",
+                          "children": [
+                            {
+                              "type": "path",
+                              "id": "O74Iwo",
+                              "x": 0,
+                              "y": 0,
+                              "name": "Logo",
+                              "geometry": "M19.365 9.863c0.349 0 0.63 0.285 0.63 0.631 0 0.345-0.281 0.63-0.63 0.63h-1.755v1.125h1.755c0.349 0 0.63 0.283 0.63 0.63 0 0.344-0.281 0.629-0.63 0.629h-2.386c-0.345 0-0.627-0.285-0.627-0.629v-4.771c0-0.345 0.282-0.63 0.63-0.63h2.386c0.346 0 0.627 0.285 0.627 0.63 0 0.349-0.281 0.63-0.63 0.63h-1.755v1.125h1.755z m-3.855 3.016c0 0.27-0.174 0.51-0.432 0.596-0.064 0.021-0.133 0.031-0.199 0.031-0.211 0-0.391-0.09-0.51-0.25l-2.443-3.317v2.94c0 0.344-0.279 0.629-0.631 0.629-0.346 0-0.626-0.285-0.626-0.629v-4.771c0-0.27 0.173-0.51 0.43-0.595 0.06-0.023 0.136-0.033 0.194-0.033 0.195 0 0.375 0.104 0.495 0.254l2.462 3.33v-2.956c0-0.345 0.282-0.63 0.63-0.63 0.345 0 0.63 0.285 0.63 0.63v4.771z m-5.741 0c0 0.344-0.282 0.629-0.631 0.629-0.345 0-0.627-0.285-0.627-0.629v-4.771c0-0.345 0.282-0.63 0.63-0.63 0.346 0 0.628 0.285 0.628 0.63v4.771z m-2.466 0.629h-2.386c-0.345 0-0.63-0.285-0.63-0.629v-4.771c0-0.345 0.285-0.63 0.63-0.63 0.348 0 0.63 0.285 0.63 0.63v4.141h1.756c0.348 0 0.629 0.283 0.629 0.63 0 0.344-0.282 0.629-0.629 0.629m16.697-3.194c0-5.371-5.385-9.742-12-9.742s-12 4.371-12 9.742c0 4.811 4.27 8.842 10.035 9.608 0.391 0.082 0.923 0.258 1.058 0.59 0.12 0.301 0.079 0.766 0.038 1.08l-0.164 1.02c-0.045 0.301-0.24 1.186 1.049 0.645 1.291-0.539 6.916-4.078 9.436-6.975 1.724-1.889 2.548-3.824 2.548-5.968",
+                              "viewBox": [
+                                0,
+                                0,
+                                24,
+                                24
+                              ],
+                              "fill": "#06C755",
+                              "width": 16,
+                              "height": 16
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "X353lG",
+                          "name": "L",
+                          "fill": "$textPrimary",
+                          "content": "LINE",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "UhXcv",
+          "name": "Connector 1",
+          "width": 880,
+          "gap": 44,
+          "padding": [
+            2,
+            0
+          ],
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "WeWrY",
+              "name": "Incoming Message · Verified & Deduped",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "T1pzNF",
+                  "name": "I",
+                  "width": 18,
+                  "height": 18,
+                  "icon": "arrow-down",
+                  "library": "lucide",
+                  "fill": "$textMuted"
+                },
+                {
+                  "type": "text",
+                  "id": "u5NaLO",
+                  "name": "L",
+                  "fill": "$textMuted",
+                  "content": "Incoming Message · Verified & Deduped",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.4
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "yiVAY",
+              "name": "Native Reply",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "W3DqW",
+                  "name": "I",
+                  "width": 18,
+                  "height": 18,
+                  "icon": "arrow-up",
+                  "library": "lucide",
+                  "fill": "$accent"
+                },
+                {
+                  "type": "text",
+                  "id": "K23iD",
+                  "name": "L",
+                  "fill": "$accent",
+                  "content": "Native Reply",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.4
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "r3hAu0",
+          "name": "Runtime Band",
+          "width": 880,
+          "layout": "vertical",
+          "gap": 10,
+          "children": [
+            {
+              "type": "frame",
+              "id": "p7rKp",
+              "name": "Label",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "cornerRadius": 2,
+                  "id": "m0OgKm",
+                  "name": "Tick",
+                  "fill": "$accent",
+                  "width": 7,
+                  "height": 7
+                },
+                {
+                  "type": "text",
+                  "id": "B6Ofyt",
+                  "name": "T",
+                  "fill": "$textMuted",
+                  "content": "Runtime · Platform & Model Agnostic",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.3
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "hUDlv",
+              "name": "Runtime Card",
+              "width": "fill_container",
+              "fill": "$card",
+              "cornerRadius": 16,
+              "stroke": "$tileStroke",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "fXnba",
+                  "name": "Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "nHLIc",
+                      "name": "Title Row",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "GVvAI",
+                          "name": "I",
+                          "width": 20,
+                          "height": 20,
+                          "icon": "workflow",
+                          "library": "lucide",
+                          "fill": "$accent"
+                        },
+                        {
+                          "type": "text",
+                          "id": "leQPk",
+                          "name": "Title",
+                          "fill": "$textPrimary",
+                          "content": "One Message in, One Reply Out",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "W5G9w",
+                      "name": "Subtitle",
+                      "fill": "$textMuted",
+                      "content": "stays independent of any chat platform or AI model",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "HQr79",
+                  "name": "Pluggable",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "HpZX8",
+                      "name": "K",
+                      "fill": "$textMuted",
+                      "content": "Pluggable",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "700",
+                      "letterSpacing": 0.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "fK6Qt",
+                      "name": "Chips",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "uZeuL",
+                          "name": "Chat Platform",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "uQNId",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "Chat Platform",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "MQIW7",
+                          "name": "AI Agent",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "LDRHz",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "AI Agent",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "P2Fy1V",
+                          "name": "Authorization",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "fIfBd",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "Authorization",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "oo6uW",
+                  "name": "Structured Reply",
+                  "width": "fill_container",
+                  "gap": 12,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "m6aG4",
+                      "name": "K",
+                      "fill": "$textMuted",
+                      "content": "Structured Reply",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "700",
+                      "letterSpacing": 0.5
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sVDHO",
+                      "name": "Chips",
+                      "gap": 8,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "aiSXt",
+                          "name": "Card",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "SB2Od",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "Text",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "SYRTe",
+                          "name": "Carousel",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "BXPZM",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "Card",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "evh9Q",
+                          "name": "Text",
+                          "fill": "$tile",
+                          "cornerRadius": 8,
+                          "padding": [
+                            6,
+                            11
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "cmpVr",
+                              "name": "L",
+                              "fill": "$textSecondary",
+                              "content": "Carousel",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "R4iH8H",
+          "name": "Connector 2",
+          "width": 880,
+          "gap": 8,
+          "padding": [
+            2,
+            0
+          ],
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "W9nueg",
+              "name": "I",
+              "width": 18,
+              "height": 18,
+              "icon": "arrow-down",
+              "library": "lucide",
+              "fill": "$textMuted"
+            },
+            {
+              "type": "text",
+              "id": "P35sJL",
+              "name": "L",
+              "fill": "$textMuted",
+              "content": "The Agent Takes the Turn",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "600",
+              "letterSpacing": 0.4
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "D6E3N",
+          "name": "Agent Band",
+          "width": 880,
+          "layout": "vertical",
+          "gap": 10,
+          "children": [
+            {
+              "type": "frame",
+              "id": "XVF85",
+              "name": "Label",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "rectangle",
+                  "cornerRadius": 2,
+                  "id": "l6qDNA",
+                  "name": "Tick",
+                  "fill": "$accent",
+                  "width": 7,
+                  "height": 7
+                },
+                {
+                  "type": "text",
+                  "id": "ri3pi",
+                  "name": "T",
+                  "fill": "$textMuted",
+                  "content": "The Agent · Powered by Pydantic AI",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "600",
+                  "letterSpacing": 0.3
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "mE23U",
+              "name": "Agent Card",
+              "width": "fill_container",
+              "fill": "$card",
+              "cornerRadius": 16,
+              "stroke": "$tileStroke",
+              "strokeWidth": 1,
+              "layout": "vertical",
+              "gap": 14,
+              "padding": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "yDM9l",
+                  "name": "Header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "U3pmHt",
+                      "name": "Title Row",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "C4QH4",
+                          "name": "I",
+                          "width": 20,
+                          "height": 20,
+                          "icon": "bot",
+                          "library": "lucide",
+                          "fill": "$accent"
+                        },
+                        {
+                          "type": "text",
+                          "id": "J01uG",
+                          "name": "Title",
+                          "fill": "$textPrimary",
+                          "content": "AI Agent",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "nnRP5",
+                      "name": "Subtitle",
+                      "fill": "$textMuted",
+                      "content": "reasons over your tools to answer the user",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "ad231",
+                  "name": "OutLabel",
+                  "fill": "$textMuted",
+                  "content": "One Turn Resolves to One Of",
+                  "fontFamily": "Inter",
+                  "fontSize": 12,
+                  "fontWeight": "700",
+                  "letterSpacing": 0.5
+                },
+                {
+                  "type": "frame",
+                  "id": "Y7kdC",
+                  "name": "Outcomes",
+                  "width": "fill_container",
+                  "gap": 10,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "XACTh",
+                      "name": "Normal Reply",
+                      "width": "fill_container",
+                      "fill": "$tile",
+                      "cornerRadius": 12,
+                      "stroke": "$tileStroke",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 7,
+                      "padding": 14,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "L2gat",
+                          "name": "Tag",
+                          "fill": "$greenText",
+                          "content": "Reply",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.5
+                        },
+                        {
+                          "type": "text",
+                          "id": "LmdCq",
+                          "name": "Main",
+                          "fill": "$textPrimary",
+                          "content": "Normal Reply",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "NXdWq",
+                          "name": "NoteT",
+                          "fill": "$textMuted",
+                          "content": "Text · Card · Carousel\nstructured output",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CMg4C",
+                      "name": "In Chat OAuth",
+                      "width": "fill_container",
+                      "fill": "$accentTile",
+                      "cornerRadius": 12,
+                      "stroke": "$tileStroke",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 7,
+                      "padding": 14,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "tdBwz",
+                          "name": "Tag",
+                          "fill": "$accent",
+                          "content": "Needs Auth",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.5
+                        },
+                        {
+                          "type": "text",
+                          "id": "X0U1QK",
+                          "name": "Main",
+                          "fill": "$textPrimary",
+                          "content": "In Chat OAuth",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Pq7jQ",
+                          "name": "NoteT",
+                          "fill": "$textMuted",
+                          "content": "the user authorizes in the chat,\nthen the turn continues",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "gBZpA",
+                      "name": "Human in the Loop",
+                      "width": "fill_container",
+                      "fill": "$accentTile",
+                      "cornerRadius": 12,
+                      "stroke": "$tileStroke",
+                      "strokeWidth": 1,
+                      "layout": "vertical",
+                      "gap": 7,
+                      "padding": 14,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "H27wry",
+                          "name": "Tag",
+                          "fill": "$accent",
+                          "content": "Destructive",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "700",
+                          "letterSpacing": 0.5
+                        },
+                        {
+                          "type": "text",
+                          "id": "Ll7EN",
+                          "name": "Main",
+                          "fill": "$textPrimary",
+                          "content": "Human in the Loop",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "EWSVD",
+                          "name": "NoteT",
+                          "fill": "$textMuted",
+                          "content": "the user confirms in the chat\nbefore it runs",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "g4GEqH",
+          "name": "Connector 3",
+          "width": 880,
+          "gap": 8,
+          "padding": [
+            2,
+            0
+          ],
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "icon",
+              "id": "vrOhf",
+              "name": "I",
+              "width": 18,
+              "height": 18,
+              "icon": "arrow-down",
+              "library": "lucide",
+              "fill": "$textMuted"
+            },
+            {
+              "type": "text",
+              "id": "P5sZd",
+              "name": "L",
+              "fill": "$textMuted",
+              "content": "Calls Tools · Remembers the Conversation",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "600",
+              "letterSpacing": 0.4
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "u2rebn",
+          "name": "Bottom Row",
+          "width": 880,
+          "gap": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "C6SKDq",
+              "name": "MCP Tools",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "N4fLRq",
+                  "name": "Label",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "rectangle",
+                      "cornerRadius": 2,
+                      "id": "oyQ5m",
+                      "name": "Tick",
+                      "fill": "$accent",
+                      "width": 7,
+                      "height": 7
+                    },
+                    {
+                      "type": "text",
+                      "id": "LkyHu",
+                      "name": "T",
+                      "fill": "$textMuted",
+                      "content": "MCP Tools",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.3
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "vatUG",
+                  "name": "MCP Tools Card",
+                  "width": "fill_container",
+                  "fill": "$card",
+                  "cornerRadius": 16,
+                  "stroke": "$tileStroke",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 20,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "oCp5S",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "OgI1g",
+                          "name": "Title Row",
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "tngNq",
+                              "name": "I",
+                              "width": 20,
+                              "height": 20,
+                              "icon": "blocks",
+                              "library": "lucide",
+                              "fill": "$accent"
+                            },
+                            {
+                              "type": "text",
+                              "id": "XwBoq",
+                              "name": "Title",
+                              "fill": "$textPrimary",
+                              "content": "Tools",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "xY5tV",
+                          "name": "Subtitle",
+                          "fill": "$textMuted",
+                          "content": "what the agent can call",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "CGutV",
+                      "name": "openapi-mcp-gateway",
+                      "width": "fill_container",
+                      "gap": 11,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "l5QO40",
+                          "name": "I",
+                          "width": 18,
+                          "height": 18,
+                          "icon": "server",
+                          "library": "lucide",
+                          "fill": "$textSecondary"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "L2xMpQ",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "sCbRN",
+                              "name": "Name",
+                              "fill": "$textPrimary",
+                              "content": "openapi-mcp-gateway",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "X1ACj",
+                              "name": "Sub",
+                              "fill": "$textMuted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "embedded · OpenAPI spec becomes MCP tools",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "jo8d8",
+                      "name": "Any MCP Server",
+                      "width": "fill_container",
+                      "gap": 11,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "J1QW6",
+                          "name": "I",
+                          "width": 18,
+                          "height": 18,
+                          "icon": "plug",
+                          "library": "lucide",
+                          "fill": "$textSecondary"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "egSYV",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "rBlRS",
+                              "name": "Name",
+                              "fill": "$textPrimary",
+                              "content": "Any MCP Server",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "wFMgo",
+                              "name": "Sub",
+                              "fill": "$textMuted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "just a URL in config",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "tl5n3",
+              "name": "State",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Y6FUh",
+                  "name": "Label",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "rectangle",
+                      "cornerRadius": 2,
+                      "id": "N0U5kT",
+                      "name": "Tick",
+                      "fill": "$accent",
+                      "width": 7,
+                      "height": 7
+                    },
+                    {
+                      "type": "text",
+                      "id": "zvYYY",
+                      "name": "T",
+                      "fill": "$textMuted",
+                      "content": "State",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "600",
+                      "letterSpacing": 0.3
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kIthV",
+                  "name": "State Card",
+                  "width": "fill_container",
+                  "fill": "$card",
+                  "cornerRadius": 16,
+                  "stroke": "$tileStroke",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "gap": 14,
+                  "padding": 20,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "NOGi6",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "sGkWf",
+                          "name": "Title Row",
+                          "gap": 10,
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "CCCUc",
+                              "name": "I",
+                              "width": 20,
+                              "height": 20,
+                              "icon": "database",
+                              "library": "lucide",
+                              "fill": "$accent"
+                            },
+                            {
+                              "type": "text",
+                              "id": "E7RuI",
+                              "name": "Title",
+                              "fill": "$textPrimary",
+                              "content": "State",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "hIrba",
+                          "name": "Subtitle",
+                          "fill": "$textMuted",
+                          "content": "what the agent remembers",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "HHkgj",
+                      "name": "Conversation · Redis",
+                      "width": "fill_container",
+                      "gap": 11,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "u93Hmp",
+                          "name": "I",
+                          "width": 18,
+                          "height": 18,
+                          "icon": "zap",
+                          "library": "lucide",
+                          "fill": "$textSecondary"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "KcYHp",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "o9yJUO",
+                              "name": "Name",
+                              "fill": "$textPrimary",
+                              "content": "Messages · Redis",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "bwH45",
+                              "name": "Sub",
+                              "fill": "$textMuted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "history, approvals, dedupe, OAuth handoff (expires)",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "W5cJz",
+                      "name": "Credentials · Postgres",
+                      "width": "fill_container",
+                      "gap": 11,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "WTQZA",
+                          "name": "I",
+                          "width": 18,
+                          "height": 18,
+                          "icon": "lock",
+                          "library": "lucide",
+                          "fill": "$textSecondary"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "zwpfe",
+                          "name": "Text",
+                          "width": "fill_container",
+                          "layout": "vertical",
+                          "gap": 2,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "UuYTW",
+                              "name": "Name",
+                              "fill": "$textPrimary",
+                              "content": "Credentials · Postgres",
+                              "fontFamily": "Inter",
+                              "fontSize": 16,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "GNcYx",
+                              "name": "Sub",
+                              "fill": "$textMuted",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "MCP and bot tokens (survives restart)",
+                              "fontFamily": "Inter",
+                              "fontSize": 14,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variables": {
+    "panel": {
+      "type": "color",
+      "value": "#F7F4EF"
+    },
+    "card": {
+      "type": "color",
+      "value": "#FDFBF7"
+    },
+    "tile": {
+      "type": "color",
+      "value": "#F3EFE8"
+    },
+    "tileStroke": {
+      "type": "color",
+      "value": "#E0DACE"
+    },
+    "accent": {
+      "type": "color",
+      "value": "#C2714F"
+    },
+    "accentTile": {
+      "type": "color",
+      "value": "#F2E6DE"
+    },
+    "greenBg": {
+      "type": "color",
+      "value": "#E9EDE8"
+    },
+    "greenText": {
+      "type": "color",
+      "value": "#8A9A8E"
+    },
+    "textPrimary": {
+      "type": "color",
+      "value": "#2D2D2B"
+    },
+    "textSecondary": {
+      "type": "color",
+      "value": "#6B6863"
+    },
+    "textMuted": {
+      "type": "color",
+      "value": "#9C978F"
+    }
+  },
+  "fileToken": "763d1471-af7e-4907-ad1c-08990ec1fa03"
+}

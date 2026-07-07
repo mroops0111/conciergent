@@ -7,7 +7,7 @@ server:
   url: ''
 
 agent:
-  model: gpt-4o-mini
+  model: openai:gpt-4o-mini
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers: []
