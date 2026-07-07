@@ -34,7 +34,7 @@ callback:
 
 # The greeting sent when a user adds the bot, depending on whether a pending authorization just completed.
 follow:
-  ready: You're all set! Ask me anything to get started.
+  ready: Authorization complete! Ask me anything to get started.
   welcome_back: Welcome back! Ask me anything, anytime.
 
 # The in-chat human-in-the-loop confirmation, shown before a destructive tool runs.
