@@ -12,10 +12,10 @@ Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.c
   <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="820">
 </p>
 
-- **Any MCP Server, or an OpenAPI Spec Directly.** Give Conciergent an MCP URL, or set `gateway.enabled` and drop in an OpenAPI spec. It embeds openapi-mcp-gateway in-process and serves the tools itself, no second server to run.
-- **In-Chat OAuth.** When a tool needs the user to authorize, Conciergent pushes the authorize URL into the thread, waits for the callback, then stores and refreshes the token. The user never leaves the chat.
-- **Human-in-the-Loop.** Any tool the MCP server marks destructive pauses mid-run behind a Confirm / Cancel card.
-- **Surface-Agnostic Rich Replies.** The agent emits one semantic reply, and each surface renders it in its own native format.
+- **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
+- **In-Chat OAuth.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes the token. The user never leaves the conversation.
+- **Human-in-the-Loop.** Any tool the server marks destructive pauses behind a Confirm / Cancel card before it runs.
+- **Surface-Agnostic Rich Replies.** The agent emits one structured reply, and each surface renders it natively.
 
 ## Quick Start
 
@@ -28,7 +28,7 @@ uv add conciergent
 uv run conciergent init
 ```
 
-`uv run conciergent init` writes an annotated `conciergent.yml`. It is deep-merged over the shipped defaults, so you set only what you change, and `${VAR}` / `${VAR:-default}` resolve in any string field.
+`uv run conciergent init` writes an annotated `conciergent.yml`, deep-merged over the shipped defaults so you set only what you change.
 
 ### 2. Configure Your MCP Tools
 
@@ -126,7 +126,7 @@ cp examples/openapi-chat.yml conciergent.yml     # or use your own
 docker compose up
 ```
 
-Secrets stay in the environment, not in the file. `conciergent.yml` pulls the Slack and LINE credentials in through `${...}` so they are never committed, and your model provider's API key is read from the environment too (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`). The app serves on port 8000. Put your tunnel in front of that port and set `server.url` to its URL.
+Secrets stay in the environment. `conciergent.yml` reads the Slack, LINE, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
 ## Configuration
 
@@ -190,7 +190,7 @@ The agent never speaks Slack or LINE. It emits one of three shapes, and each sur
 
 A suggestion is the interactive primitive. Tapping one posts its prompt back to the agent as if the user had typed it. The field descriptions on these models are the agent's structured-output schema, so the model fills them in directly.
 
-## Extention
+## Extending
 
 The paved road above needs no code. These are for teams who want to go further.
 
