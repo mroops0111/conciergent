@@ -7,6 +7,13 @@ from conciergent.reply import Card, Link, Suggestion
 BRAND_COLOR = DEFAULTS.surface.line.brand_color
 DESTRUCTIVE_COLOR = DEFAULTS.surface.line.destructive_color
 
+# The plain-text dialect hint injected into the agent's system prompt for this surface.
+TEXT_FORMATTING_INSTRUCTION = (
+    'You are replying on LINE, which renders plain text only and does not parse Markdown. '
+    'Do not emit **bold**, _italic_, backticks, [links](url), # headers, or * or - bullet markers. '
+    'For lists prefix each item with • or a number like 1., and separate ideas with blank lines.'
+)
+
 # Mid-gray for bullet list items inside a card body, slightly darker than the body text for gentle hierarchy.
 BULLET_TEXT_COLOR = '#555555'
 

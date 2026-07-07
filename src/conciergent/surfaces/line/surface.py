@@ -14,14 +14,6 @@ from conciergent.surfaces.line import render
 
 logger = logging.getLogger(__name__)
 
-# The plain-text dialect hint injected into the agent's system prompt for this surface.
-TEXT_FORMATTING_INSTRUCTION = (
-    'You are replying on LINE, which renders plain text only and does not parse Markdown. '
-    'Do not emit **bold**, _italic_, backticks, # headers, or * or - bullet markers. '
-    'For lists prefix each item with • or a number like 1., and separate ideas with blank lines.'
-)
-
-
 _API_BASE_URL = 'https://api.line.me'
 # LINE shows the loading animation for at most this many seconds, then it clears on the next message.
 _LOADING_SECONDS = 60
@@ -125,7 +117,7 @@ class LineReplySurface(ReplySurface):
     @property
     @typing.override
     def text_formatting_instruction(self) -> str:
-        return TEXT_FORMATTING_INSTRUCTION
+        return render.TEXT_FORMATTING_INSTRUCTION
 
     @property
     @typing.override

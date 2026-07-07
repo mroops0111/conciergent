@@ -29,10 +29,12 @@ _BASELINE_INSTRUCTIONS = (
 # Generic reply-shape guidance, so the model uses the card output instead of defaulting to plain text.
 # The per-surface dialect, which markup each surface renders, stays on the surface's own instruction.
 _REPLY_FORMAT_INSTRUCTIONS = (
-    'End each turn with exactly one reply, either plain text or a single reply_card, never both. '
+    'End each turn with exactly one reply, either plain text, a single reply_card, or a single reply_carousel, never a mix. '
     'Use plain text only for a short one-line answer with no list, entity, link, or follow-up. '
-    'Use reply_card for anything richer, a synthesized answer, a status report, an entity, or a list, '
+    'Use reply_card for anything richer, a synthesized answer, a status report, a single entity, or a plain list, '
     'and keep the whole message inside the card rather than writing text beside it. '
+    'Use reply_carousel for a small set of distinct items that each deserve their own card and action, '
+    'giving every option a suggestion or link so it can be chosen. '
     'Put a URL in a card link button instead of writing it inline, and offer next steps as suggestions.'
 )
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
