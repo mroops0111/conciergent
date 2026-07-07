@@ -1,3 +1,5 @@
+import time
+
 import pydantic
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
@@ -23,6 +25,23 @@ async def test_tokens_round_trip(credential_store: CredentialStore):
     loaded = await storage.get_tokens()
     assert loaded is not None
     assert loaded.access_token == access_token
+
+
+async def test_set_tokens_persists_an_absolute_expiry(credential_store: CredentialStore):
+    storage = _storage(credential_store)
+    await storage.set_tokens(OAuthToken(access_token='a', token_type='Bearer', expires_in=3600))
+
+    tokens, expires_at = await storage.get_tokens_with_expiry()
+    assert tokens is not None and tokens.access_token == 'a'
+    assert expires_at is not None and expires_at > time.time() + 3000
+
+
+async def test_expiry_is_absent_when_the_token_has_no_lifetime(credential_store: CredentialStore):
+    storage = _storage(credential_store)
+    await storage.set_tokens(OAuthToken(access_token='a', token_type='Bearer'))
+
+    _, expires_at = await storage.get_tokens_with_expiry()
+    assert expires_at is None
 
 
 async def test_client_info_round_trips(credential_store: CredentialStore):

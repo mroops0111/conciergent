@@ -1,17 +1,17 @@
 line:
   oauth:
-    alt: 前往授權
+    alt: 授權
     header: 授權
     body: 請點下方按鈕完成授權，授權完成後再回到這個聊天室繼續。
     welcome_body: 歡迎！請點下方按鈕完成授權，授權後即可開始對話。
-    button: 前往授權
+    button: 授權
 
 slack:
   oauth:
     notification: 請完成授權以繼續使用。
     header: 授權
     body: 請點下方按鈕完成授權，授權完成後再回到這個對話繼續。
-    button: 前往授權
+    button: 授權
   install:
     completed:
       title: 安裝完成
@@ -29,8 +29,8 @@ callback:
     body: 請回到對話視窗，再試一次。
 
 follow:
-  ready: 都設定好了！有任何問題都可以問我。
-  welcome_back: 歡迎回來！有需要隨時問我。
+  ready: 授權完成！有什麼需要，直接跟我說。
+  welcome_back: 歡迎回來！有什麼需要，隨時跟我說。
 
 approval:
   header: 確認

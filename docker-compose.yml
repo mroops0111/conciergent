@@ -4,12 +4,12 @@
 #   export SLACK_SIGNING_SECRET=...  SLACK_BOT_TOKEN=xoxb-...  OPENAI_API_KEY=sk-...
 #   docker compose up
 #
-# The app serves on http://localhost:8000. Put a tunnel in front of that port and paste its
-# URL into your Slack app (and into server.url in conciergent.yml) to receive events.
+# The app serves on http://localhost:8000. Put a tunnel in front of that port,
+# and paste its URL into your Slack app and into server.url in conciergent.yml to receive events.
 
 services:
   redis:
-    image: redis:7
+    image: redis:8
     ports:
       - "6379:6379"
     healthcheck:
@@ -19,7 +19,7 @@ services:
       retries: 10
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: conciergent
       POSTGRES_PASSWORD: conciergent
@@ -45,8 +45,18 @@ services:
       CONCIERGENT_HOST: 0.0.0.0
       CONCIERGENT_MESSAGES_URL: redis://redis:6379/0
       CONCIERGENT_CREDENTIALS_URL: postgresql+asyncpg://conciergent:conciergent@postgres/conciergent
-      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Model provider key, set the one your agent.model uses.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Slack surface, set these when surface.slack.enabled.
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      # LINE surface, set these when surface.line.enabled.
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      # Your conciergent.yml may reference more env than the keys above,
+      # for example a gateway spec's GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET,
+      # so add those here or in a local docker-compose.override.yml you keep out of git.
     volumes:
       - ./conciergent.yml:/home/app/conciergent.yml:ro

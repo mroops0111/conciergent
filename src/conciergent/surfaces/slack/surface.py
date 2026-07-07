@@ -136,7 +136,7 @@ class SlackReplySurface(ReplySurface):
             patch = render.build_processing_patch(self._interacted_message, status_text)
             await self._messenger.respond_via_response_url(self._response_url, patch)
         except Exception:
-            logger.warning('Slack processing patch failed', exc_info=True)
+            logger.debug('Slack processing patch failed', exc_info=True)
             return
         self._processing_active = True
 
@@ -150,7 +150,7 @@ class SlackReplySurface(ReplySurface):
             patch = render.build_processing_patch(self._interacted_message, status_text)
             await self._messenger.respond_via_response_url(self._response_url, patch)
         except Exception:
-            logger.warning('Slack selected patch failed', exc_info=True)
+            logger.debug('Slack selected patch failed', exc_info=True)
 
 
 class SlackOAuthBridge(StatefulOAuthBridge):

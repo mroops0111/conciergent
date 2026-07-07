@@ -5,6 +5,14 @@ import os
 import sys
 import typing
 
+import anyio
+from mcp.client import streamable_http
+
+
+# The filter matches the mcp SDK's own logger, whose name is this module's __name__, so it is derived not a literal.
+# A hard-coded string would silently go stale if the SDK ever renamed the module.
+_SSE_LOGGER_NAME = streamable_http.__name__
+
 
 LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
 FORMATS = ('text', 'json')
@@ -70,6 +78,17 @@ class TextFormatter(logging.Formatter):
             record.levelname, record.name = original_level, original_name
 
 
+class _SseTeardownFilter(logging.Filter):
+    @typing.override
+    def filter(self, record: logging.LogRecord) -> bool:
+        # The streamable HTTP client races its background SSE task against the per-turn session teardown,
+        # so it logs a closed or broken stream error after the turn already replied.
+        # Drop that one record while keeping any real streamable-client error.
+        if record.name == _SSE_LOGGER_NAME and record.exc_info is not None:
+            return not isinstance(record.exc_info[1], anyio.ClosedResourceError | anyio.BrokenResourceError)
+        return True
+
+
 def stderr_supports_color() -> bool:
     """Return False when ``NO_COLOR`` is set or stderr is not a TTY."""
     if os.environ.get('NO_COLOR'):
@@ -96,10 +115,12 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
         file_handler.setFormatter(JsonFormatter() if is_json else TextFormatter())
         handlers.append(file_handler)
 
+    teardown_filter = _SseTeardownFilter()
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level.upper())
     for handler in handlers:
+        handler.addFilter(teardown_filter)
         root.addHandler(handler)
 
     for name in list(logging.Logger.manager.loggerDict):

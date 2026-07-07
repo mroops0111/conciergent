@@ -14,16 +14,9 @@ from conciergent.surfaces.line import render
 
 logger = logging.getLogger(__name__)
 
-# The plain-text dialect hint injected into the agent's system prompt for this surface.
-TEXT_FORMATTING_INSTRUCTION = (
-    'LINE renders plain text only. Never use markdown of any kind, no asterisks, backticks, or [text](url). '
-    'Write short lines and use blank lines to separate ideas.'
-)
-
-
 _API_BASE_URL = 'https://api.line.me'
-# LINE shows the loading animation for at most this many seconds.
-_LOADING_SECONDS = 30
+# LINE shows the loading animation for at most this many seconds, then it clears on the next message.
+_LOADING_SECONDS = 60
 
 
 class LineMessenger:
@@ -98,7 +91,11 @@ class ReplyTokenSlot:
         await self._messenger.push(self._user_id, message)
 
     async def start_loading(self) -> None:
-        await self._messenger.start_loading(self._user_id)
+        # The loading indicator is cosmetic, so a failed ping is logged at debug and never aborts the turn.
+        try:
+            await self._messenger.start_loading(self._user_id)
+        except Exception:
+            logger.debug('LINE loading indicator failed', exc_info=True)
 
 
 class LineReplySurface(ReplySurface):
@@ -120,7 +117,7 @@ class LineReplySurface(ReplySurface):
     @property
     @typing.override
     def text_formatting_instruction(self) -> str:
-        return TEXT_FORMATTING_INSTRUCTION
+        return render.TEXT_FORMATTING_INSTRUCTION
 
     @property
     @typing.override
@@ -164,11 +161,7 @@ class LineReplySurface(ReplySurface):
 
     @typing.override
     async def show_processing(self) -> None:
-        # The typing indicator is a nice-to-have and must never abort the turn.
-        try:
-            await self._slot.start_loading()
-        except Exception:
-            logger.warning('LINE loading indicator failed', exc_info=True)
+        await self._slot.start_loading()
 
 
 class LineOAuthBridge(StatefulOAuthBridge):
@@ -196,10 +189,13 @@ class LineOAuthBridge(StatefulOAuthBridge):
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
+        # OAuth providers reject LINE's in-app webview. openExternalBrowser=1 sends the link to the system browser.
+        separator = '&' if '?' in authorize_url else '?'
+        external_url = f'{authorize_url}{separator}openExternalBrowser=1'
         card = Card(
             header=i18n.t('line.oauth.header', self._lang),
             sections=[Section(text=i18n.t(self._body_key, self._lang))],
-            links=[Link(label=i18n.t('line.oauth.button', self._lang), url=authorize_url)],
+            links=[Link(label=i18n.t('line.oauth.button', self._lang), url=external_url)],
         )
         message = {
             'type': 'flex',

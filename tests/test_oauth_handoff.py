@@ -25,10 +25,11 @@ async def test_code_round_trips_through_the_store(message_store: MessageStore):
         await message_store.deliver_oauth_code(state, 'the-code')
 
     task = asyncio.create_task(user_authorizes())
-    code = await bridge.request_authorization(authorize_url)
+    code, returned_state = await bridge.request_authorization(authorize_url)
     await task
 
     assert code == 'the-code'
+    assert returned_state == state
     assert bridge.rendered == [authorize_url]
 
 

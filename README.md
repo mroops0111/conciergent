@@ -9,13 +9,13 @@ Give your [MCP](https://modelcontextprotocol.io/) tools a chat face. Connect Con
 Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.com/mroops0111/openapi-mcp-gateway), which turns any REST API into MCP tools. Together they take one or more OpenAPI specs all the way to a chatbot your users can talk to.
 
 <p align="center">
-  <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="820">
+  <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="600">
 </p>
 
-- **Any MCP Server, or an OpenAPI Spec Directly.** Give Conciergent an MCP URL, or set `gateway.enabled` and drop in an OpenAPI spec. It embeds openapi-mcp-gateway in-process and serves the tools itself, no second server to run.
-- **In-Chat OAuth.** When a tool needs the user to authorize, Conciergent pushes the authorize URL into the thread, waits for the callback, then stores and refreshes the token. The user never leaves the chat.
-- **Human-in-the-Loop.** Any tool the MCP server marks destructive pauses mid-run behind a Confirm / Cancel card.
-- **Surface-Agnostic Rich Replies.** The agent emits one semantic reply, and each surface renders it in its own native format.
+- **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
+- **In-Chat OAuth.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes the token. The user never leaves the conversation.
+- **Human-in-the-Loop.** Any tool the server marks destructive pauses behind a Confirm / Cancel card before it runs.
+- **Surface-Agnostic Rich Replies.** The agent emits one structured reply, and each surface renders it natively.
 
 ## Quick Start
 
@@ -25,10 +25,10 @@ Two things are yours to set up once. Register a chat app with a public webhook U
 
 ```bash
 uv add conciergent
-conciergent init
+uv run conciergent init
 ```
 
-`conciergent init` writes an annotated `conciergent.yml`. It is deep-merged over the shipped defaults, so you set only what you change, and `${VAR}` / `${VAR:-default}` resolve in any string field.
+`uv run conciergent init` writes an annotated `conciergent.yml`, deep-merged over the shipped defaults so you set only what you change.
 
 ### 2. Configure Your MCP Tools
 
@@ -72,6 +72,8 @@ gateway:
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
+A spec entry mirrors openapi-mcp-gateway's per-server config, so you can add `exposure: dynamic` for a large spec (the agent sees three meta-tools instead of one per endpoint), a `policy` filter, or `auth` (`bearer`, `api_key`, or `oauth2`). An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
+
 ### 3. Connect Your Chat App
 
 Conciergent replies in direct messages, and the in-chat OAuth happens there too. Register the app once and set its request URLs, where `{your-public-url}` is your public host.
@@ -83,20 +85,22 @@ Create the app from [`examples/slack-app-manifest.yml`](examples/slack-app-manif
 
 | Setting | URL |
 |---|---|
-| Event Subscriptions → Request URL | `https://{your-public-url}/slack/events` |
-| Interactivity → Request URL | `https://{your-public-url}/slack/interactions` |
-| OAuth → Redirect URL *(multi-workspace install only)* | `https://{your-public-url}/oauth/slack/callback` |
+| Event Subscriptions Request URL | `https://{your-public-url}/slack/events` |
+| Interactivity Request URL | `https://{your-public-url}/slack/interactions` |
+| OAuth Redirect URL *(multi-workspace install only)* | `https://{your-public-url}/oauth/slack/callback` |
 
 </details>
 
 <details>
 <summary><b>LINE</b></summary>
 
-Set the webhook in the LINE Developers console.
+In the [LINE Developers console](https://developers.line.biz/console/):
 
-| Setting | URL |
-|---|---|
-| Messaging API → Webhook URL | `https://{your-public-url}/line/events` |
+1. Create a **provider**, then a **Messaging API channel** under it.
+2. Copy the **Channel secret** (Basic settings) and issue a long-lived **Channel access token** (Messaging API tab) into `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN`.
+3. Set the webhook URL and turn **Use webhook** on:
+   - Messaging API Webhook URL: `https://{your-public-url}/line/events`
+4. In the [LINE Official Account Manager](https://manager.line.biz/), turn **auto-reply** and **greeting messages** off, so the bot owns every reply.
 
 Conciergent answers with the event's one-time reply token when it can and falls back to a push message otherwise, so the channel access token needs push messages enabled.
 
@@ -111,7 +115,8 @@ Two ways, depending on whether you already have Redis and Postgres.
 Against your own Redis and Postgres:
 
 ```bash
-conciergent run
+createdb conciergent      # the database must exist, and Conciergent will create its tables on first run
+uv run conciergent run
 ```
 
 Or with Docker, which brings up Redis, Postgres, and the app together and needs no uv:
@@ -121,7 +126,7 @@ cp examples/openapi-chat.yml conciergent.yml     # or use your own
 docker compose up
 ```
 
-Secrets stay in the environment, not in the file. `conciergent.yml` pulls the Slack and LINE credentials in through `${...}` so they are never committed, and your model provider's API key is read from the environment too (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY`). The app serves on port 8000. Put your tunnel in front of that port and set `server.url` to its URL.
+Secrets stay in the environment. `conciergent.yml` reads the Slack, LINE, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
 ## Configuration
 
@@ -148,8 +153,8 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `agent.model` | `openai:gpt-4o-mini` | A `provider:model` string for one of the three providers above. |
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
-| `agent.input_token_limit` | `null` | Set to enable history compaction. Unset means no compaction. |
-| `agent.mcp_read_timeout_seconds` | `120` | Per-call MCP read timeout. |
+| `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
+| `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
 | `surface.slack.enabled` | `false` | Turn the Slack surface on. |
 | `surface.slack.signing_secret` | *(required if enabled)* | Verifies inbound Slack signatures. |
@@ -185,7 +190,7 @@ The agent never speaks Slack or LINE. It emits one of three shapes, and each sur
 
 A suggestion is the interactive primitive. Tapping one posts its prompt back to the agent as if the user had typed it. The field descriptions on these models are the agent's structured-output schema, so the model fills them in directly.
 
-## Extention
+## Extending
 
 The paved road above needs no code. These are for teams who want to go further.
 

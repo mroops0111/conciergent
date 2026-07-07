@@ -8,11 +8,17 @@ server:
 
 agent:
   model: openai:gpt-4o-mini
+  # Describe your assistant here, including its role, scope, and what its tools are for.
+  # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers: []
+  # History compaction is always on. Leave this null to auto-detect the model's context window,
+  # or set an integer to override it, for example when a model is too new for the bundled metadata.
   input_token_limit: null
-  mcp_read_timeout_seconds: 120
+  # A missing token runs the full OAuth flow inside the MCP connect, so this stays above the handoff wait,
+  # conversation.oauth_wait_timeout_seconds, letting a slow authorization end with a clean expiry.
+  mcp_read_timeout_seconds: 300
   client_name: conciergent
 
 surface:
@@ -40,6 +46,7 @@ store:
 
 gateway:
   enabled: false
+  redis_url: ''
   specs: []
 
 conversation:

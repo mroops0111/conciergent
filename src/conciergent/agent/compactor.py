@@ -1,7 +1,9 @@
 import json
+import logging
 import typing
 
 import pydantic
+from genai_prices import data_snapshot
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
@@ -16,11 +18,17 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 
 
+logger = logging.getLogger(__name__)
+
 # The compaction thresholds, as fractions of the model's input token limit.
 # Compaction fires once history passes the trigger ratio, then shrinks it toward the target ratio.
 _COMPACTION_TRIGGER_RATIO = 0.80
 _COMPACTION_TARGET_RATIO = 0.20
 _SUMMARY_MIN_TARGET_CHARS = 200
+
+# Used when the metadata has no window for the model, low enough to sit under the smallest bundled
+# provider window so compaction still fires and never lets history overrun the real limit.
+_FALLBACK_INPUT_TOKEN_LIMIT = 128000
 
 _COMPACTION_SUMMARY_STUB = '(Earlier conversation summary)'
 _INSTRUCTIONS = (
@@ -44,11 +52,14 @@ class HistorySummarizer:
         self,
         model: Model | str,
         *,
-        input_token_limit: int,
+        input_token_limit: int | None = None,
         trigger_ratio: float = _COMPACTION_TRIGGER_RATIO,
         target_ratio: float = _COMPACTION_TARGET_RATIO,
     ) -> None:
-        self._input_token_limit = input_token_limit
+        # An unset limit is auto-detected from the model, so compaction is on by default.
+        self._input_token_limit = (
+            input_token_limit if input_token_limit is not None else resolve_input_token_limit(model)
+        )
         self._trigger_ratio = trigger_ratio
         self._target_ratio = target_ratio
         self._agent: Agent[None, str] = Agent(model, output_type=str, instructions=_INSTRUCTIONS)
@@ -72,6 +83,27 @@ class HistorySummarizer:
         ]
         replacement = ModelMessagesTypeAdapter.dump_python([*summary_pair, *to_keep], mode='json')
         return list(replacement)
+
+
+def resolve_input_token_limit(model: Model | str) -> int:
+    """Return the model's context window in tokens, read from the bundled genai-prices metadata.
+
+    The model is a ``provider:model`` reference, for example ``openai:gpt-4o-mini``. An unknown model
+    falls back to a conservative window so compaction still runs, and an explicit config value overrides this.
+    """
+    reference = model if isinstance(model, str) else model.model_name
+    provider_id, separator, model_ref = reference.partition(':')
+    if not separator:
+        provider_id, model_ref = '', reference
+    try:
+        snapshot = data_snapshot.get_snapshot()
+        provider = next((candidate for candidate in snapshot.providers if candidate.id == provider_id), None)
+        info = provider.find_model(model_ref, all_providers=snapshot.providers) if provider is not None else None
+        if info is not None and info.context_window is not None:
+            return info.context_window
+    except Exception:
+        logger.warning('could not resolve an input token limit for %r, using the fallback', reference, exc_info=True)
+    return _FALLBACK_INPUT_TOKEN_LIMIT
 
 
 def _latest_input_tokens(messages: list[ModelMessage]) -> int:
