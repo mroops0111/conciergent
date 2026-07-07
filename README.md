@@ -25,10 +25,10 @@ Two things are yours to set up once. Register a chat app with a public webhook U
 
 ```bash
 uv add conciergent
-conciergent init
+uv run conciergent init
 ```
 
-`conciergent init` writes an annotated `conciergent.yml`. It is deep-merged over the shipped defaults, so you set only what you change, and `${VAR}` / `${VAR:-default}` resolve in any string field.
+`uv run conciergent init` writes an annotated `conciergent.yml`. It is deep-merged over the shipped defaults, so you set only what you change, and `${VAR}` / `${VAR:-default}` resolve in any string field.
 
 ### 2. Configure Your MCP Tools
 
@@ -72,6 +72,8 @@ gateway:
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
+A spec entry mirrors openapi-mcp-gateway's per-server config, so you can add `exposure: dynamic` for a large spec (the agent sees three meta-tools instead of one per endpoint), a `policy` filter, or `auth` (`bearer`, `api_key`, or `oauth2`). An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
+
 ### 3. Connect Your Chat App
 
 Conciergent replies in direct messages, and the in-chat OAuth happens there too. Register the app once and set its request URLs, where `{your-public-url}` is your public host.
@@ -83,20 +85,22 @@ Create the app from [`examples/slack-app-manifest.yml`](examples/slack-app-manif
 
 | Setting | URL |
 |---|---|
-| Event Subscriptions → Request URL | `https://{your-public-url}/slack/events` |
-| Interactivity → Request URL | `https://{your-public-url}/slack/interactions` |
-| OAuth → Redirect URL *(multi-workspace install only)* | `https://{your-public-url}/oauth/slack/callback` |
+| Event Subscriptions Request URL | `https://{your-public-url}/slack/events` |
+| Interactivity Request URL | `https://{your-public-url}/slack/interactions` |
+| OAuth Redirect URL *(multi-workspace install only)* | `https://{your-public-url}/oauth/slack/callback` |
 
 </details>
 
 <details>
 <summary><b>LINE</b></summary>
 
-Set the webhook in the LINE Developers console.
+In the [LINE Developers console](https://developers.line.biz/console/):
 
-| Setting | URL |
-|---|---|
-| Messaging API → Webhook URL | `https://{your-public-url}/line/events` |
+1. Create a **provider**, then a **Messaging API channel** under it.
+2. Copy the **Channel secret** (Basic settings) and issue a long-lived **Channel access token** (Messaging API tab) into `LINE_CHANNEL_SECRET` and `LINE_CHANNEL_ACCESS_TOKEN`.
+3. Set the webhook URL and turn **Use webhook** on:
+   - Messaging API Webhook URL: `https://{your-public-url}/line/events`
+4. In the [LINE Official Account Manager](https://manager.line.biz/), turn **auto-reply** and **greeting messages** off, so the bot owns every reply.
 
 Conciergent answers with the event's one-time reply token when it can and falls back to a push message otherwise, so the channel access token needs push messages enabled.
 
@@ -111,7 +115,8 @@ Two ways, depending on whether you already have Redis and Postgres.
 Against your own Redis and Postgres:
 
 ```bash
-conciergent run
+createdb conciergent      # the database must exist, and Conciergent will create its tables on first run
+uv run conciergent run
 ```
 
 Or with Docker, which brings up Redis, Postgres, and the app together and needs no uv:

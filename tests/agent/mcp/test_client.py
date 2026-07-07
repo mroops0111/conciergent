@@ -19,13 +19,14 @@ _PRINCIPAL = 'slack:T:U'
 
 
 class _FakeBridge(OAuthBridge):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, state: str = 'state') -> None:
         self.code = code
+        self.state = state
         self.seen_url: str | None = None
 
-    async def request_authorization(self, authorize_url: str) -> str:
+    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
         self.seen_url = authorize_url
-        return self.code
+        return self.code, self.state
 
 
 def _agent_over(server: FastMCP) -> Agent[None, typing.Any]:
@@ -75,7 +76,7 @@ async def test_build_toolset_with_oauth_constructs(credential_store: CredentialS
 
 
 async def test_bridge_handoff_delegates_to_bridge():
-    bridge = _FakeBridge('the-code')
+    bridge = _FakeBridge('the-code', state='abc')
     adapter = _OAuthBridgeAdapter(bridge)
     authorize_url = 'https://example.com/authorize?state=abc'
 
@@ -83,7 +84,7 @@ async def test_bridge_handoff_delegates_to_bridge():
     code, state = await adapter.callback_handler()
 
     assert code == 'the-code'
-    assert state is None
+    assert state == 'abc'
     assert bridge.seen_url == authorize_url
 
 

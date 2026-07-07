@@ -47,7 +47,7 @@ async def test_oauth_code_reaches_the_waiter(message_store: MessageStore):
         await message_store.deliver_oauth_code('s1', 'code-1')
 
     task = asyncio.create_task(deliver())
-    assert await message_store.await_oauth_code('s1', timeout_seconds=5) == 'code-1'
+    assert await message_store.await_oauth_code('s1', timeout_seconds=5) == ('code-1', 's1')
     await task
 
 
@@ -58,4 +58,4 @@ async def test_oauth_code_wait_times_out(message_store: MessageStore):
 async def test_oauth_code_zero_timeout_checks_once(message_store: MessageStore):
     assert await message_store.await_oauth_code('nobody', timeout_seconds=0) is None
     await message_store.deliver_oauth_code('ready', 'code-r')
-    assert await message_store.await_oauth_code('ready', timeout_seconds=0) == 'code-r'
+    assert await message_store.await_oauth_code('ready', timeout_seconds=0) == ('code-r', 'ready')

@@ -8,6 +8,8 @@ server:
 
 agent:
   model: openai:gpt-4o-mini
+  # Describe your assistant here, including its role, scope, and what its tools are for.
+  # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers: []
@@ -40,6 +42,7 @@ store:
 
 gateway:
   enabled: false
+  redis_url: ''
   specs: []
 
 conversation:

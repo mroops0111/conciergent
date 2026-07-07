@@ -48,7 +48,6 @@ def build_toolset(
     if (oauth_bridge is None) != (redirect_uri is None):
         raise ValueError('bridge and redirect_uri must be given together to enable MCP OAuth')
     if isinstance(server, str):
-        auth = None
         if oauth_bridge is not None and redirect_uri is not None:
             if credential_store is None:
                 raise ValueError('a credential store is required to persist MCP OAuth tokens')
@@ -60,7 +59,11 @@ def build_toolset(
                 redirect_uri=redirect_uri,
                 client_name=client_name,
             )
-        toolset = MCPToolset(server, auth=auth, read_timeout=read_timeout_seconds)
+            # During OAuth the connect blocks in the callback until the user authorizes, so the init timeout is
+            # disabled with 0, the SDK's explicit off switch, leaving the bridge's own wait as the only limit.
+            toolset = MCPToolset(server, auth=auth, read_timeout=read_timeout_seconds, init_timeout=0)
+        else:
+            toolset = MCPToolset(server, read_timeout=read_timeout_seconds)
     else:
         toolset = MCPToolset(server)
     return toolset.approval_required(approval_predicate)
@@ -93,7 +96,7 @@ def _oauth_provider(
 class _OAuthBridgeAdapter:
     """Present one ``OAuthBridge`` as the pair of callbacks the SDK's ``OAuthClientProvider`` takes.
 
-    The SDK calls ``redirect_handler`` with the authorize URL and then ``callback_handler`` for the code,
+    The SDK calls ``redirect_handler`` with the authorize URL and then ``callback_handler`` for the code and state,
     this class stores the URL from the first call and delegates the second to the oauth_bridge.
     """
 
@@ -107,5 +110,6 @@ class _OAuthBridgeAdapter:
     async def callback_handler(self) -> tuple[str, str | None]:
         if self._authorize_url is None:
             raise RuntimeError('the redirect handler must run before the callback handler')
-        code = await self._oauth_bridge.request_authorization(self._authorize_url)
-        return code, None
+        # The bridge returns the code with the state the callback received,
+        # which the SDK checks against the state it put in the authorize URL.
+        return await self._oauth_bridge.request_authorization(self._authorize_url)

@@ -45,8 +45,15 @@ services:
       CONCIERGENT_HOST: 0.0.0.0
       CONCIERGENT_MESSAGES_URL: redis://redis:6379/0
       CONCIERGENT_CREDENTIALS_URL: postgresql+asyncpg://conciergent:conciergent@postgres/conciergent
-      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Model provider key — set the one your agent.model uses.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Slack surface — set these when surface.slack.enabled.
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      # LINE surface — set these when surface.line.enabled.
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
     volumes:
       - ./conciergent.yml:/home/app/conciergent.yml:ro

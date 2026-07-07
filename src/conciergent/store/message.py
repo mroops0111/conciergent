@@ -33,7 +33,13 @@ class MessageStore:
 
     @classmethod
     def from_url(cls, url: str, *, max_turns: int = DEFAULT_MAX_TURNS) -> 'MessageStore':
-        return cls(redis.asyncio.Redis.from_url(url), max_turns=max_turns)
+        # redis-py 8 defaults socket_timeout to five seconds, which fires on the socket read before a long BLPOP
+        # returns, so the OAuth handoff wait dies early. socket_timeout=None lets the BLPOP's own timeout own the wait.
+        return cls(redis.asyncio.Redis.from_url(url, socket_timeout=None), max_turns=max_turns)
+
+    async def ping(self) -> None:
+        """Check the Redis connection at startup, so an unreachable store fails fast like the credential store."""
+        await self._redis.ping()
 
     async def load_history(self, conversation: str) -> list[typing.Any]:
         turn_ids = [_text(raw) for raw in await self._redis.lrange(self._index_key(conversation), 0, -1)]
@@ -82,22 +88,23 @@ class MessageStore:
         return json.loads(payload) if payload is not None else None
 
     async def deliver_oauth_code(self, state: str, code: str) -> None:
+        # The payload carries the state alongside the code so the waiter returns the state the callback received,
+        # which the MCP SDK checks against the one it put in the authorize URL.
+        payload = json.dumps({'code': code, 'state': state})
         pipeline = self._redis.pipeline(transaction=True)
-        pipeline.rpush(f'{_PREFIX}:oauth-code:{state}', code)
+        pipeline.rpush(f'{_PREFIX}:oauth-code:{state}', payload)
         # A stranded payload with no waiter is garbage collected by the expiry.
         pipeline.expire(f'{_PREFIX}:oauth-code:{state}', _OAUTH_CODE_TTL_SECONDS)
         await pipeline.execute()
 
-    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> str | None:
+    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> tuple[str, str] | None:
+        key = f'{_PREFIX}:oauth-code:{state}'
         if timeout_seconds <= 0:
             # BLPOP treats a zero timeout as block-forever, so a non-positive wait checks once instead.
-            popped_now = await self._redis.lpop(f'{_PREFIX}:oauth-code:{state}')
-            return _text(popped_now) if isinstance(popped_now, bytes | str) else None
-        popped = await self._redis.blpop([f'{_PREFIX}:oauth-code:{state}'], timeout=timeout_seconds)
-        if popped is None:
-            return None
-        _, code = popped
-        return _text(code)
+            popped_now = await self._redis.lpop(key)
+            return _decode_handoff(popped_now)
+        popped = await self._redis.blpop([key], timeout=timeout_seconds)
+        return _decode_handoff(popped[1]) if popped is not None else None
 
     def _index_key(self, conversation: str) -> str:
         return f'{_PREFIX}:history:{conversation}:index'
@@ -108,3 +115,10 @@ class MessageStore:
 
 def _text(value: bytes | str) -> str:
     return value.decode() if isinstance(value, bytes) else value
+
+
+def _decode_handoff(payload: typing.Any) -> tuple[str, str] | None:
+    if not isinstance(payload, bytes | str):
+        return None
+    data = json.loads(payload)
+    return data['code'], data['state']

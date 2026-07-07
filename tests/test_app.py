@@ -69,14 +69,14 @@ def test_mcp_oauth_callback_delivers_the_code(stores):
     code = 'c9'
     state = 's9'
 
-    async def scenario() -> str | None:
+    async def scenario() -> tuple[str, str] | None:
         waiter = asyncio.create_task(message_store.await_oauth_code(state, timeout_seconds=5))
         await asyncio.sleep(0)
         response = await asyncio.to_thread(client.get, '/oauth/mcp/callback', params={'code': code, 'state': state})
         assert response.status_code == 200
         return await waiter
 
-    assert asyncio.run(scenario()) == code
+    assert asyncio.run(scenario()) == (code, state)
 
 
 def test_mcp_oauth_callback_rejects_missing_params(stores):
@@ -116,7 +116,11 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
         store_config,
         agent={'mcp_servers': [mcp_server]},
         surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
-        gateway={'enabled': True, 'specs': [{'name': 'petstore', 'spec': './petstore.json'}]},
+        gateway={
+            'enabled': True,
+            'redis_url': 'redis://localhost:6379/0',
+            'specs': [{'name': 'petstore', 'spec': './petstore.json'}],
+        },
         server={'url': 'https://example.com'},
     )
 
@@ -136,7 +140,10 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
 
     monkeypatch.setattr(builtins, '__import__', no_gateway)
     app = _silent_app(
-        stores, gateway_settings=GatewaySettings(enabled=True, specs=[GatewaySpec(name='petstore', spec='./x.json')])
+        stores,
+        gateway_settings=GatewaySettings(
+            enabled=True, redis_url='redis://localhost:6379/0', specs=[GatewaySpec(name='petstore', spec='./x.json')]
+        ),
     )
 
     with pytest.raises(RuntimeError, match=r'conciergent\[gateway\]'):

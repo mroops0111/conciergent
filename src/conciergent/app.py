@@ -108,10 +108,11 @@ class App:
     def build_asgi(self) -> fastapi.FastAPI:
         gateway = None
         if self._gateway_settings is not None and self._gateway_settings.enabled:
-            gateway = _build_gateway(self._gateway_settings)
+            gateway = _build_gateway(self._gateway_settings, self.base_url)
 
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
+            await self._message_store.ping()
             await self._credential_store.prepare()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
@@ -124,6 +125,7 @@ class App:
         app = fastapi.FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
         if gateway is not None:
             gateway.mount(app)
+            _register_gateway_oauth_routes(app, gateway)
 
         @app.get('/healthz')
         async def healthz() -> fastapi.Response:
@@ -173,12 +175,35 @@ def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fa
     return fastapi.responses.HTMLResponse(f'<h1>{title}</h1><p>{body}</p>', status_code=status_code)
 
 
-def _build_gateway(settings: GatewaySettings) -> typing.Any:
+def _build_gateway(settings: GatewaySettings, base_url: str) -> typing.Any:
     try:
         import openapi_mcp_gateway
+        from openapi_mcp_gateway.settings import StoreConfig
     except ImportError as error:
-        raise RuntimeError('the embedded gateway needs the extra: uv install conciergent[gateway]') from error
-    gateway = openapi_mcp_gateway.Gateway()
+        raise RuntimeError('the embedded gateway needs the extra: uv add conciergent[gateway]') from error
+    # base_url sets the gateway's public OAuth redirect and discovery URLs, not its localhost default.
+    # The Redis store persists the gateway's OAuth client registrations across restarts,
+    # so a client id saved by the agent is not later rejected as unknown once the gateway forgets it.
+    store = StoreConfig(type='redis', redis_url=settings.redis_url)
+    gateway = openapi_mcp_gateway.Gateway(openapi_mcp_gateway.GatewayConfig(url=base_url, store=store))
     for spec in settings.specs:
-        gateway.add_server(spec.name, spec.spec, base_url=spec.base_url)
+        gateway.add_server(
+            spec.name,
+            spec.spec,
+            base_url=spec.base_url,
+            path_prefix=spec.path_prefix,
+            auth=spec.auth,
+            policy=spec.policy,
+            timeout=spec.timeout,
+            exposure=spec.exposure,
+        )
     return gateway
+
+
+def _register_gateway_oauth_routes(app: fastapi.FastAPI, gateway: typing.Any) -> None:
+    # The gateway registers its OAuth authorization-server and discovery routes only in its own app factory,
+    # not in mount(), so an embedder adds them here. Private helpers, pending a public API (openapi-mcp-gateway#45).
+    from openapi_mcp_gateway import app as gateway_app
+
+    gateway_app._register_oauth_routes(app, gateway._servers)
+    gateway_app._register_well_known_routes(app, gateway._servers)

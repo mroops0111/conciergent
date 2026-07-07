@@ -114,10 +114,12 @@ async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
     bridge = LineOAuthBridge(message_store, _slot(messenger))
     await message_store.deliver_oauth_code(state, 'code-1')
 
-    code = await bridge.request_authorization(authorize_url)
+    code, returned_state = await bridge.request_authorization(authorize_url)
 
     assert code == 'code-1'
+    assert returned_state == state
     rendered = messenger.replies[0]
     assert rendered['type'] == 'flex'
     button = rendered['contents']['footer']['contents'][0]
-    assert button['action']['uri'] == authorize_url
+    # OAuth providers reject LINE's in-app webview, so the link forces the system browser.
+    assert button['action']['uri'] == f'{authorize_url}&openExternalBrowser=1'

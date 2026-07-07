@@ -1,7 +1,7 @@
 # Build conciergent with uv, then run it on a slim Python base.
 # Includes the [gateway] extra so an OpenAPI spec can be embedded as MCP tools.
 
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS build
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --extra gateway
 
 
-FROM python:3.12-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 1000 app

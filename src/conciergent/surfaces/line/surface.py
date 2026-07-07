@@ -196,10 +196,13 @@ class LineOAuthBridge(StatefulOAuthBridge):
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
+        # OAuth providers reject LINE's in-app webview. openExternalBrowser=1 sends the link to the system browser.
+        separator = '&' if '?' in authorize_url else '?'
+        external_url = f'{authorize_url}{separator}openExternalBrowser=1'
         card = Card(
             header=i18n.t('line.oauth.header', self._lang),
             sections=[Section(text=i18n.t(self._body_key, self._lang))],
-            links=[Link(label=i18n.t('line.oauth.button', self._lang), url=authorize_url)],
+            links=[Link(label=i18n.t('line.oauth.button', self._lang), url=external_url)],
         )
         message = {
             'type': 'flex',

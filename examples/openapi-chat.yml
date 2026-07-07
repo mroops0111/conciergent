@@ -20,6 +20,8 @@ server:
 
 agent:
   model: openai:gpt-4o-mini        # or any google: or anthropic: model
+  # Describe your assistant here, including its role, scope, and what its tools are for.
+  # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
     You are the Petstore concierge. Use the tools to look up pets by status,
     fetch a pet by id, and place or cancel store orders. Confirm before you change anything.
@@ -35,6 +37,8 @@ store:
   credentials_url: ${CONCIERGENT_CREDENTIALS_URL:-postgresql+asyncpg://localhost/conciergent}
 
 gateway:
+  # The gateway persists its OAuth client registrations here, so they survive a restart and reuse the app's Redis.
+  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}
   enabled: true
   specs:
     - name: petstore

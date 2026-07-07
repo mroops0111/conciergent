@@ -37,6 +37,12 @@ class AgentSettings(pydantic.BaseModel):
     mcp_read_timeout_seconds: float
     client_name: str
 
+    @pydantic.field_validator('mcp_servers', mode='before')
+    @classmethod
+    def _empty_when_null(cls, value: typing.Any) -> typing.Any:
+        # A bare `mcp_servers:` in YAML parses to None; treat that as no servers rather than an error.
+        return [] if value is None else value
+
 
 class SlackSettings(pydantic.BaseModel):
     """Slack app credentials, created once in the Slack app dashboard.
@@ -122,18 +128,42 @@ class StoreSettings(pydantic.BaseModel):
 
 
 class GatewaySpec(pydantic.BaseModel):
-    """One OpenAPI spec to expose as MCP tools through the embedded gateway."""
+    """One OpenAPI spec exposed as MCP tools through the embedded gateway.
+
+    Fields mirror openapi-mcp-gateway's per-server config, so an embedded spec supports the same auth,
+    exposure, and policy as running the gateway standalone.
+    """
 
     name: str
     spec: str
     base_url: str | None = None
+    path_prefix: str | None = None
+    auth: dict[str, typing.Any] | None = None
+    policy: dict[str, typing.Any] | None = None
+    timeout: float = 90
+    exposure: typing.Literal['static', 'dynamic'] = 'static'
 
 
 class GatewaySettings(pydantic.BaseModel):
     """Embed openapi-mcp-gateway in process, so a spec file becomes MCP tools without a separate server."""
 
     enabled: bool = False
+    redis_url: str = ''
     specs: list[GatewaySpec] = pydantic.Field(default_factory=list)
+
+    @pydantic.field_validator('specs', mode='before')
+    @classmethod
+    def _empty_when_null(cls, value: typing.Any) -> typing.Any:
+        # A bare `specs:` in YAML parses to None; treat that as no specs rather than an error.
+        return [] if value is None else value
+
+    @pydantic.model_validator(mode='after')
+    def _require_redis_when_enabled(self) -> typing.Self:
+        # The gateway persists its OAuth client registrations in Redis, so an unset URL would lose them on a restart.
+        # It would then reject a client id the agent still holds, so an enabled gateway must name its Redis.
+        if self.enabled and not self.redis_url:
+            raise ValueError('gateway.redis_url is required when the gateway is enabled')
+        return self
 
 
 class ConversationSettings(pydantic.BaseModel):

@@ -46,8 +46,8 @@ class OAuthBridge(abc.ABC):
     """Drive an OAuth authorization that happens inside the conversation."""
 
     @abc.abstractmethod
-    async def request_authorization(self, authorize_url: str) -> str:
-        """Show the user the authorize URL and return the code once they complete the flow."""
+    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+        """Show the user the authorize URL and return the code and its state once they complete the flow."""
         ...
 
 
@@ -68,16 +68,16 @@ class StatefulOAuthBridge(OAuthBridge):
         self._wait_timeout_seconds = wait_timeout_seconds
 
     @typing.override
-    async def request_authorization(self, authorize_url: str) -> str:
+    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
         query = urllib.parse.parse_qs(urllib.parse.urlparse(authorize_url).query)
         states = query.get('state')
         if not states:
             raise ValueError('the authorization URL carries no state parameter')
         await self._render_authorization_ui(authorize_url)
-        code = await self._message_store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
-        if code is None:
+        result = await self._message_store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
+        if result is None:
             raise OAuthHandoffExpiredError
-        return code
+        return result
 
     @abc.abstractmethod
     async def _render_authorization_ui(self, authorize_url: str) -> None:
@@ -97,7 +97,7 @@ class AuthorizationProbe(OAuthBridge):
         self.authorized = False
 
     @typing.override
-    async def request_authorization(self, authorize_url: str) -> str:
-        code = await self._inner.request_authorization(authorize_url)
+    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+        result = await self._inner.request_authorization(authorize_url)
         self.authorized = True
-        return code
+        return result
