@@ -12,7 +12,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
 
-from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.compactor import _FALLBACK_INPUT_TOKEN_LIMIT, HistorySummarizer, resolve_input_token_limit
 
 
 _SUMMARY = 'the summary'
@@ -30,6 +30,20 @@ def _history(*, latest_input_tokens: int) -> list[typing.Any]:
 
 def _compactor(input_token_limit: int = 1000) -> HistorySummarizer:
     return HistorySummarizer(TestModel(call_tools=[], custom_output_text=_SUMMARY), input_token_limit=input_token_limit)
+
+
+def test_resolve_input_token_limit_reads_a_known_model():
+    # The window comes from the bundled genai-prices metadata; gpt-4o-mini is 128k.
+    assert resolve_input_token_limit('openai:gpt-4o-mini') >= 100000
+
+
+def test_resolve_input_token_limit_falls_back_for_an_unknown_model():
+    assert resolve_input_token_limit('bogus:model-x') == _FALLBACK_INPUT_TOKEN_LIMIT
+
+
+def test_summarizer_auto_detects_the_limit_when_unset():
+    summarizer = HistorySummarizer(TestModel(call_tools=[], custom_output_text=_SUMMARY))
+    assert summarizer._input_token_limit == _FALLBACK_INPUT_TOKEN_LIMIT
 
 
 async def test_below_threshold_keeps_history():

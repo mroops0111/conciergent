@@ -13,6 +13,8 @@ agent:
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers: []
+  # History compaction is always on. Leave this null to auto-detect the model's context window,
+  # or set an integer to override it, for example when a model is too new for the bundled metadata.
   input_token_limit: null
   mcp_read_timeout_seconds: 120
   client_name: conciergent

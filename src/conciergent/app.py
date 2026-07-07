@@ -83,9 +83,8 @@ class App:
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
             client_name=config.agent.client_name,
         )
-        compactor: HistorySummarizer | None = None
-        if config.agent.input_token_limit is not None:
-            compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
+        # Compaction is always on; the limit is auto-detected from the model unless the config overrides it.
+        compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
         surfaces = config.surface.enabled_surfaces()
         if not surfaces:
             raise ValueError('enable at least one surface: set surface.slack.enabled or surface.line.enabled')

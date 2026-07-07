@@ -16,14 +16,15 @@ logger = logging.getLogger(__name__)
 
 # The plain-text dialect hint injected into the agent's system prompt for this surface.
 TEXT_FORMATTING_INSTRUCTION = (
-    'LINE renders plain text only. Never use markdown of any kind, no asterisks, backticks, or [text](url). '
-    'Write short lines and use blank lines to separate ideas.'
+    'You are replying on LINE, which renders plain text only and does not parse Markdown. '
+    'Do not emit **bold**, _italic_, backticks, # headers, or * or - bullet markers. '
+    'For lists prefix each item with • or a number like 1., and separate ideas with blank lines.'
 )
 
 
 _API_BASE_URL = 'https://api.line.me'
-# LINE shows the loading animation for at most this many seconds.
-_LOADING_SECONDS = 30
+# LINE shows the loading animation for at most this many seconds, then it clears on the next message.
+_LOADING_SECONDS = 60
 
 
 class LineMessenger:
@@ -98,7 +99,11 @@ class ReplyTokenSlot:
         await self._messenger.push(self._user_id, message)
 
     async def start_loading(self) -> None:
-        await self._messenger.start_loading(self._user_id)
+        # The loading indicator is cosmetic, so a failed ping is logged at debug and never aborts the turn.
+        try:
+            await self._messenger.start_loading(self._user_id)
+        except Exception:
+            logger.debug('LINE loading indicator failed', exc_info=True)
 
 
 class LineReplySurface(ReplySurface):
@@ -164,11 +169,7 @@ class LineReplySurface(ReplySurface):
 
     @typing.override
     async def show_processing(self) -> None:
-        # The typing indicator is a nice-to-have and must never abort the turn.
-        try:
-            await self._slot.start_loading()
-        except Exception:
-            logger.warning('LINE loading indicator failed', exc_info=True)
+        await self._slot.start_loading()
 
 
 class LineOAuthBridge(StatefulOAuthBridge):
@@ -193,6 +194,14 @@ class LineOAuthBridge(StatefulOAuthBridge):
         self._brand_color = brand_color
         # Which body copy the auth card shows; the follow greeting swaps in the welcome-flavored variant.
         self._body_key = body_key
+
+    @typing.override
+    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+        result = await super().request_authorization(authorize_url)
+        # The code has arrived and the agent is about to resume connecting and answering, so the loading
+        # indicator restarts here, otherwise the chat looks idle for the whole post-authorization run.
+        await self._slot.start_loading()
+        return result
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:

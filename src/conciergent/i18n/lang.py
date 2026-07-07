@@ -2,6 +2,10 @@ import enum
 import typing
 
 
+# Surfaces report a script variant we normalize to a canonical tag, for example LINE sends "zh-Hant" for zh-TW.
+_ALIASES = {'zh-hant': 'zh-TW'}
+
+
 class Lang(enum.StrEnum):
     """A user-interface language, valued by its BCP 47 tag so it doubles as a catalog file stem."""
 
@@ -16,13 +20,14 @@ class Lang(enum.StrEnum):
     @classmethod
     @typing.override
     def _missing_(cls, value: object) -> typing.Self | None:
-        # Surfaces report a BCP 47 tag that may carry a region (Slack sends en-US, LINE sends en),
-        # so match case-insensitively and fall back to the primary subtag before giving up.
+        # Surfaces report a BCP 47 tag that may carry a region or script variant, Slack sends en-US,
+        # LINE sends zh-Hant, so normalize an alias, match case-insensitively, then fall back to the primary subtag.
         if not isinstance(value, str):
             return None
         lowered = value.lower()
+        canonical = _ALIASES.get(lowered, lowered).lower()
         by_value = {member.value.lower(): member for member in cls}
-        return by_value.get(lowered) or by_value.get(lowered.split('-')[0])
+        return by_value.get(canonical) or by_value.get(canonical.split('-')[0])
 
 
 DISPLAY_NAMES: dict[Lang, str] = {

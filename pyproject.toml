@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "click>=8.4.0",
     "pydantic-ai-slim[openai,google,anthropic,mcp]>=2.1.0,<3",
+    "genai-prices", # Ships with pydantic-ai-slim; used to auto-detect a model's context window for history compaction.
     "mcp[cli]>=1.28.1,<2",
     "redis>=7.4.0",
     "sqlalchemy[asyncio]>=2.0.0",

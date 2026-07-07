@@ -153,7 +153,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `agent.model` | `openai:gpt-4o-mini` | A `provider:model` string for one of the three providers above. |
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
-| `agent.input_token_limit` | `null` | Set to enable history compaction. Unset means no compaction. |
+| `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
 | `agent.mcp_read_timeout_seconds` | `120` | Per-call MCP read timeout. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
 | `surface.slack.enabled` | `false` | Turn the Slack surface on. |
