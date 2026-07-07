@@ -103,7 +103,7 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
     )
 
     # An unset knob resolves to the real value from defaults.yml, not an empty sentinel.
-    assert config.agent.mcp_read_timeout_seconds == 120.0
+    assert config.agent.mcp_read_timeout_seconds == 300.0
     assert config.surface.slack.brand_color == '#123456'
     assert config.surface.slack.destructive_color == '#DC3545'
     assert config.surface.slack.api_timeout_seconds == 30.0

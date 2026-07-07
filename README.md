@@ -154,7 +154,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
 | `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
-| `agent.mcp_read_timeout_seconds` | `120` | Per-call MCP read timeout. |
+| `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
 | `surface.slack.enabled` | `false` | Turn the Slack surface on. |
 | `surface.slack.signing_secret` | *(required if enabled)* | Verifies inbound Slack signatures. |

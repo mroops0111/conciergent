@@ -57,14 +57,14 @@ async def test_benign_tool_is_not_gated():
     assert not isinstance(result.output, DeferredToolRequests)
 
 
-def test_build_toolset_without_oauth_returns_a_toolset():
-    toolset = build_toolset(_SERVER, principal=_PRINCIPAL)
+async def test_build_toolset_without_oauth_returns_a_toolset():
+    toolset = await build_toolset(_SERVER, principal=_PRINCIPAL)
 
     assert isinstance(toolset, AbstractToolset)
 
 
 async def test_build_toolset_with_oauth_constructs(credential_store: CredentialStore):
-    toolset = build_toolset(
+    toolset = await build_toolset(
         _SERVER,
         credential_store=credential_store,
         principal=_PRINCIPAL,

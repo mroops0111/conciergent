@@ -196,14 +196,6 @@ class LineOAuthBridge(StatefulOAuthBridge):
         self._body_key = body_key
 
     @typing.override
-    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
-        result = await super().request_authorization(authorize_url)
-        # The code has arrived and the agent is about to resume connecting and answering, so the loading
-        # indicator restarts here, otherwise the chat looks idle for the whole post-authorization run.
-        await self._slot.start_loading()
-        return result
-
-    @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
         # OAuth providers reject LINE's in-app webview. openExternalBrowser=1 sends the link to the system browser.
         separator = '&' if '?' in authorize_url else '?'

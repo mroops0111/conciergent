@@ -1,9 +1,17 @@
 import collections.abc
+import logging
 import typing
 
+import httpx
 import pydantic
 from mcp.client.auth import OAuthClientProvider
-from mcp.shared.auth import OAuthClientMetadata
+from mcp.client.auth.utils import (
+    build_oauth_authorization_server_metadata_discovery_urls,
+    build_protected_resource_metadata_discovery_urls,
+    handle_auth_metadata_response,
+    handle_protected_resource_response,
+)
+from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import MCPToolset, MCPToolsetClient
 from pydantic_ai.tools import ToolDefinition
@@ -13,6 +21,12 @@ from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.defaults import DEFAULTS
 from conciergent.runtime import OAuthBridge
 from conciergent.store.credential import CredentialStore
+
+
+logger = logging.getLogger(__name__)
+
+# The metadata does not change per server, so discovery runs once per process rather than on every connect.
+_OAUTH_METADATA_CACHE: dict[str, OAuthMetadata] = {}
 
 
 type ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
@@ -28,7 +42,7 @@ def needs_approval(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_a
     return bool(annotations.get('destructiveHint'))
 
 
-def build_toolset(
+async def build_toolset(
     server: MCPToolsetClient,
     *,
     principal: str,
@@ -51,7 +65,7 @@ def build_toolset(
         if oauth_bridge is not None and redirect_uri is not None:
             if credential_store is None:
                 raise ValueError('a credential store is required to persist MCP OAuth tokens')
-            auth = _oauth_provider(
+            auth = await _oauth_provider(
                 server,
                 credential_store=credential_store,
                 principal=principal,
@@ -69,7 +83,7 @@ def build_toolset(
     return toolset.approval_required(approval_predicate)
 
 
-def _oauth_provider(
+async def _oauth_provider(
     url: str,
     *,
     credential_store: CredentialStore,
@@ -79,7 +93,8 @@ def _oauth_provider(
     client_name: str,
 ) -> OAuthClientProvider:
     oauth_bridge_adapter = _OAuthBridgeAdapter(oauth_bridge)
-    return OAuthClientProvider(
+    storage = OAuthTokenStorage(credential_store, server=url, principal=principal)
+    provider = OAuthClientProvider(
         server_url=url,
         client_metadata=OAuthClientMetadata(
             client_name=client_name,
@@ -87,10 +102,45 @@ def _oauth_provider(
             grant_types=['authorization_code', 'refresh_token'],
             response_types=['code'],
         ),
-        storage=OAuthTokenStorage(credential_store, server=url, principal=principal),
+        storage=storage,
         redirect_handler=oauth_bridge_adapter.redirect_handler,
         callback_handler=oauth_bridge_adapter.callback_handler,
     )
+    # The SDK loads tokens on connect but restores neither token_expiry_time nor oauth_metadata, so hydrate both.
+    # Without them is_token_valid stays true and no refresh fires, so an expired token takes a 401 and re-authorizes.
+    # Upstream python-sdk#1784, #2492.
+    stored_tokens, stored_expires_at = await storage.get_tokens_with_expiry()
+    if stored_tokens is not None:
+        provider.context.oauth_metadata = await _discover_oauth_metadata(url)
+        provider.context.current_tokens = stored_tokens
+        provider.context.token_expiry_time = stored_expires_at
+        provider.context.client_info = await storage.get_client_info()
+        provider._initialized = True
+    return provider
+
+
+async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
+    # The SDK refreshes a stored token before it discovers metadata, so its token URL falls back to origin plus /token,
+    # which is wrong when the server sits under a path prefix like the embedded gateway.
+    # Prefetch the metadata with the SDK's own discovery so the refresh reaches the real token endpoint.
+    if server_url in _OAUTH_METADATA_CACHE:
+        return _OAUTH_METADATA_CACHE[server_url]
+    try:
+        async with httpx.AsyncClient() as client:
+            auth_server_url: str | None = None
+            for url in build_protected_resource_metadata_discovery_urls(None, server_url):
+                resource_metadata = await handle_protected_resource_response(await client.get(url))
+                if resource_metadata is not None and resource_metadata.authorization_servers:
+                    auth_server_url = str(resource_metadata.authorization_servers[0])
+                    break
+            for url in build_oauth_authorization_server_metadata_discovery_urls(auth_server_url, server_url):
+                found, metadata = await handle_auth_metadata_response(await client.get(url))
+                if found and metadata is not None:
+                    _OAUTH_METADATA_CACHE[server_url] = metadata
+                    return metadata
+    except Exception:
+        logger.debug('OAuth metadata discovery failed, the connect will discover it on demand', exc_info=True)
+    return None
 
 
 class _OAuthBridgeAdapter:

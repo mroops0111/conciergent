@@ -195,6 +195,17 @@ class AppConfig(pydantic.BaseModel):
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
 
+    @pydantic.model_validator(mode='after')
+    def _mcp_read_timeout_outlasts_oauth_wait(self) -> typing.Self:
+        # A missing token runs the OAuth flow inside the MCP connect, so the read timeout must outlast the handoff wait.
+        # Otherwise it fires first and a slow or absent authorization reads as a hard MCP error.
+        if self.agent.mcp_read_timeout_seconds <= self.conversation.oauth_wait_timeout_seconds:
+            raise ValueError(
+                'agent.mcp_read_timeout_seconds must exceed conversation.oauth_wait_timeout_seconds, '
+                'so an in-chat authorization ends as a clean handoff expiry rather than an MCP timeout'
+            )
+        return self
+
 
 def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:
     """Load one YAML config layer, resolving ``${ENV_VAR}`` and ``${ENV_VAR:-default}`` references."""

@@ -14,7 +14,7 @@ agent:
   mcp_servers:
     - http://localhost:9000/mcp
   # input_token_limit: 1048576      # override the auto-detected context window; unset auto-detects per model
-  # mcp_read_timeout_seconds: 120
+  # mcp_read_timeout_seconds: 300     # must exceed conversation.oauth_wait_timeout_seconds (OAuth runs in the connect)
   # client_name: conciergent        # name shown on the MCP OAuth screen
 
 surface:
