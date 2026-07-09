@@ -45,6 +45,9 @@ class OAuthTokenStorage(TokenStorage):
             payload[_EXPIRES_AT_KEY] = time.time() + tokens.expires_in
         await self._credential_store.set_mcp_token(self._server, self._principal, payload)
 
+    async def delete_tokens(self) -> None:
+        await self._credential_store.delete_mcp_token(self._server, self._principal)
+
     @typing.override
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         stored = await self._credential_store.get_mcp_client(self._server)

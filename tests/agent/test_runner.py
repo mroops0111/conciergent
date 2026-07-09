@@ -1,15 +1,20 @@
 import pytest
 from mcp.server.fastmcp import FastMCP
+from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
 from pydantic_ai.models.test import TestModel
 
 from conciergent import Card, Carousel, PendingApproval, ReplySurface, i18n
-from conciergent.agent.runner import ChatRunner
+from conciergent.agent.mcp.storage import OAuthTokenStorage
+from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.i18n.lang import Lang
+from conciergent.store.credential import CredentialStore
 
 
 _PRINCIPAL = 'p'
 _SYSTEM_PROMPT = 'be helpful'
+_OAUTH_SERVER = 'https://example.com/mcp'
+_REDIRECT_URI = 'https://example.com/oauth/mcp/callback'
 
 # With no surface the agent resolves no language, so the confirm/cancel prompts fall back to English.
 _CONFIRM = i18n.t('approval.confirm', None)
@@ -232,6 +237,41 @@ async def test_confirm_in_the_user_language_runs_the_tool():
 
     assert not isinstance(resumed.output, PendingApproval)
     assert len(calls) == 1  # the localized confirm matched and ran the tool
+
+
+def _oauth_agent(credential_store: CredentialStore, *, servers: list[str] | None = None) -> ChatRunner:
+    return ChatRunner(
+        model=TestModel(),
+        system_prompt=_SYSTEM_PROMPT,
+        mcp_servers=servers if servers is not None else [_OAUTH_SERVER],
+        credential_store=credential_store,
+        redirect_uri=_REDIRECT_URI,
+    )
+
+
+def test_revoke_tool_is_registered_and_gated_only_when_oauth_is_configured(credential_store: CredentialStore):
+    with_oauth = _oauth_agent(credential_store)
+    revoke_tool = with_oauth._agent._function_toolset.tools[REVOKE_TOOL_NAME]
+    assert revoke_tool.requires_approval is True  # the sign-out only runs after the user confirms
+
+    public = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=[_destructive_server([])])
+    assert REVOKE_TOOL_NAME not in public._agent._function_toolset.tools
+
+
+async def test_revoke_deletes_tokens_for_every_oauth_server(credential_store: CredentialStore):
+    servers = ['https://a.example/mcp', 'https://b.example/mcp']
+    for server in servers:
+        await OAuthTokenStorage(credential_store, server=server, principal=_PRINCIPAL).set_tokens(
+            OAuthToken(access_token='t')
+        )
+    other_user = OAuthTokenStorage(credential_store, server=servers[0], principal='someone-else')
+    await other_user.set_tokens(OAuthToken(access_token='keep'))
+
+    await _oauth_agent(credential_store, servers=servers)._revoke_authorization(_PRINCIPAL)
+
+    for server in servers:
+        assert await OAuthTokenStorage(credential_store, server=server, principal=_PRINCIPAL).get_tokens() is None
+    assert await other_user.get_tokens() is not None  # another user's authorization is untouched
 
 
 async def test_surface_formatting_hint_joins_the_instructions():

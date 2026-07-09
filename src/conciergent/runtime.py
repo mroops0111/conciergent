@@ -40,6 +40,8 @@ class TurnResult:
 
     output: Reply | PendingApproval
     history: list[typing.Any] = dataclasses.field(default_factory=list)
+    # Set when a tool made earlier turns stale, e.g. a sign-out, so the stored history is cleared instead of appended.
+    invalidate_history: bool = False
 
 
 class OAuthBridge(abc.ABC):

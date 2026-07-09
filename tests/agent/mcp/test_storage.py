@@ -59,6 +59,25 @@ async def test_client_info_round_trips(credential_store: CredentialStore):
     assert loaded is not None and loaded.client_id == client_id
 
 
+async def test_delete_tokens_signs_the_principal_out(credential_store: CredentialStore):
+    storage = _storage(credential_store)
+    await storage.set_tokens(OAuthToken(access_token='a', token_type='Bearer'))
+
+    await storage.delete_tokens()
+
+    assert await storage.get_tokens() is None
+
+
+async def test_delete_tokens_leaves_other_principals(credential_store: CredentialStore):
+    await OAuthTokenStorage(credential_store, server=_SERVER, principal='a').set_tokens(OAuthToken(access_token='a'))
+    other = OAuthTokenStorage(credential_store, server=_SERVER, principal='b')
+    await other.set_tokens(OAuthToken(access_token='b'))
+
+    await OAuthTokenStorage(credential_store, server=_SERVER, principal='a').delete_tokens()
+
+    assert await other.get_tokens() is not None
+
+
 async def test_tokens_are_isolated_per_principal(credential_store: CredentialStore):
     await OAuthTokenStorage(credential_store, server=_SERVER, principal='a').set_tokens(OAuthToken(access_token='a'))
     other = OAuthTokenStorage(credential_store, server=_SERVER, principal='b')

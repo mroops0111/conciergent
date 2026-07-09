@@ -13,7 +13,7 @@ Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.c
 </p>
 
 - **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
-- **In-Chat OAuth.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes the token. The user never leaves the conversation.
+- **In-Chat OAuth.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes the token. The user never leaves the conversation, and can ask to sign out at any time to revoke it.
 - **Human-in-the-Loop.** Any tool the server marks destructive pauses behind a Confirm / Cancel card before it runs.
 - **Surface-Agnostic Rich Replies.** The agent emits one structured reply, and each surface renders it natively.
 
