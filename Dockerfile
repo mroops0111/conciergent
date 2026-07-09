@@ -33,6 +33,6 @@ WORKDIR /home/app
 
 EXPOSE 8000
 
-# Mount your conciergent.yml at /home/app/conciergent.yml (see docker-compose.yml).
+# Mount your manifest.yml at /home/app/manifest.yml (see docker-compose.yml).
 ENTRYPOINT ["conciergent"]
-CMD ["run", "--config", "conciergent.yml"]
+CMD ["run", "--config", "manifest.yml"]

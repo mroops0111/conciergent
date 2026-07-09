@@ -28,7 +28,7 @@ uv add conciergent
 uv run conciergent init
 ```
 
-`uv run conciergent init` writes an annotated `conciergent.yml`, deep-merged over the shipped defaults so you set only what you change.
+`uv run conciergent init` writes an annotated `manifest.yml`, deep-merged over the shipped defaults so you set only what you change.
 
 ### 2. Configure Your MCP Tools
 
@@ -36,10 +36,10 @@ Conciergent reaches your tools two ways, and you can use both at once.
 
 #### Connect an MCP Server
 
-List any MCP server URL under `agent.mcp_servers`. The scaffolded `conciergent.yml` already has the surface and store set up around it.
+List any MCP server URL under `agent.mcp_servers`. The scaffolded `manifest.yml` already has the surface and store set up around it.
 
 ```yaml
-# conciergent.yml
+# manifest.yml
 agent:
   model: openai:gpt-4o-mini
   system_prompt: |
@@ -81,7 +81,7 @@ Conciergent replies in direct messages, and the in-chat OAuth happens there too.
 <details>
 <summary><b>Slack</b></summary>
 
-Create the app from [`examples/slack-app-manifest.yml`](examples/slack-app-manifest.yml), which fills these in for you.
+Create the app from [`examples/manifest-slack.yml`](examples/manifest-slack.yml), which fills these in for you.
 
 | Setting | URL |
 |---|---|
@@ -122,15 +122,15 @@ uv run conciergent run
 Or with Docker, which brings up Redis, Postgres, and the app together and needs no uv:
 
 ```bash
-cp examples/openapi-chat.yml conciergent.yml     # or use your own
+cp examples/openapi-chat.yml manifest.yml     # or use your own
 docker compose up
 ```
 
-Secrets stay in the environment. `conciergent.yml` reads the Slack, LINE, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
+Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
 ## Configuration
 
-Conciergent reads one `conciergent.yml`, merged over the shipped defaults, so you set only what you change. `${VAR}` / `${VAR:-default}` resolve in any string field.
+Conciergent reads one `manifest.yml`, merged over the shipped defaults, so you set only what you change. `${VAR}` / `${VAR:-default}` resolve in any string field.
 
 Three model providers ship in the box. Set `agent.model` to a `provider:model` string and export that provider's API key.
 

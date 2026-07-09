@@ -1,11 +1,11 @@
 # Brings up Redis, Postgres, and conciergent together.
 #
-#   cp examples/openapi-chat.yml conciergent.yml
+#   cp examples/openapi-chat.yml manifest.yml
 #   export SLACK_SIGNING_SECRET=...  SLACK_BOT_TOKEN=xoxb-...  OPENAI_API_KEY=sk-...
 #   docker compose up
 #
 # The app serves on http://localhost:8000. Put a tunnel in front of that port,
-# and paste its URL into your Slack app and into server.url in conciergent.yml to receive events.
+# and paste its URL into your Slack app and into server.url in manifest.yml to receive events.
 
 services:
   redis:
@@ -55,8 +55,8 @@ services:
       # LINE surface, set these when surface.line.enabled.
       LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
       LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
-      # Your conciergent.yml may reference more env than the keys above,
+      # Your manifest.yml may reference more env than the keys above,
       # for example a gateway spec's GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET,
       # so add those here or in a local docker-compose.override.yml you keep out of git.
     volumes:
-      - ./conciergent.yml:/home/app/conciergent.yml:ro
+      - ./manifest.yml:/home/app/manifest.yml:ro

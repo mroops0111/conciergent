@@ -1,7 +1,7 @@
 [project]
 name = "conciergent"
 version = "0.1.0"
-description = "Give your MCP tools a chat face — Slack, LINE and more — with in-chat OAuth, human-in-the-loop approval and surface-agnostic rich replies."
+description = "Turn an OpenAPI spec or any MCP server into a Slack or LINE chatbot, with in-chat OAuth, human-in-the-loop approval, and surface-native rich replies."
 authors = [
     {name = "Yun-Tai Yang"},
 ]

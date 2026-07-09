@@ -10,13 +10,13 @@ from conciergent.defaults import DEFAULTS
 
 
 _STORE = {'messages_url': 'redis://localhost:6379/0', 'credentials_url': 'postgresql+asyncpg://localhost/db'}
-_MINIMAL_CONFIG = {'agent': {'model': 'gemini-3-flash', 'system_prompt': 'be helpful'}, 'store': _STORE}
+_MINIMAL_CONFIG = {'agent': {'model': 'gpt-4o-mini', 'system_prompt': 'be helpful'}, 'store': _STORE}
 
 
 @pytest.fixture
 def write_config(tmp_path: pathlib.Path) -> collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]:
     def _write(config: dict[str, typing.Any]) -> pathlib.Path:
-        path = tmp_path / 'conciergent.yml'
+        path = tmp_path / 'manifest.yml'
         path.write_text(yaml.safe_dump(config))
         return path
 
@@ -26,7 +26,7 @@ def write_config(tmp_path: pathlib.Path) -> collections.abc.Callable[[dict[str, 
 def test_minimal_config_validates(write_config: collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]):
     config = build_app_config(yaml_layer(write_config(_MINIMAL_CONFIG)))
 
-    assert config.agent.model == 'gemini-3-flash'
+    assert config.agent.model == 'gpt-4o-mini'
     assert config.surface.slack.enabled is False
     assert config.server.url == 'http://127.0.0.1:8000'
 
@@ -114,12 +114,12 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
     assert config.store.max_turns == 20
 
 
-def test_shipped_example_config_validates(monkeypatch: pytest.MonkeyPatch):
-    # The documented example must stay loadable and show the shipped defaults, guarding against config drift.
+def test_scaffolded_manifest_validates(monkeypatch: pytest.MonkeyPatch):
+    # The manifest that `conciergent init` scaffolds must stay loadable and show the shipped defaults, guarding against config drift.
     monkeypatch.setenv('SLACK_SIGNING_SECRET', 'dummy')
-    example = pathlib.Path(__file__).parents[1] / 'examples' / 'conciergent.yml'
+    manifest = pathlib.Path(__file__).parents[1] / 'src' / 'conciergent' / 'templates' / 'manifest.yml'
 
-    config = build_app_config(yaml_layer(example))
+    config = build_app_config(yaml_layer(manifest))
 
     assert config.surface.slack.enabled is True
     assert config.store.messages_url and config.store.credentials_url

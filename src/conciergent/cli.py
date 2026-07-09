@@ -16,7 +16,7 @@ def main() -> None:
 
 
 @main.command()
-@click.option('--config', 'config_path', type=click.Path(exists=True), default='conciergent.yml')
+@click.option('--config', 'config_path', type=click.Path(exists=True), default='manifest.yml')
 def run(config_path: str) -> None:
     """Serve the webhook application."""
     App.from_config(config_path).run()
@@ -28,10 +28,10 @@ def init(path: str) -> None:
     """Scaffold a config file into the target directory."""
     target = pathlib.Path(path)
     target.mkdir(parents=True, exist_ok=True)
-    config_file = target / 'conciergent.yml'
+    config_file = target / 'manifest.yml'
     if config_file.exists():
         raise click.UsageError(f'{config_file} already exists.')
-    config_file.write_text(_template('conciergent.yml'))
+    config_file.write_text(_template('manifest.yml'))
     click.echo(f'Wrote {config_file}. Fill in the env vars, then: conciergent run')
 
 

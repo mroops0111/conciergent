@@ -15,7 +15,7 @@ def test_init_scaffolds_the_config(runner: click.testing.CliRunner, tmp_path: pa
     result = runner.invoke(main, ['init', '--path', str(tmp_path)])
 
     assert result.exit_code == 0
-    config = (tmp_path / 'conciergent.yml').read_text()
+    config = (tmp_path / 'manifest.yml').read_text()
     assert 'mcp_servers' in config
 
 
