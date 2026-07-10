@@ -8,8 +8,6 @@ from conciergent.store.message import MessageStore
 from conciergent.turn import run_turn
 
 
-__version__ = '0.0.1'
-
 __all__ = [
     'App',
     'AppConfig',
