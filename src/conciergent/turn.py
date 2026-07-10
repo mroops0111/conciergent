@@ -62,4 +62,8 @@ async def run_turn(
     else:
         await surface.send_text(output)
 
-    await message_store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)
+    if result.invalidate_history:
+        # A tool made earlier turns stale, e.g. a sign-out, so drop them instead of appending this turn.
+        await message_store.clear_history(conversation)
+    else:
+        await message_store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)

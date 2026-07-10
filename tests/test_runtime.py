@@ -38,6 +38,7 @@ class RecordingSurface(ReplySurface):
 class ScriptedRunner:
     output: typing.Any
     new_history: list[typing.Any] = dataclasses.field(default_factory=list)
+    invalidate_history: bool = False
 
     async def run(
         self,
@@ -49,12 +50,17 @@ class ScriptedRunner:
         bridge: typing.Any = None,
         surface: typing.Any = None,
     ) -> TurnResult:
-        return TurnResult(output=self.output, history=self.new_history)
+        return TurnResult(output=self.output, history=self.new_history, invalidate_history=self.invalidate_history)
 
 
-def _runner(output: typing.Any, new_history: list[typing.Any] | None = None) -> ChatRunner:
+def _runner(
+    output: typing.Any, new_history: list[typing.Any] | None = None, *, invalidate_history: bool = False
+) -> ChatRunner:
     # run_turn only needs `.run`, so a scripted stand-in is cast to the concrete runner type.
-    return typing.cast(ChatRunner, ScriptedRunner(output=output, new_history=new_history or []))
+    return typing.cast(
+        ChatRunner,
+        ScriptedRunner(output=output, new_history=new_history or [], invalidate_history=invalidate_history),
+    )
 
 
 async def _drive_turn(output: typing.Any, message_store: MessageStore) -> RecordingSurface:
@@ -99,6 +105,18 @@ async def test_history_is_persisted(message_store: MessageStore):
     )
 
     assert await message_store.load_history(principal) == new_history
+
+
+async def test_invalidate_history_clears_the_stored_history(message_store: MessageStore):
+    await message_store.append_history(_PRINCIPAL, [{'role': 'user'}], ttl_seconds=60)
+    surface = RecordingSurface()
+    runner = _runner('signed out', [{'role': 'assistant'}], invalidate_history=True)
+
+    await run_turn('sign me out', principal=_PRINCIPAL, runner=runner, surface=surface, message_store=message_store)
+
+    # A sign-out drops the prior turns instead of appending, so the next message starts fresh.
+    assert await message_store.load_history(_PRINCIPAL) == []
+    assert ('text', 'signed out') in surface.calls
 
 
 async def test_pending_approval_parks_and_renders_destructive(message_store: MessageStore):

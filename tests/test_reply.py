@@ -47,7 +47,7 @@ def test_length_guardrails_reject_oversized_text():
     with pytest.raises(pydantic.ValidationError):
         Card(header='x' * 41, sections=[Section(text='b')])
     with pytest.raises(pydantic.ValidationError):
-        Suggestion(label='x' * 51, prompt='ok')
+        Suggestion(label='x' * 21, prompt='ok')
 
 
 def test_card_requires_a_header_and_a_section():

@@ -74,6 +74,14 @@ class MessageStore:
         pipeline.expire(self._index_key(conversation), _INDEX_TTL_SECONDS)
         await pipeline.execute()
 
+    async def clear_history(self, conversation: str) -> None:
+        turn_ids = [_text(raw) for raw in await self._redis.lrange(self._index_key(conversation), 0, -1)]
+        pipeline = self._redis.pipeline(transaction=True)
+        if turn_ids:
+            pipeline.delete(*[self._turn_key(conversation, turn_id) for turn_id in turn_ids])
+        pipeline.delete(self._index_key(conversation))
+        await pipeline.execute()
+
     async def dedupe(self, key: str, *, ttl_seconds: int) -> bool:
         recorded = await self._redis.set(f'{_PREFIX}:dedupe:{key}', '1', nx=True, ex=ttl_seconds)
         return recorded is None

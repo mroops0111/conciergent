@@ -22,6 +22,20 @@ async def test_replace_history_collapses_all_turns(message_store: MessageStore):
     assert await message_store.load_history('p') == ['summary', 2]
 
 
+async def test_clear_history_drops_every_turn(message_store: MessageStore):
+    await message_store.append_history('p', [1], ttl_seconds=60)
+    await message_store.append_history('p', [2], ttl_seconds=60)
+
+    await message_store.clear_history('p')
+
+    assert await message_store.load_history('p') == []
+
+
+async def test_clear_history_is_a_no_op_when_empty(message_store: MessageStore):
+    await message_store.clear_history('p')  # must not raise
+    assert await message_store.load_history('p') == []
+
+
 async def test_history_keeps_only_recent_turns(message_store: MessageStore):
     for turn in range(12):
         await message_store.append_history('p', [turn], ttl_seconds=60)

@@ -1,4 +1,4 @@
-# The base config every run starts from; a user's conciergent.yml is deep-merged on top of it.
+# The base config every run starts from; a user's manifest.yml is deep-merged on top of it.
 # Required fields are left empty here so validation fails fast until the user sets them.
 
 server:

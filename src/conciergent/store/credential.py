@@ -64,6 +64,12 @@ class CredentialStore:
         async with self._sessions.begin() as session:
             await session.merge(McpToken(server=server, principal=principal, token=dict(token)))
 
+    async def delete_mcp_token(self, server: str, principal: str) -> None:
+        async with self._sessions.begin() as session:
+            await session.execute(
+                sqlalchemy.delete(McpToken).where(McpToken.server == server, McpToken.principal == principal)
+            )
+
     async def get_mcp_client(self, server: str) -> dict[str, typing.Any] | None:
         async with self._sessions() as session:
             row = await session.get(McpClient, server)

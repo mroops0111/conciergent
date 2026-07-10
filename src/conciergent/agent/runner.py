@@ -13,6 +13,7 @@ from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDen
 
 from conciergent import i18n
 from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
+from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
@@ -40,6 +41,14 @@ _REPLY_FORMAT_INSTRUCTIONS = (
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
 _IGNORE_DENIAL = 'User skipped the approval and changed topic. Drop the pending_approval action silently and answer their new message.'
 
+# The sign-out tool, approval-gated and registered only when OAuth is configured.
+REVOKE_TOOL_NAME = 'revoke_authorization'
+_REVOKE_INSTRUCTION = (
+    'Signed out. '
+    'Tell the user in their language that their authorization was removed. '
+    'Any new message will start a fresh sign-in. Then reply to the user and stop.'
+)
+
 
 @dataclasses.dataclass
 class _AgentDeps:
@@ -47,6 +56,9 @@ class _AgentDeps:
 
     surface: ReplySurface | None
     lang: Lang | None
+    principal: str
+    # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
+    invalidate_history: bool = False
 
 
 @dataclasses.dataclass
@@ -84,6 +96,10 @@ class ChatRunner:
         self._mcp_servers = list(mcp_servers)
         self._credential_store = credential_store
         self._redirect_uri = redirect_uri
+        # OAuth tokens exist only for URL servers reached with a redirect_uri and a store,
+        # so those are the ones a sign-out clears. With none configured, the revoke tool is not registered.
+        oauth_configured = redirect_uri is not None and credential_store is not None
+        self._oauth_servers = [s for s in self._mcp_servers if isinstance(s, str)] if oauth_configured else []
         self._approval_predicate = approval_predicate
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
@@ -114,6 +130,27 @@ class ChatRunner:
             if lang is None:
                 return 'Respond in the same language as the most recent user message.'
             return f'Respond in {lang.display_name}.'
+
+        if self._oauth_servers:
+
+            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True)
+            async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
+                """Sign the user out by revoking their authorization for every connected service.
+
+                Call this only when the user asks to sign out, log out, disconnect, switch accounts,
+                or revoke access. It deletes the stored OAuth tokens, so the next action re-authorizes.
+                """
+                await self._revoke_authorization(ctx.deps.principal)
+                # Earlier turns assumed the now-removed authorization, so this turn clears the history.
+                ctx.deps.invalidate_history = True
+                return _REVOKE_INSTRUCTION
+
+    async def _revoke_authorization(self, principal: str) -> None:
+        credential_store = self._credential_store
+        if credential_store is None:
+            return
+        for server in self._oauth_servers:
+            await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
 
     @property
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
@@ -167,7 +204,7 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang)
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
             self._resume(pending_approval, user_input=user_input, history=history, lang=lang)
@@ -198,7 +235,7 @@ class ChatRunner:
             # The in-flight messages ride on the approval,
             # so the tool call and its later result land in one stored turn instead of aging out separately.
             return TurnResult(output=self._park(output.approvals, held_messages=new_messages, lang=lang))
-        return TurnResult(output=output, history=new_messages)
+        return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
 
     def _resume(
         self, pending_approval: dict[str, typing.Any], *, user_input: str, history: list[typing.Any], lang: Lang | None

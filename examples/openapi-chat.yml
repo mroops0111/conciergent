@@ -10,13 +10,13 @@
 #   export SLACK_SIGNING_SECRET=...  SLACK_BOT_TOKEN=xoxb-...
 #   Redis on localhost:6379 and Postgres on localhost/conciergent (docker compose brings both up)
 #
-# Register the Slack app from examples/slack-app-manifest.yml, point its URLs at your public
+# Register the Slack app from examples/manifest-slack.yml, point its URLs at your public
 # host (a cloudflared/ngrok tunnel in front of port 8000 for local dev), then: conciergent run
 
 server:
   host: ${CONCIERGENT_HOST:-127.0.0.1}   # docker compose sets this to 0.0.0.0
   port: 8000
-  # url: https://your-public-url         # the public URL Slack reaches; set this behind a tunnel or proxy
+  # url: https://your-public-url         # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
 
 agent:
   model: openai:gpt-4o-mini        # or any google: or anthropic: model

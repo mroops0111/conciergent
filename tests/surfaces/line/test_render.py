@@ -105,7 +105,8 @@ def test_hero_image_renders_above_the_bubble():
 
 
 def test_labels_are_not_truncated():
-    long_label = 'x' * 50
+    # The tightest label cap is the suggestion's, so a label at that cap exercises both without tripping validation.
+    long_label = 'x' * 20
 
     chips = render.build_quick_reply([Suggestion(label=long_label, prompt='p')])
     assert chips[0]['action']['label'] == long_label

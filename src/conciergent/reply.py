@@ -42,8 +42,8 @@ class Link(pydantic.BaseModel):
         str,
         pydantic.Field(
             min_length=1,
-            max_length=50,
-            description='Button label, at most 50 characters. A short verb-led phrase such as "Open Task".',
+            max_length=40,
+            description='Button label, at most 40 characters. A short verb-led phrase such as "Open Task".',
         ),
     ]
     url: typing.Annotated[
@@ -62,10 +62,11 @@ class Suggestion(pydantic.BaseModel):
         str,
         pydantic.Field(
             min_length=1,
-            max_length=50,
+            max_length=20,
             description=(
-                'Button label that the user sees, at most 50 characters, e.g. "Show details" or "List more". '
-                'Be precise if the suggestion is about a specific entity (e.g. "Show details of NDA-Acme").'
+                'Button label the user sees, at most 20 characters. '
+                'Name the specific entity so the user knows which one it refers to, but fit within 20 by dropping filler words, '
+                'e.g. prefer "NDA-Acme details" over "Show the details of NDA-Acme".'
             ),
         ),
     ]
@@ -73,9 +74,9 @@ class Suggestion(pydantic.BaseModel):
         str,
         pydantic.Field(
             min_length=1,
-            max_length=100,
+            max_length=40,
             description=(
-                'Text posted to the agent as if the user typed it when the button is tapped, at most 100 characters. '
+                'Text posted to the agent as if the user typed it when the button is tapped, at most 40 characters. '
                 'Phrase it as a natural follow-up question in the user\'s language, e.g. "Show details of NDA-Acme".'
             ),
         ),
