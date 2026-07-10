@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastapi>=0.136.0",
+    "fastapi>=0.139.0",
     "uvicorn[standard]>=0.47.0",
     "pydantic>=2.13.0",
     "pydantic-settings>=2.14.0",
@@ -44,7 +44,7 @@ dev = [
     "testcontainers[postgres,redis]>=4.9.0",
     "httpx>=0.28.1",
     "basedpyright>=1.39.0",
-    "ruff>=0.15.0",
+    "ruff>=0.15.21",
 ]
 
 [project.scripts]
