@@ -36,6 +36,12 @@ surface:
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
     # api_timeout_seconds: 30
+  discord:
+    enabled: false
+    # bot_token: ${DISCORD_BOT_TOKEN}          # the bot connects over the gateway and replies in direct messages
+    # brand_color: '#586af2'
+    # destructive_color: '#DC3545'
+    # api_timeout_seconds: 30
 
 # Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
 # while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.

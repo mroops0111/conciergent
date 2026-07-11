@@ -38,6 +38,12 @@ surface:
     brand_color: '#586af2'
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
+  discord:
+    enabled: false
+    bot_token: ''
+    brand_color: '#586af2'
+    destructive_color: '#DC3545'
+    api_timeout_seconds: 30
 
 store:
   messages_url: ''

@@ -159,7 +159,7 @@ async def _greet_follower(
         if not is_handoff_expiry(error):
             logger.exception('LINE follow bootstrap failed for %s', principal)
         return
-    text = i18n.t('follow.ready' if just_authorized else 'follow.welcome_back', lang)
+    text = i18n.t('greeting.ready' if just_authorized else 'greeting.welcome_back', lang)
     await slot.send({'type': 'text', 'text': text})
 
 
