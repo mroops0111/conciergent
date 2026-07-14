@@ -3,28 +3,28 @@
 # Secrets come from the environment via ${VAR} or ${VAR:-default}, and a surface runs only when its `enabled` is true.
 
 server:
-  host: ${CONCIERGENT_HOST:-127.0.0.1}   # docker compose sets this to 0.0.0.0
+  host: ${CONCIERGENT_HOST:-127.0.0.1} # docker compose sets this to 0.0.0.0
   port: 8000
-  # url: https://your-public-url    # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
+  # url: https://your-public-url # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
 
 agent:
-  model: openai:gpt-4o-mini         # or any google: or anthropic: model
+  model: openai:gpt-4o-mini # or any google: or anthropic: model
   # Describe your assistant here, including its role, scope, and what its tools are for.
   # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers:
     - http://localhost:9000/mcp
-  # input_token_limit: null          # auto-detects the model's context window; set an integer to override
-  # mcp_read_timeout_seconds: 300     # must exceed conversation.oauth_wait_timeout_seconds (OAuth runs in the connect)
-  # client_name: conciergent        # name shown on the MCP OAuth screen
+  # input_token_limit: null # auto-detects the model's context window; set an integer to override
+  # mcp_read_timeout_seconds: 300 # must exceed conversation.oauth_wait_timeout_seconds (OAuth runs in the connect)
+  # client_name: conciergent # name shown on the MCP OAuth screen
 
 surface:
   slack:
     enabled: true
     signing_secret: ${SLACK_SIGNING_SECRET}
-    # bot_token: ${SLACK_BOT_TOKEN:-}         # a single-workspace bot only needs this
-    # client_id: ${SLACK_CLIENT_ID:-}         # set client_id/secret for the multi-workspace install flow
+    # bot_token: ${SLACK_BOT_TOKEN:-} # a single-workspace bot only needs this
+    # client_id: ${SLACK_CLIENT_ID:-} # set client_id/secret for the multi-workspace install flow
     # client_secret: ${SLACK_CLIENT_SECRET:-}
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
@@ -38,7 +38,7 @@ surface:
     # api_timeout_seconds: 30
   discord:
     enabled: false
-    # bot_token: ${DISCORD_BOT_TOKEN}          # the bot connects over the gateway and replies in direct messages
+    # bot_token: ${DISCORD_BOT_TOKEN} # the bot connects over the gateway and replies in direct messages
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
     # api_timeout_seconds: 30
@@ -48,24 +48,24 @@ surface:
 store:
   messages_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}
   credentials_url: ${CONCIERGENT_CREDENTIALS_URL:-postgresql+asyncpg://localhost/conciergent}
-  # max_turns: 10                   # how many recent turns to keep in history
+  # max_turns: 10 # how many recent turns to keep in history
 
 gateway:
   enabled: false
-  # redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}   # required when enabled; reuses the app's Redis
-  # specs:                          # embed openapi-mcp-gateway so a spec becomes MCP tools
+  # redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0} # required when enabled; reuses the app's Redis
+  # specs: # embed openapi-mcp-gateway so a spec becomes MCP tools
   #   - name: petstore
   #     spec: ./petstore.json
 
 # conversation:
-#   approval_ttl_seconds: 600       # how long a pending approval waits for a decision
-#   history_ttl_seconds: 604800     # how long conversation history is retained (one week)
+#   approval_ttl_seconds: 600 # how long a pending approval waits for a decision
+#   history_ttl_seconds: 604800 # how long conversation history is retained (one week)
 #   oauth_wait_timeout_seconds: 240 # how long an in-chat OAuth handoff blocks
 
 # logger:
-#   level: INFO                     # DEBUG, INFO, WARNING, ERROR, CRITICAL
-#   format: text                    # text or json (one JSON object per line)
-#   file: null                      # also write logs to a path (e.g. ./conciergent.log), in addition to stderr
+#   level: INFO # DEBUG, INFO, WARNING, ERROR, CRITICAL
+#   format: text # text or json (one JSON object per line)
+#   file: null # also write logs to a path (e.g. ./conciergent.log), in addition to stderr
 
 # UI text (buttons, prompts, greetings) is not configured here, it lives in a locale catalog so it can be translated,
 # and conciergent picks the language from each user's Slack/LINE profile.
