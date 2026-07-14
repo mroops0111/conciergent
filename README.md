@@ -4,12 +4,12 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Give your [MCP](https://modelcontextprotocol.io/) tools a chat face. Connect Conciergent to any Model Context Protocol server and it becomes a Slack or LINE bot that can actually *do* things, with per-user OAuth handled inside the conversation, an approval gate before destructive tools run, and one structured reply that renders natively on every surface.
+Give your [MCP](https://modelcontextprotocol.io/) tools a chat face. Connect Conciergent to any Model Context Protocol server and it becomes a Slack, LINE, or Discord bot that can actually *do* things, with per-user OAuth handled inside the conversation, an approval gate before destructive tools run, and one structured reply that renders natively on every surface.
 
 Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.com/mroops0111/openapi-mcp-gateway), which turns any REST API into MCP tools. Together they take one or more OpenAPI specs all the way to a chatbot your users can talk to.
 
 <p align="center">
-  <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="600">
+  <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, Discord, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="600">
 </p>
 
 - **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
@@ -106,6 +106,19 @@ Conciergent answers with the event's one-time reply token when it can and falls 
 
 </details>
 
+<details>
+<summary><b>Discord</b></summary>
+
+In the [Discord Developer Portal](https://discord.com/developers/applications):
+
+1. Create an **application**, add a **Bot**, and copy its **token** into `DISCORD_BOT_TOKEN`.
+2. Enable the bot's **Direct Messages** intent. It is non-privileged, and direct-message content is exempt from the message-content intent.
+3. Invite the bot to a server you also belong to, so it can open a direct-message channel with you.
+
+Discord delivers direct messages over a gateway connection the bot holds open, so there is no webhook URL to register. It connects on startup and replies in direct messages.
+
+</details>
+
 The MCP OAuth return (`/oauth/mcp/callback`) is registered with the MCP server automatically, so it is not something you set in a dashboard. For local development, run a tunnel (cloudflared / ngrok) in front of the port and use its URL as `{your-public-url}` and as `server.url`.
 
 ### 4. Run
@@ -126,7 +139,7 @@ cp examples/openapi-chat.yml manifest.yml     # or use your own
 docker compose up
 ```
 
-Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
+Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, Discord, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
 ## Configuration
 
@@ -163,6 +176,8 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `surface.slack.brand_color` · `destructive_color` | `#586af2` · `#DC3545` | Card accent colors. |
 | `surface.line.enabled` | `false` | Turn the LINE surface on. |
 | `surface.line.channel_secret` · `channel_access_token` | *(required if enabled)* | LINE Messaging API credentials. |
+| `surface.discord.enabled` | `false` | Turn the Discord surface on. |
+| `surface.discord.bot_token` | *(required if enabled)* | Discord bot token. The bot connects over the gateway, so no webhook URL is needed. |
 | `store.messages_url` | *(required)* | Redis URL. Holds message state that expires (history, approvals, dedupe, OAuth handoff). |
 | `store.credentials_url` | *(required)* | Postgres URL (any SQLAlchemy async engine). Holds credentials that survive a restart (MCP and bot tokens). |
 | `store.max_turns` | `10` | Recent turns kept in history. |
@@ -178,11 +193,11 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 
 ### Localizing Text
 
-Button labels, prompts, and greetings are not config. They live in a locale catalog, picked from each user's Slack or LINE language. Set `locales_dir` to a directory of `{lang}.yml` files to rebrand or translate. [`examples/locales/en.yml`](examples/locales/en.yml) is the full English catalog to start from.
+Button labels, prompts, and greetings are not config. They live in a locale catalog, picked from each user's Slack, LINE, or Discord language. Set `locales_dir` to a directory of `{lang}.yml` files to rebrand or translate. [`examples/locales/en.yml`](examples/locales/en.yml) is the full English catalog to start from.
 
 ## The Reply Model
 
-The agent never speaks Slack or LINE. It emits one of three shapes, and each surface renders it natively.
+The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
 
 - **`str`** for plain text.
 - **`Card`** for a header, up to six text sections, an optional hero image, a footnote, up to five link buttons, and up to three suggestion quick-replies.
@@ -206,7 +221,7 @@ class Surface(abc.ABC):
         """Return the webhook and auxiliary routes this platform needs."""
 ```
 
-Implement `Surface`, a `ReplySurface` to render the reply model, and (if it has per-user auth) an `OAuthBridge`, then pass an instance to the app. Slack and LINE are just the two that ship.
+Implement `Surface`, a `ReplySurface` to render the reply model, and (if it has per-user auth) an `OAuthBridge`, then pass an instance to the app. Slack, LINE, and Discord are the three that ship.
 
 </details>
 
