@@ -1,9 +1,11 @@
 import asyncio
+import enum
 import json
 import logging
 import typing
 
 from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed
 
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
@@ -11,6 +13,7 @@ from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
+from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.discord import render
 from conciergent.surfaces.discord.surface import (
@@ -30,21 +33,28 @@ _INTENT_DIRECT_MESSAGES = 1 << 12
 _DEDUPE_TTL_SECONDS = 86400
 _MAX_BACKOFF_SECONDS = 60
 
-# Gateway opcodes.
-_DISPATCH = 0
-_HEARTBEAT = 1
-_IDENTIFY = 2
-_RESUME = 6
-_RECONNECT = 7
-_INVALID_SESSION = 9
-_HELLO = 10
-_HEARTBEAT_ACK = 11
-
 # The interaction type Discord sends for a message-component click.
 _MESSAGE_COMPONENT = 3
 
-# The direct-message channel type.
-_DM_CHANNEL = 1
+# Close codes Discord marks non-recoverable, so a reconnect would only reproduce the same rejection.
+# They cover a bad bot token, an unsupported API version, and invalid or disallowed intents.
+_FATAL_CLOSE_CODES = frozenset({4004, 4010, 4011, 4012, 4013, 4014})
+
+
+class _Op(enum.IntEnum):
+    """Discord gateway opcodes, the ``op`` field on every gateway payload.
+
+    These are Discord's application-level protocol, distinct from the WebSocket frame opcodes the transport handles.
+    See https://discord.com/developers/docs/topics/opcodes-and-status-codes#gateway-gateway-opcodes.
+    """
+
+    DISPATCH = 0
+    HEARTBEAT = 1
+    IDENTIFY = 2
+    RESUME = 6
+    RECONNECT = 7
+    INVALID_SESSION = 9
+    HEARTBEAT_ACK = 11
 
 
 class DiscordGatewaySettings(typing.NamedTuple):
@@ -74,11 +84,13 @@ class DiscordGateway:
         message_store: MessageStore,
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
+        credential_store: CredentialStore | None = None,
     ) -> None:
         self._settings = settings
         self._message_store = message_store
         self._runner = runner
         self._compactor = compactor
+        self._credential_store = credential_store
         self._sequence: int | None = None
         self._session_id: str | None = None
         self._resume_gateway_url: str | None = None
@@ -93,7 +105,12 @@ class DiscordGateway:
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as error:
+                if _received_close_code(error) in _FATAL_CLOSE_CODES:
+                    # A misconfigured token or intent fails identically on every retry, so stop rather than loop.
+                    # Only this surface's task ends, because the app runs each enabled surface on its own task.
+                    logger.error('Discord gateway closed with a fatal code, not reconnecting', exc_info=True)
+                    raise
                 logger.warning('Discord gateway connection dropped, reconnecting', exc_info=True)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
@@ -122,21 +139,21 @@ class DiscordGateway:
                 await socket.close(code=4000)
                 return
             self._heartbeat_acked = False
-            await socket.send(json.dumps({'op': _HEARTBEAT, 'd': self._sequence}))
+            await socket.send(json.dumps({'op': _Op.HEARTBEAT, 'd': self._sequence}))
 
     async def _handle_gateway_message(self, socket: ClientConnection, message: dict[str, typing.Any]) -> None:
         op = message.get('op')
-        if op == _DISPATCH:
+        if op == _Op.DISPATCH:
             self._sequence = message.get('s') or self._sequence
             await self._handle_dispatch(message.get('t') or '', message.get('d') or {})
-        elif op == _HEARTBEAT:
-            await socket.send(json.dumps({'op': _HEARTBEAT, 'd': self._sequence}))
-        elif op == _HEARTBEAT_ACK:
+        elif op == _Op.HEARTBEAT:
+            await socket.send(json.dumps({'op': _Op.HEARTBEAT, 'd': self._sequence}))
+        elif op == _Op.HEARTBEAT_ACK:
             self._heartbeat_acked = True
-        elif op == _RECONNECT:
+        elif op == _Op.RECONNECT:
             # A resumable disconnect; close and let run() reconnect against the resume URL.
             await socket.close(code=4000)
-        elif op == _INVALID_SESSION:
+        elif op == _Op.INVALID_SESSION:
             if not message.get('d'):
                 # The session cannot be resumed, so drop it and identify fresh on the next connect.
                 self._session_id = None
@@ -165,7 +182,7 @@ class DiscordGateway:
             f'discord:message:{message_id}', ttl_seconds=_DEDUPE_TTL_SECONDS
         ):
             return
-        await self._dispatch_turn(user_id=user_id, channel_id=channel_id, user_text=content, lang=None)
+        await self._dispatch_turn(user_id=user_id, channel_id=channel_id, user_text=content, locale=None)
 
     async def _maybe_dispatch_interaction(self, data: dict[str, typing.Any]) -> None:
         if data.get('type') != _MESSAGE_COMPONENT:
@@ -186,7 +203,7 @@ class DiscordGateway:
             user_id=user_id,
             channel_id=channel_id,
             user_text=parsed[1],
-            lang=_parse_lang(data.get('locale')),
+            locale=data.get('locale'),
             interaction=Interaction(interaction_id=interaction_id, token=token),
         )
 
@@ -196,10 +213,11 @@ class DiscordGateway:
         user_id: str,
         channel_id: str,
         user_text: str,
-        lang: Lang | None,
+        locale: str | None,
         interaction: Interaction | None = None,
     ) -> None:
         principal = make_principal(ChatSurface.discord, user_id)
+        lang = await self._resolve_lang(principal, locale)
         # A direct message has no threads, so the whole dialog with a user is one conversation.
         async with DiscordMessenger(
             self._settings.bot_token, timeout_seconds=self._settings.api_timeout_seconds
@@ -237,12 +255,23 @@ class DiscordGateway:
                 if not is_handoff_expiry(error):
                     logger.exception('Discord turn failed for %s', principal)
 
+    async def _resolve_lang(self, principal: str, locale: str | None) -> Lang | None:
+        # An interaction carries the user's locale but a typed message carries none, so persist it on arrival,
+        # then reuse it on later messages and resolve to None until one arrives, letting the reply mirror the message.
+        store = self._credential_store
+        if locale is not None:
+            if store is not None:
+                await store.set_locale(principal, locale)
+            return _parse_lang(locale)
+        stored = await store.get_locale(principal) if store is not None else None
+        return _parse_lang(stored)
+
     def _can_resume(self) -> bool:
         return bool(self._session_id) and self._sequence is not None
 
     def _identify_payload(self) -> dict[str, typing.Any]:
         return {
-            'op': _IDENTIFY,
+            'op': _Op.IDENTIFY,
             'd': {
                 'token': self._settings.bot_token,
                 'intents': _INTENT_DIRECT_MESSAGES,
@@ -252,9 +281,16 @@ class DiscordGateway:
 
     def _resume_payload(self) -> dict[str, typing.Any]:
         return {
-            'op': _RESUME,
+            'op': _Op.RESUME,
             'd': {'token': self._settings.bot_token, 'session_id': self._session_id, 'seq': self._sequence},
         }
+
+
+def _received_close_code(error: Exception) -> int | None:
+    # The code from the server's close frame, or None when the drop carried no frame or was not a close at all.
+    if isinstance(error, ConnectionClosed) and error.rcvd is not None:
+        return error.rcvd.code
+    return None
 
 
 def _parse_lang(locale: str | None) -> Lang | None:

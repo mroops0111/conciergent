@@ -35,11 +35,18 @@ class BotToken(Base):
     installed_principal: Mapped[str | None] = mapped_column(sqlalchemy.String(255), nullable=True)
 
 
+class UserLocale(Base):
+    __tablename__ = 'conciergent_user_locales'
+
+    principal: Mapped[str] = mapped_column(sqlalchemy.String(255), primary_key=True)
+    locale: Mapped[str] = mapped_column(sqlalchemy.String(32))
+
+
 class CredentialStore:
     """SQL-backed store for long-lived credentials, any SQLAlchemy async engine works.
 
-    Holds what must survive restarts: MCP OAuth tokens and clients plus per-tenant bot tokens.
-    A conversation's expiring, message-bearing state lives in ``MessageStore`` instead.
+    Holds what must survive restarts, MCP OAuth tokens and clients, per-tenant bot tokens, and each user's
+    last-seen UI locale. A conversation's expiring, message-bearing state lives in ``MessageStore`` instead.
     """
 
     def __init__(self, engine: AsyncEngine) -> None:
@@ -91,3 +98,12 @@ class CredentialStore:
             await session.merge(
                 BotToken(surface=surface, tenant=tenant, token=token, installed_principal=installed_principal)
             )
+
+    async def get_locale(self, principal: str) -> str | None:
+        async with self._sessions() as session:
+            row = await session.get(UserLocale, principal)
+            return row.locale if row is not None else None
+
+    async def set_locale(self, principal: str, locale: str) -> None:
+        async with self._sessions.begin() as session:
+            await session.merge(UserLocale(principal=principal, locale=locale))

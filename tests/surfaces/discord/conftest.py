@@ -5,6 +5,7 @@ import typing
 import pytest
 
 from conciergent.agent.runner import ChatRunner
+from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.discord import gateway as gateway_module
 from conciergent.surfaces.discord.gateway import DiscordGateway, DiscordGatewaySettings
@@ -23,10 +24,13 @@ class DiscordHarness:
     interaction_responses: list[tuple[str, str, dict[str, typing.Any]]]
     typing_hints: list[str]
     message_store: MessageStore
+    credential_store: CredentialStore
 
 
 @pytest.fixture
-async def harness(monkeypatch: pytest.MonkeyPatch, message_store: MessageStore) -> DiscordHarness:
+async def harness(
+    monkeypatch: pytest.MonkeyPatch, message_store: MessageStore, credential_store: CredentialStore
+) -> DiscordHarness:
     agent = EchoAgent()
     messages: list[tuple[str, dict[str, typing.Any]]] = []
     interaction_responses: list[tuple[str, str, dict[str, typing.Any]]] = []
@@ -56,6 +60,7 @@ async def harness(monkeypatch: pytest.MonkeyPatch, message_store: MessageStore) 
         settings=DiscordGatewaySettings(bot_token='bot-token'),
         message_store=message_store,
         runner=typing.cast(ChatRunner, agent),
+        credential_store=credential_store,
     )
     return DiscordHarness(
         gateway=gateway,
@@ -64,6 +69,7 @@ async def harness(monkeypatch: pytest.MonkeyPatch, message_store: MessageStore) 
         interaction_responses=interaction_responses,
         typing_hints=typing_hints,
         message_store=message_store,
+        credential_store=credential_store,
     )
 
 

@@ -1,7 +1,13 @@
 import collections.abc
 import typing
 
+import pytest
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
+
+from conciergent.i18n.lang import Lang
 from conciergent.store.message import MessageStore
+from conciergent.surfaces.discord.gateway import _FATAL_CLOSE_CODES, _received_close_code
 from conciergent.surfaces.discord.surface import DiscordOAuthBridge
 from tests.surfaces.discord.conftest import CHANNEL, USER, DiscordHarness
 
@@ -91,3 +97,49 @@ def test_user_identity_is_the_principal_segment() -> None:
     from conciergent.identity import ChatSurface, make_principal
 
     assert make_principal(ChatSurface.discord, USER) == f'discord:{USER}'
+
+
+async def test_an_interaction_persists_and_overwrites_the_users_locale(
+    harness: DiscordHarness, interaction_event: collections.abc.Callable[..., dict[str, typing.Any]]
+) -> None:
+    principal = f'discord:{USER}'
+    await harness.gateway._handle_dispatch(
+        'INTERACTION_CREATE', interaction_event('suggestion:open:0:0:x', locale='en')
+    )
+    assert await harness.credential_store.get_locale(principal) == 'en'
+    # A later interaction in another language overwrites it, so a language change takes effect.
+    await harness.gateway._handle_dispatch(
+        'INTERACTION_CREATE', interaction_event('suggestion:open:0:0:x', interaction_id='I2', locale='fr')
+    )
+    assert await harness.credential_store.get_locale(principal) == 'fr'
+
+
+async def test_resolve_lang_reads_the_stored_locale_then_none(harness: DiscordHarness) -> None:
+    await harness.credential_store.set_locale(f'discord:{USER}', 'en')
+    # A typed message carries no locale, so the one stored from an earlier interaction is reused.
+    assert await harness.gateway._resolve_lang(f'discord:{USER}', None) == Lang('en')
+    # A user with nothing stored resolves to None, so the reply mirrors the user's own message.
+    assert await harness.gateway._resolve_lang('discord:never', None) is None
+
+
+def test_a_fatal_close_code_is_recognized() -> None:
+    error = ConnectionClosedError(Close(4004, 'Authentication failed'), None)
+    assert _received_close_code(error) in _FATAL_CLOSE_CODES
+
+
+def test_a_transient_close_code_is_not_fatal() -> None:
+    # A generic drop should reconnect, so its code must stay out of the fatal set.
+    error = ConnectionClosedError(Close(4000, 'Unknown error'), None)
+    assert _received_close_code(error) not in _FATAL_CLOSE_CODES
+
+
+async def test_run_stops_on_a_fatal_close_instead_of_reconnecting(
+    harness: DiscordHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def raise_fatal() -> None:
+        raise ConnectionClosedError(Close(4004, 'Authentication failed'), None)
+
+    monkeypatch.setattr(harness.gateway, '_connect_once', raise_fatal)
+    # A fatal close re-raises rather than looping, so the awaited run() returns control instead of hanging.
+    with pytest.raises(ConnectionClosedError):
+        await harness.gateway.run()

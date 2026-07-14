@@ -43,5 +43,6 @@ class Discord(Surface):
             message_store=context.message_store,
             runner=context.runner,
             compactor=context.compactor,
+            credential_store=context.credential_store,
         )
         await gateway.run()
