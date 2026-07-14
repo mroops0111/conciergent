@@ -111,6 +111,29 @@ async def test_cancel_skips_the_tool():
     assert calls == []  # cancellation kept the tool from running
 
 
+async def test_confirm_matches_the_parked_prompt_after_the_locale_changes():
+    # A card parked with no locale offers English buttons, but the tap arrives on an interaction with a locale.
+    # Matching must follow the parked prompt, not one re-derived from this turn's language, so the confirm lands.
+    calls: list[int] = []
+    agent = _agent(_destructive_server(calls))
+
+    parked = await agent.run(
+        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=LangSurface(None)
+    )
+    assert isinstance(parked.output, PendingApproval)
+
+    resumed = await agent.run(
+        _CONFIRM,
+        principal=_PRINCIPAL,
+        history=[],
+        pending_approval=parked.output.state,
+        surface=LangSurface(Lang.ZH_TW),
+    )
+
+    assert not isinstance(resumed.output, PendingApproval)
+    assert len(calls) == 1  # the confirm matched despite the language change, so the tool ran
+
+
 async def test_confirm_runs_all_deferred_tools():
     calls: list[str] = []
     server = FastMCP('test')

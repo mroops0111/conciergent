@@ -31,6 +31,7 @@ class SurfaceKindDefaults(_Lenient):
 class SurfaceDefaults(_Lenient):
     slack: SurfaceKindDefaults
     line: SurfaceKindDefaults
+    discord: SurfaceKindDefaults
 
 
 class StoreDefaults(_Lenient):

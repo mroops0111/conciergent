@@ -5,8 +5,8 @@
 # The result is a Slack bot that can look up and manage pets by calling the REST API.
 #
 # Prerequisites:
-#   uv add "conciergent[gateway]"                      # or use the bundled docker compose
-#   export OPENAI_API_KEY=sk-...                        # the model above reads this key from the env
+#   uv add "conciergent[gateway]" # or use the bundled docker compose
+#   export OPENAI_API_KEY=sk-... # the model above reads this key from the env
 #   export SLACK_SIGNING_SECRET=...  SLACK_BOT_TOKEN=xoxb-...
 #   Redis on localhost:6379 and Postgres on localhost/conciergent (docker compose brings both up)
 #
@@ -14,12 +14,12 @@
 # host (a cloudflared/ngrok tunnel in front of port 8000 for local dev), then: conciergent run
 
 server:
-  host: ${CONCIERGENT_HOST:-127.0.0.1}   # docker compose sets this to 0.0.0.0
+  host: ${CONCIERGENT_HOST:-127.0.0.1} # docker compose sets this to 0.0.0.0
   port: 8000
-  # url: https://your-public-url         # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
+  # url: https://your-public-url # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
 
 agent:
-  model: openai:gpt-4o-mini        # or any google: or anthropic: model
+  model: openai:gpt-4o-mini # or any google: or anthropic: model
   # Describe your assistant here, including its role, scope, and what its tools are for.
   # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |

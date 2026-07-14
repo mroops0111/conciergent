@@ -39,3 +39,15 @@ async def test_bot_token_round_trips(credential_store: CredentialStore):
     await credential_store.set_bot_token('slack', 'T1', 'xoxb-1')
 
     assert await credential_store.resolve_bot_token('slack', 'T1') == 'xoxb-1'
+
+
+async def test_locale_round_trips_and_overwrites(credential_store: CredentialStore):
+    assert await credential_store.get_locale('u1') is None
+
+    await credential_store.set_locale('u1', 'en')
+    assert await credential_store.get_locale('u1') == 'en'
+
+    # A later locale overwrites, so a user changing their language takes effect.
+    await credential_store.set_locale('u1', 'fr')
+    assert await credential_store.get_locale('u1') == 'fr'
+    assert await credential_store.get_locale('u2') is None

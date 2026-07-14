@@ -31,7 +31,7 @@ class Section(pydantic.BaseModel):
     @pydantic.model_validator(mode='after')
     def _require_text_or_bullets(self) -> typing.Self:
         if not self.text and not self.bullets:
-            raise ValueError('Section must have `text`, and optionally `bullets`.')
+            raise ValueError('a section must have `text`, and optionally `bullets`')
         return self
 
 

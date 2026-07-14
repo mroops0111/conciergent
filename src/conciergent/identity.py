@@ -6,6 +6,7 @@ class ChatSurface(enum.StrEnum):
 
     slack = 'slack'
     line = 'line'
+    discord = 'discord'
 
 
 def make_principal(surface: ChatSurface | str, *parts: str) -> str:

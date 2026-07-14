@@ -132,7 +132,7 @@ class SlackReplySurface(ReplySurface):
             return
         # The patch is cosmetic and must never abort the turn.
         try:
-            status_text = i18n.t('interaction.processing', self._lang, label=self._button_label)
+            status_text = i18n.t('slack.interaction.processing', self._lang, label=self._button_label)
             patch = render.build_processing_patch(self._interacted_message, status_text)
             await self._messenger.respond_via_response_url(self._response_url, patch)
         except Exception:
@@ -146,7 +146,7 @@ class SlackReplySurface(ReplySurface):
             return
         self._processing_active = False
         try:
-            status_text = i18n.t('interaction.selected', self._lang, label=self._button_label)
+            status_text = i18n.t('slack.interaction.selected', self._lang, label=self._button_label)
             patch = render.build_processing_patch(self._interacted_message, status_text)
             await self._messenger.respond_via_response_url(self._response_url, patch)
         except Exception:

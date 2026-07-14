@@ -31,7 +31,7 @@ async def test_follow_event_bootstraps_and_greets_a_returning_user(
 
     assert harness.agent.inputs == []
     assert harness.agent.bootstrapped == ['line:U1']
-    assert harness.replies and harness.replies[0]['text'] == i18n.t('follow.welcome_back', None)
+    assert harness.replies and harness.replies[0]['text'] == i18n.t('greeting.welcome_back', None)
 
 
 async def test_follow_greets_ready_after_a_fresh_authorization(
@@ -42,7 +42,7 @@ async def test_follow_greets_ready_after_a_fresh_authorization(
 
     await harness.client.post('/line/events', content=body, headers=sign_headers(body))
 
-    assert harness.replies and harness.replies[0]['text'] == i18n.t('follow.ready', None)
+    assert harness.replies and harness.replies[0]['text'] == i18n.t('greeting.ready', None)
 
 
 async def test_bad_signature_is_rejected(harness: LineHarness, message_event: BuildEvent, line_body: BuildBody) -> None:

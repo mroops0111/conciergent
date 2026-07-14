@@ -6,12 +6,19 @@ line:
     welcome_body: 歡迎！請點下方按鈕完成授權，授權後即可開始對話。
     button: 授權
 
+discord:
+  oauth:
+    header: 授權
+    body: 請點下方按鈕完成授權，授權完成後再回到這個聊天室繼續。
+    button: 授權
+
 slack:
   oauth:
     notification: 請完成授權以繼續使用。
     header: 授權
     body: 請點下方按鈕完成授權，授權完成後再回到這個對話繼續。
     button: 授權
+  # Browser page shown after a Slack workspace install completes, in the user's Accept-Language.
   install:
     completed:
       title: 安裝完成
@@ -19,7 +26,11 @@ slack:
     failed:
       title: 安裝失敗
       body: 發生錯誤，請重新安裝一次。
+  interaction:
+    processing: "⏳ 處理中：{label}"
+    selected: "✓ 已選擇：{label}"
 
+# Browser page shown when an in-chat OAuth authorization returns.
 callback:
   completed:
     title: 授權完成
@@ -28,7 +39,7 @@ callback:
     title: 授權失敗
     body: 請回到對話視窗，再試一次。
 
-follow:
+greeting:
   ready: 授權完成！有什麼需要，直接跟我說。
   welcome_back: 歡迎回來！有什麼需要，隨時跟我說。
 
@@ -37,7 +48,3 @@ approval:
   body: 即將「{tools}」，此動作可能無法復原，請確認以繼續。
   confirm: 確認
   cancel: 取消
-
-interaction:
-  processing: "⏳ 處理中：{label}"
-  selected: "✓ 已選擇：{label}"

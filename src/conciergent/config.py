@@ -8,6 +8,7 @@ import yaml
 
 from conciergent.defaults import defaults_layer
 from conciergent.surfaces.base import Surface
+from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
 from conciergent.surfaces.slack.app import Slack
 
@@ -104,14 +105,42 @@ class LineSettings(pydantic.BaseModel):
         )
 
 
+class DiscordSettings(pydantic.BaseModel):
+    """Discord app credentials, created once in the Discord developer portal.
+
+    The bot connects over the gateway and replies in direct messages, so a single bot token is all it needs.
+    """
+
+    enabled: bool = False
+    bot_token: str = ''
+    brand_color: str
+    destructive_color: str
+    api_timeout_seconds: float
+
+    @pydantic.model_validator(mode='after')
+    def _require_token_when_enabled(self) -> typing.Self:
+        if self.enabled and not self.bot_token:
+            raise ValueError('surface.discord.bot_token is required when discord is enabled')
+        return self
+
+    def build(self) -> Surface:
+        return Discord(
+            bot_token=self.bot_token,
+            brand_color=self.brand_color,
+            destructive_color=self.destructive_color,
+            api_timeout_seconds=self.api_timeout_seconds,
+        )
+
+
 class SurfaceSettings(pydantic.BaseModel):
     """The chat surfaces, each turned on by its own ``enabled`` flag."""
 
     slack: SlackSettings
     line: LineSettings
+    discord: DiscordSettings
 
     def enabled_surfaces(self) -> list[Surface]:
-        return [settings.build() for settings in (self.slack, self.line) if settings.enabled]
+        return [settings.build() for settings in (self.slack, self.line, self.discord) if settings.enabled]
 
 
 class StoreSettings(pydantic.BaseModel):

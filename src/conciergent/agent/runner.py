@@ -125,11 +125,14 @@ class ChatRunner:
 
         @self._agent.instructions
         def responding_language(ctx: RunContext[_AgentDeps]) -> str:
-            # Answer in the user's own language; with no resolved language, mirror their latest message.
+            # Follow the user's own message; the resolved platform language only fills in when the message is unclear.
             lang = ctx.deps.lang
             if lang is None:
                 return 'Respond in the same language as the most recent user message.'
-            return f'Respond in {lang.display_name}.'
+            return (
+                'Respond in the same language as the most recent user message. '
+                f"When that message alone leaves the language unclear, default to the user's platform language, {lang.display_name}."
+            )
 
         if self._oauth_servers:
 
@@ -207,7 +210,7 @@ class ChatRunner:
         agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
-            self._resume(pending_approval, user_input=user_input, history=history, lang=lang)
+            self._resume(pending_approval, user_input=user_input, history=history)
             if pending_approval is not None
             else None
         )
@@ -238,22 +241,23 @@ class ChatRunner:
         return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
 
     def _resume(
-        self, pending_approval: dict[str, typing.Any], *, user_input: str, history: list[typing.Any], lang: Lang | None
+        self, pending_approval: dict[str, typing.Any], *, user_input: str, history: list[typing.Any]
     ) -> _RunInputs | None:
         """Rebuild the deferred run from parked state, or None when the state is unreadable.
 
         Parked state is a disposable cache in the agent library's own format.
         An unreadable one is treated as an expired approval and the message runs as a fresh turn.
         """
+        # Read the prompts the parked card offered rather than re-derive them from this turn's language,
+        # because a surface can resolve the locale on a button tap but not on the message that parked the card.
         try:
             tool_call_ids: list[str] = pending_approval['tool_call_ids']
             held_messages: list[typing.Any] = pending_approval['held_messages']
+            confirm_prompt: str = pending_approval['confirm_prompt']
+            cancel_prompt: str = pending_approval['cancel_prompt']
             messages = ModelMessagesTypeAdapter.validate_python([*history, *held_messages])
         except (KeyError, pydantic.ValidationError):
             return None
-        # The parked card offered these exact prompts in the user's language, so a tap comes back matching them.
-        confirm_prompt = i18n.t('approval.confirm', lang)
-        cancel_prompt = i18n.t('approval.cancel', lang)
         # One confirm or cancel decides every tool deferred in the parked turn,
         # so the resumed run has a result for each pending call and never rejects the batch as unsatisfied.
         decision: bool | ToolDenied
@@ -273,16 +277,20 @@ class ChatRunner:
         self, approvals: list[ToolCallPart], *, held_messages: list[typing.Any], lang: Lang | None
     ) -> PendingApproval:
         tool_names = ', '.join(call.tool_name for call in approvals)
+        confirm_prompt = i18n.t('approval.confirm', lang)
+        cancel_prompt = i18n.t('approval.cancel', lang)
         card = Card(
             header=i18n.t('approval.header', lang),
             sections=[Section(text=i18n.t('approval.body', lang, tools=tool_names))],
             suggestions=[
-                Suggestion(label=i18n.t('approval.confirm', lang), prompt=i18n.t('approval.confirm', lang)),
-                Suggestion(label=i18n.t('approval.cancel', lang), prompt=i18n.t('approval.cancel', lang)),
+                Suggestion(label=confirm_prompt, prompt=confirm_prompt),
+                Suggestion(label=cancel_prompt, prompt=cancel_prompt),
             ],
         )
         state = {
             'tool_call_ids': [call.tool_call_id for call in approvals],
             'held_messages': held_messages,
+            'confirm_prompt': confirm_prompt,
+            'cancel_prompt': cancel_prompt,
         }
         return PendingApproval(card=card, state=state)

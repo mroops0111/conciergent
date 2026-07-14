@@ -1,3 +1,4 @@
+import asyncio
 import collections.abc
 import contextlib
 import pathlib
@@ -87,7 +88,7 @@ class App:
         compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
         surfaces = config.surface.enabled_surfaces()
         if not surfaces:
-            raise ValueError('enable at least one surface: set surface.slack.enabled or surface.line.enabled')
+            raise ValueError('at least one surface must be enabled')
         return cls(
             runner=runner,
             message_store=message_store,
@@ -109,6 +110,17 @@ class App:
         if self._gateway_settings is not None and self._gateway_settings.enabled:
             gateway = _build_gateway(self._gateway_settings, self.base_url)
 
+        context = SurfaceContext(
+            message_store=self._message_store,
+            credential_store=self._credential_store,
+            runner=self._runner,
+            compactor=self._compactor,
+            base_url=self.base_url,
+            approval_ttl_seconds=self._approval_ttl_seconds,
+            history_ttl_seconds=self._history_ttl_seconds,
+            oauth_wait_timeout_seconds=self._oauth_wait_timeout_seconds,
+        )
+
         @contextlib.asynccontextmanager
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
@@ -119,7 +131,15 @@ class App:
                     # which the gateway enters in its own app factory only.
                     for handle in gateway._servers:
                         await stack.enter_async_context(handle.mcp.session_manager.run())
-                yield
+                # A connection surface (Discord's gateway) holds its socket for the app's lifetime. A webhook
+                # surface's run_connection returns at once. Every task is cancelled cleanly at shutdown.
+                connections = [asyncio.create_task(surface.run_connection(context)) for surface in self._surfaces]
+                try:
+                    yield
+                finally:
+                    for connection in connections:
+                        connection.cancel()
+                    await asyncio.gather(*connections, return_exceptions=True)
 
         app = fastapi.FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
         if gateway is not None:
@@ -140,16 +160,6 @@ class App:
             await self._message_store.deliver_oauth_code(state, code)
             return _callback_page(lang, 'callback.completed')
 
-        context = SurfaceContext(
-            message_store=self._message_store,
-            credential_store=self._credential_store,
-            runner=self._runner,
-            compactor=self._compactor,
-            base_url=self.base_url,
-            approval_ttl_seconds=self._approval_ttl_seconds,
-            history_ttl_seconds=self._history_ttl_seconds,
-            oauth_wait_timeout_seconds=self._oauth_wait_timeout_seconds,
-        )
         for surface in self._surfaces:
             for router in surface.build_routers(context):
                 app.include_router(router)

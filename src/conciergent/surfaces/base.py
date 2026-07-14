@@ -32,5 +32,12 @@ class Surface(abc.ABC):
 
     @abc.abstractmethod
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
-        """Return the webhook and auxiliary routes this platform needs."""
+        """Return the webhook and auxiliary routes this platform needs, empty for a connection surface."""
         ...
+
+    async def run_connection(self, context: SurfaceContext) -> None:
+        """Serve a platform that streams its events over a persistent connection, until the app stops.
+
+        The default does nothing, which fits a webhook surface, whose events arrive as requests.
+        """
+        return None
