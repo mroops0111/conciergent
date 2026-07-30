@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gateway = ["openapi-mcp-gateway>=0.5.1"]
+gateway = ["openapi-mcp-gateway>=0.5.2"]
 dev = [
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
