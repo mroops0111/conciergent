@@ -143,8 +143,8 @@ class App:
 
         app = fastapi.FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
         if gateway is not None:
+            # mount() also registers the OAuth and .well-known discovery routes those servers own.
             gateway.mount(app)
-            _register_gateway_oauth_routes(app, gateway)
 
         @app.get('/healthz')
         async def healthz() -> fastapi.Response:
@@ -207,12 +207,3 @@ def _build_gateway(settings: GatewaySettings, base_url: str) -> typing.Any:
             exposure=spec.exposure,
         )
     return gateway
-
-
-def _register_gateway_oauth_routes(app: fastapi.FastAPI, gateway: typing.Any) -> None:
-    # The gateway registers its OAuth authorization-server and discovery routes only in its own app factory,
-    # not in mount(), so an embedder adds them here. Private helpers, pending a public API (openapi-mcp-gateway#45).
-    from openapi_mcp_gateway import app as gateway_app
-
-    gateway_app._register_oauth_routes(app, gateway._servers)
-    gateway_app._register_well_known_routes(app, gateway._servers)

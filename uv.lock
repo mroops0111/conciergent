@@ -345,7 +345,7 @@ wheels = [
 
 [[package]]
 name = "conciergent"
-version = "0.1.1"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -387,7 +387,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" },
-    { name = "openapi-mcp-gateway", marker = "extra == 'gateway'", specifier = ">=0.5.1" },
+    { name = "openapi-mcp-gateway", marker = "extra == 'gateway'", specifier = ">=0.5.2" },
     { name = "pydantic", specifier = ">=2.13.0" },
     { name = "pydantic-ai-slim", extras = ["openai", "google", "anthropic", "mcp"], specifier = ">=2.1.0,<3" },
     { name = "pydantic-settings", specifier = ">=2.14.0" },
@@ -1102,7 +1102,7 @@ wheels = [
 
 [[package]]
 name = "openapi-mcp-gateway"
-version = "0.5.1"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1115,9 +1115,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/69/58/4c0d1afd0e4648da10379db930c71eef780c3e90112151462ef681183429/openapi_mcp_gateway-0.5.1.tar.gz", hash = "sha256:28886ddf1cba66455cc865c408953085035892b0eee1514ca72c7c0b153e2d00", size = 522264, upload-time = "2026-06-20T14:03:54.062Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/26/56c352935ccc22231f5972250c2116da8c2aa70697696d8548860a43e2ee/openapi_mcp_gateway-0.5.2.tar.gz", hash = "sha256:9208d4e36af8401f888e97140d16e780db5ccba0c8c3073449c3af9e404d489b", size = 524178, upload-time = "2026-07-30T01:36:25.453Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/e4/375b3ea3773b3b6be280a013a47c8a1529f76e37a51e4da5c468aa4e087a/openapi_mcp_gateway-0.5.1-py3-none-any.whl", hash = "sha256:914551bdc904c4b6dd0c05ea3b74c38568395d934ababe3aed9a76698057fc17", size = 63054, upload-time = "2026-06-20T14:03:52.502Z" },
+    { url = "https://files.pythonhosted.org/packages/93/2d/6dc66b9089ffb698510b799017da81891f5247f456d7068ca4da33b5872a/openapi_mcp_gateway-0.5.2-py3-none-any.whl", hash = "sha256:bb69d392ea25b0ac120c804aadc943b0d4c522e50c2876db99ef0407d5e07318", size = 64054, upload-time = "2026-07-30T01:36:23.94Z" },
 ]
 
 [[package]]

@@ -33,7 +33,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra gateway
       - run: uv run basedpyright src/ tests/
 
   test:
