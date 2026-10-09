@@ -1,4 +1,3 @@
-import collections.abc
 import typing
 
 import pytest
@@ -9,13 +8,11 @@ from conciergent.i18n.lang import Lang
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.discord.gateway import _FATAL_CLOSE_CODES, _received_close_code
 from conciergent.surfaces.discord.surface import DiscordOAuthBridge
-from tests.surfaces.discord.conftest import CHANNEL, USER, DiscordHarness
+from tests.surfaces.discord.conftest import CHANNEL, USER, DiscordHarness, interaction_event, message_event
 
 
-async def test_direct_message_runs_a_turn_and_replies(
-    harness: DiscordHarness, message_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
-    await harness.gateway._handle_dispatch('MESSAGE_CREATE', message_event(content='hello'))
+async def test_direct_message_runs_a_turn_and_replies(harness: DiscordHarness) -> None:
+    await harness.send(message_event(content='hello'))
     assert harness.agent.inputs == ['hello']
     channel_id, payload = harness.messages[0]
     assert channel_id == CHANNEL
@@ -24,33 +21,25 @@ async def test_direct_message_runs_a_turn_and_replies(
     assert harness.typing_hints == [CHANNEL]
 
 
-async def test_bot_messages_are_ignored(
-    harness: DiscordHarness, message_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
-    await harness.gateway._handle_dispatch('MESSAGE_CREATE', message_event(author={'id': 'B1', 'bot': True}))
+async def test_bot_messages_are_ignored(harness: DiscordHarness) -> None:
+    await harness.send(message_event(author={'id': 'B1', 'bot': True}))
     assert harness.agent.inputs == []
 
 
-async def test_guild_messages_are_ignored(
-    harness: DiscordHarness, message_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
-    await harness.gateway._handle_dispatch('MESSAGE_CREATE', message_event(guild_id='G1'))
+async def test_guild_messages_are_ignored(harness: DiscordHarness) -> None:
+    await harness.send(message_event(guild_id='G1'))
     assert harness.agent.inputs == []
 
 
-async def test_a_duplicate_message_is_dropped(
-    harness: DiscordHarness, message_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
+async def test_a_duplicate_message_is_dropped(harness: DiscordHarness) -> None:
     event = message_event(message_id='M9')
-    await harness.gateway._handle_dispatch('MESSAGE_CREATE', event)
-    await harness.gateway._handle_dispatch('MESSAGE_CREATE', event)
+    await harness.send(event)
+    await harness.send(event)
     assert harness.agent.inputs == ['hello']
 
 
-async def test_interaction_refeeds_the_prompt_and_acknowledges_by_disabling_buttons(
-    harness: DiscordHarness, interaction_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
-    await harness.gateway._handle_dispatch('INTERACTION_CREATE', interaction_event('suggestion:open:0:0:Show details'))
+async def test_interaction_refeeds_the_prompt_and_acknowledges_by_disabling_buttons(harness: DiscordHarness) -> None:
+    await harness.click(interaction_event('suggestion:open:0:0:Show details'))
     assert harness.agent.inputs == ['Show details']
     interaction_id, token, payload = harness.interaction_responses[0]
     assert (interaction_id, token) == ('I1', 'interaction-token')
@@ -58,21 +47,15 @@ async def test_interaction_refeeds_the_prompt_and_acknowledges_by_disabling_butt
     assert payload['data']['components'] == []
 
 
-async def test_a_non_component_interaction_is_ignored(
-    harness: DiscordHarness, interaction_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
-    await harness.gateway._handle_dispatch(
-        'INTERACTION_CREATE', interaction_event('suggestion:open:0:0:x', interaction_type=2)
-    )
+async def test_a_non_component_interaction_is_ignored(harness: DiscordHarness) -> None:
+    await harness.click(interaction_event('suggestion:open:0:0:x', interaction_type=2))
     assert harness.agent.inputs == []
 
 
-async def test_a_duplicate_interaction_is_dropped(
-    harness: DiscordHarness, interaction_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
+async def test_a_duplicate_interaction_is_dropped(harness: DiscordHarness) -> None:
     event = interaction_event('suggestion:open:0:0:again', interaction_id='I9')
-    await harness.gateway._handle_dispatch('INTERACTION_CREATE', event)
-    await harness.gateway._handle_dispatch('INTERACTION_CREATE', event)
+    await harness.click(event)
+    await harness.click(event)
     assert harness.agent.inputs == ['again']
 
 
@@ -99,18 +82,12 @@ def test_user_identity_is_the_principal_segment() -> None:
     assert make_principal(ChatSurface.discord, USER) == f'discord:{USER}'
 
 
-async def test_an_interaction_persists_and_overwrites_the_users_locale(
-    harness: DiscordHarness, interaction_event: collections.abc.Callable[..., dict[str, typing.Any]]
-) -> None:
+async def test_an_interaction_persists_and_overwrites_the_users_locale(harness: DiscordHarness) -> None:
     principal = f'discord:{USER}'
-    await harness.gateway._handle_dispatch(
-        'INTERACTION_CREATE', interaction_event('suggestion:open:0:0:x', locale='en')
-    )
+    await harness.click(interaction_event('suggestion:open:0:0:x', locale='en'))
     assert await harness.credential_store.get_locale(principal) == 'en'
     # A later interaction in another language overwrites it, so a language change takes effect.
-    await harness.gateway._handle_dispatch(
-        'INTERACTION_CREATE', interaction_event('suggestion:open:0:0:x', interaction_id='I2', locale='fr')
-    )
+    await harness.click(interaction_event('suggestion:open:0:0:x', interaction_id='I2', locale='fr'))
     assert await harness.credential_store.get_locale(principal) == 'fr'
 
 

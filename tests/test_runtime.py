@@ -1,80 +1,43 @@
-import dataclasses
 import typing
 
 from conciergent import (
     Card,
     Carousel,
     PendingApproval,
-    ReplySurface,
     Section,
-    TurnResult,
     run_turn,
 )
-from conciergent.agent.runner import ChatRunner
 from conciergent.groups import GroupTurn
 from conciergent.store.message import MessageStore
+from tests.conftest import RecordingSurface, StubRunner
 
 
 _PRINCIPAL = 'slack:T:U'
 
 
-class RecordingSurface(ReplySurface):
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, typing.Any]] = []
-
-    async def send_text(self, text: str) -> None:
-        self.calls.append(('text', text))
-
-    async def send_card(self, card: Card, *, destructive: bool = False) -> None:
-        self.calls.append(('card', (card, destructive)))
-
-    async def send_carousel(self, cards: list[Card]) -> None:
-        self.calls.append(('carousel', cards))
-
-    async def show_processing(self) -> None:
-        self.calls.append(('processing', None))
-
-
-@dataclasses.dataclass
-class ScriptedRunner:
-    output: typing.Any
-    new_history: list[typing.Any] = dataclasses.field(default_factory=list)
-    invalidate_history: bool = False
-    # The pending approval each run received, so a test can tell whose approval a turn resumed.
-    resumed: list[dict[str, typing.Any] | None] = dataclasses.field(default_factory=list)
-    groups_supported: bool = True
-
-    async def supports_groups(self) -> bool:
-        return self.groups_supported
-
-    async def run(
-        self,
-        user_input: str,
-        *,
-        principal: str,
-        history: list[typing.Any],
-        pending_approval: dict[str, typing.Any] | None,
-        bridge: typing.Any = None,
-        surface: typing.Any = None,
-        group: typing.Any = None,
-    ) -> TurnResult:
-        self.resumed.append(pending_approval)
-        return TurnResult(output=self.output, history=self.new_history, invalidate_history=self.invalidate_history)
-
-
-def _runner(
-    output: typing.Any, new_history: list[typing.Any] | None = None, *, invalidate_history: bool = False
-) -> ChatRunner:
-    # run_turn only needs `.run`, so a scripted stand-in is cast to the concrete runner type.
-    return typing.cast(
-        ChatRunner,
-        ScriptedRunner(output=output, new_history=new_history or [], invalidate_history=invalidate_history),
-    )
-
-
 async def _drive_turn(output: typing.Any, message_store: MessageStore) -> RecordingSurface:
+    return await _turn('hi', StubRunner(output), message_store)
+
+
+async def _turn(
+    user_input: str,
+    runner: StubRunner,
+    message_store: MessageStore,
+    *,
+    principal: str = _PRINCIPAL,
+    conversation: str | None = None,
+    group: GroupTurn | None = None,
+) -> RecordingSurface:
     surface = RecordingSurface()
-    await run_turn('hi', principal=_PRINCIPAL, runner=_runner(output), surface=surface, message_store=message_store)
+    await run_turn(
+        user_input,
+        principal=principal,
+        runner=runner.as_runner(),
+        surface=surface,
+        message_store=message_store,
+        conversation=conversation,
+        group=group,
+    )
     return surface
 
 
@@ -107,21 +70,17 @@ async def test_carousel_reply_is_dispatched_with_fallback_last(message_store: Me
 async def test_history_is_persisted(message_store: MessageStore):
     principal = 'p'
     new_history = [{'role': 'user'}, {'role': 'assistant'}]
-    surface = RecordingSurface()
 
-    await run_turn(
-        'hi', principal=principal, runner=_runner('ok', new_history), surface=surface, message_store=message_store
-    )
+    await _turn('hi', StubRunner('ok', new_history=new_history), message_store, principal=principal)
 
     assert await message_store.load_history(principal) == new_history
 
 
 async def test_invalidate_history_clears_the_stored_history(message_store: MessageStore):
     await message_store.append_history(_PRINCIPAL, [{'role': 'user'}], ttl_seconds=60)
-    surface = RecordingSurface()
-    runner = _runner('signed out', [{'role': 'assistant'}], invalidate_history=True)
+    runner = StubRunner('signed out', new_history=[{'role': 'assistant'}], invalidate_history=True)
 
-    await run_turn('sign me out', principal=_PRINCIPAL, runner=runner, surface=surface, message_store=message_store)
+    surface = await _turn('sign me out', runner, message_store)
 
     # A sign-out drops the prior turns instead of appending, so the next message starts fresh.
     assert await message_store.load_history(_PRINCIPAL) == []
@@ -140,11 +99,10 @@ async def test_pending_approval_parks_and_renders_destructive(message_store: Mes
 
 async def test_pending_approval_does_not_overwrite_history(message_store: MessageStore):
     existing_history = [{'role': 'user'}, {'role': 'assistant'}]
-    surface = RecordingSurface()
     await message_store.append_history(_PRINCIPAL, existing_history, ttl_seconds=60)
-    runner = _runner(PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state={'resume': 'x'}))
+    runner = StubRunner(PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state={}))
 
-    await run_turn('hi', principal=_PRINCIPAL, runner=runner, surface=surface, message_store=message_store)
+    await _turn('hi', runner, message_store)
 
     assert await message_store.load_history(_PRINCIPAL) == existing_history
 
@@ -153,15 +111,13 @@ async def test_conversations_scope_history_within_one_principal(message_store: M
     principal = 'p'
     conversation = 'p:thread-a'
     turn_history = [{'turn': 1}]
-    surface = RecordingSurface()
 
-    await run_turn(
+    await _turn(
         'hi',
+        StubRunner('ok', new_history=turn_history),
+        message_store,
         principal=principal,
         conversation=conversation,
-        runner=_runner('ok', turn_history),
-        surface=surface,
-        message_store=message_store,
     )
 
     assert await message_store.load_history(conversation) == turn_history
@@ -169,96 +125,51 @@ async def test_conversations_scope_history_within_one_principal(message_store: M
     assert await message_store.load_history(principal) == []
 
 
-class AcknowledgingSurface(RecordingSurface):
-    async def acknowledge_silently(self) -> None:
-        self.calls.append(('acknowledged', None))
-
-
 _GROUP = 'line:group:G1'
 _ALICE = 'line:Ua'
 _BOB = 'line:Ub'
+_ALICE_IN_GROUP = GroupTurn(_GROUP, 'Alice')
+_BOB_IN_GROUP = GroupTurn(_GROUP, 'Bob')
 
 
 async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store: MessageStore):
     state = {'resume': 'alice'}
-    runner = ScriptedRunner(output=PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state=state))
-    await run_turn(
-        'delete it',
-        principal=_ALICE,
-        runner=typing.cast(ChatRunner, runner),
-        surface=RecordingSurface(),
-        message_store=message_store,
-        group=GroupTurn(_GROUP, 'Alice'),
-    )
+    runner = StubRunner(PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state=state))
+    await _turn('delete it', runner, message_store, principal=_ALICE, group=_ALICE_IN_GROUP)
     runner.output = 'ok'
 
     # Bob's own message runs as a fresh turn and leaves Alice's approval parked.
-    await run_turn(
-        'what time is it',
-        principal=_BOB,
-        runner=typing.cast(ChatRunner, runner),
-        surface=RecordingSurface(),
-        message_store=message_store,
-        group=GroupTurn(_GROUP, 'Bob'),
-    )
-    await run_turn(
-        'Confirm',
-        principal=_ALICE,
-        runner=typing.cast(ChatRunner, runner),
-        surface=RecordingSurface(),
-        message_store=message_store,
-        group=GroupTurn(_GROUP, 'Alice'),
-    )
+    await _turn('what time is it', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
+    await _turn('Confirm', runner, message_store, principal=_ALICE, group=_ALICE_IN_GROUP)
 
-    assert runner.resumed == [None, None, state]
+    assert [call['pending_approval'] for call in runner.calls] == [None, None, state]
 
 
 async def test_group_confirm_without_an_own_approval_is_dropped_quietly(message_store: MessageStore):
     state = {'resume': 'alice'}
     await message_store.park_approval(_GROUP, state, ttl_seconds=60, owner=_ALICE)
-    runner = ScriptedRunner(output='ok')
-    surface = AcknowledgingSurface()
+    runner = StubRunner('ok')
 
-    await run_turn(
-        'Confirm',
-        principal=_BOB,
-        runner=typing.cast(ChatRunner, runner),
-        surface=surface,
-        message_store=message_store,
-        group=GroupTurn(_GROUP, 'Bob'),
-    )
+    surface = await _turn('Confirm', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
 
-    assert runner.resumed == []
+    assert [call['pending_approval'] for call in runner.calls] == []
     assert surface.calls == [('acknowledged', None)]
     assert await message_store.take_approval(_GROUP, owner=_ALICE) == state
 
 
 async def test_direct_confirm_without_an_approval_still_runs(message_store: MessageStore):
-    runner = ScriptedRunner(output='ok')
+    runner = StubRunner('ok')
 
-    await run_turn(
-        'Confirm',
-        principal=_ALICE,
-        runner=typing.cast(ChatRunner, runner),
-        surface=AcknowledgingSurface(),
-        message_store=message_store,
-    )
+    await _turn('Confirm', runner, message_store, principal=_ALICE)
 
-    assert runner.resumed == [None]
+    assert [call['pending_approval'] for call in runner.calls] == [None]
 
 
 async def test_a_group_turn_is_dropped_quietly_while_groups_cannot_be_served(message_store: MessageStore):
-    runner = ScriptedRunner(output='ok', groups_supported=False)
-    surface = AcknowledgingSurface()
+    runner = StubRunner('ok')
+    runner.groups_supported = False
 
-    await run_turn(
-        'hello',
-        principal=_BOB,
-        runner=typing.cast(ChatRunner, runner),
-        surface=surface,
-        message_store=message_store,
-        group=GroupTurn(_GROUP, 'Bob'),
-    )
+    surface = await _turn('hello', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
 
-    assert runner.resumed == []
+    assert [call['pending_approval'] for call in runner.calls] == []
     assert surface.calls == [('acknowledged', None)]

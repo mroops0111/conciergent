@@ -7,27 +7,14 @@ import fastapi.testclient
 import pytest
 import yaml
 
-from conciergent import App, AppConfig, TurnResult, i18n
+from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
-
-
-class SilentAgent:
-    async def run(
-        self,
-        user_input: str,
-        *,
-        principal: str,
-        history: list[typing.Any],
-        pending_approval: dict[str, typing.Any] | None,
-        bridge: typing.Any = None,
-        surface: typing.Any = None,
-    ) -> TurnResult:
-        return TurnResult(output='ok', history=[])
+from tests.conftest import StubRunner
 
 
 @pytest.fixture
@@ -45,7 +32,7 @@ def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
 
 
 def _silent_app(stores: dict[str, typing.Any], **overrides: typing.Any) -> App:
-    return App(runner=typing.cast(ChatRunner, SilentAgent()), **stores, **overrides)
+    return App(runner=StubRunner('ok').as_runner(), **stores, **overrides)
 
 
 def _app_config(store_config: dict[str, str], **sections: typing.Any) -> AppConfig:

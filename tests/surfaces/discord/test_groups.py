@@ -12,55 +12,54 @@ from conciergent.surfaces.discord.gateway import (
     _INTENT_GUILD_MESSAGES,
     _INTENT_MESSAGE_CONTENT,
 )
-from tests.surfaces.discord.conftest import USER, DiscordHarness
+from tests.surfaces.discord.conftest import USER, BuildHarness, DiscordHarness, interaction_event, message_event
 
 
 GUILD = 'G1'
 CHANNEL = 'C1'
 BOT = 'B0'
-
-
-@pytest.fixture
-async def group_harness(harness: DiscordHarness) -> DiscordHarness:
-    _set_groups(harness, GroupPolicy(enabled=True, allowed=frozenset({CHANNEL})))
-    await harness.gateway._handle_dispatch('READY', {'session_id': 's', 'user': {'id': BOT}})
-    return harness
-
-
-def _set_groups(harness: DiscordHarness, groups: GroupPolicy) -> None:
-    harness.gateway._settings = harness.gateway._settings._replace(groups=groups)
+ALLOW_CHANNEL = GroupPolicy(enabled=True, allowed=frozenset({CHANNEL}))
 
 
 def _guild_message(
     content: str, *, message_id: str, mentions_bot: bool = True, channel: str = CHANNEL
 ) -> dict[str, typing.Any]:
-    return {
-        'id': message_id,
-        'guild_id': GUILD,
-        'channel_id': channel,
-        'author': {'id': USER, 'username': 'amy_01', 'global_name': 'Amy'},
-        'member': {'nick': 'Amy (ops)'},
-        'mentions': [{'id': BOT}] if mentions_bot else [],
-        'content': content,
-    }
+    return message_event(
+        message_id=message_id,
+        content=content,
+        guild_id=GUILD,
+        channel_id=channel,
+        author={'id': USER, 'username': 'amy_01', 'global_name': 'Amy'},
+        member={'nick': 'Amy (ops)'},
+        mentions=[{'id': BOT}] if mentions_bot else [],
+    )
 
 
 def _guild_click(prompt: str, *, interaction_id: str, user: str = USER) -> dict[str, typing.Any]:
-    return {
-        'id': interaction_id,
-        'token': 'tok',
-        'type': 3,
-        'guild_id': GUILD,
-        'channel_id': CHANNEL,
-        'member': {'user': {'id': user, 'username': f'name-{user}'}},
-        'data': {'custom_id': f'suggestion:exclusive:0:0:{prompt}', 'component_type': 2},
-    }
+    return interaction_event(
+        f'suggestion:exclusive:0:0:{prompt}',
+        interaction_id=interaction_id,
+        guild_id=GUILD,
+        channel_id=CHANNEL,
+        user=None,
+        member={'user': {'id': user, 'username': f'name-{user}'}},
+    )
+
+
+async def _ready(discord_app: BuildHarness, groups: GroupPolicy) -> DiscordHarness:
+    # READY tells the gateway its own user id, which mention detection needs.
+    harness = await discord_app(groups=groups)
+    await harness.gateway._handle_dispatch('READY', {'session_id': 's', 'user': {'id': BOT}})
+    return harness
+
+
+@pytest.fixture
+async def group_harness(discord_app: BuildHarness) -> DiscordHarness:
+    return await _ready(discord_app, ALLOW_CHANNEL)
 
 
 async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(group_harness: DiscordHarness) -> None:
-    await group_harness.gateway._handle_dispatch(
-        'MESSAGE_CREATE', _guild_message(f'<@{BOT}> hi there', message_id='M1')
-    )
+    await group_harness.send(_guild_message(f'<@{BOT}> hi there', message_id='M1'))
 
     assert group_harness.agent.inputs == ['hi there']
     call = group_harness.agent.calls[0]
@@ -73,32 +72,27 @@ async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(group_harne
     assert payload['message_reference'] == {'message_id': 'M1', 'fail_if_not_exists': False}
 
 
-async def test_messages_without_a_mention_are_ignored_unless_reply_to_all(group_harness: DiscordHarness) -> None:
-    await group_harness.gateway._handle_dispatch(
-        'MESSAGE_CREATE', _guild_message('chatting', message_id='M2', mentions_bot=False)
-    )
-    _set_groups(group_harness, GroupPolicy(enabled=True, allowed=frozenset({CHANNEL}), reply_to='all'))
-    await group_harness.gateway._handle_dispatch(
-        'MESSAGE_CREATE', _guild_message('chatting', message_id='M3', mentions_bot=False)
-    )
+async def test_messages_without_a_mention_are_ignored_unless_reply_to_all(discord_app: BuildHarness) -> None:
+    mention_only = await _ready(discord_app, ALLOW_CHANNEL)
+    every_message = await _ready(discord_app, ALLOW_CHANNEL._replace(reply_to='all'))
 
-    assert group_harness.agent.inputs == ['chatting']
+    await mention_only.send(_guild_message('chatting', message_id='M2', mentions_bot=False))
+    await every_message.send(_guild_message('chatting', message_id='M3', mentions_bot=False))
+
+    assert mention_only.agent.inputs == []
+    assert every_message.agent.inputs == ['chatting']
 
 
-async def test_a_whole_server_can_be_allowed(group_harness: DiscordHarness) -> None:
-    _set_groups(group_harness, GroupPolicy(enabled=True, allowed=frozenset({GUILD})))
+async def test_a_whole_server_can_be_allowed(discord_app: BuildHarness) -> None:
+    harness = await _ready(discord_app, GroupPolicy(enabled=True, allowed=frozenset({GUILD})))
 
-    await group_harness.gateway._handle_dispatch(
-        'MESSAGE_CREATE', _guild_message(f'<@!{BOT}> hi', message_id='M4', channel='thread-9')
-    )
+    await harness.send(_guild_message(f'<@!{BOT}> hi', message_id='M4', channel='thread-9'))
 
-    assert group_harness.agent.inputs == ['hi']
+    assert harness.agent.inputs == ['hi']
 
 
 async def test_channels_outside_the_allowlist_are_ignored(group_harness: DiscordHarness) -> None:
-    await group_harness.gateway._handle_dispatch(
-        'MESSAGE_CREATE', _guild_message(f'<@{BOT}> hi', message_id='M5', channel='C9')
-    )
+    await group_harness.send(_guild_message(f'<@{BOT}> hi', message_id='M5', channel='C9'))
 
     assert group_harness.agent.inputs == []
 
@@ -106,22 +100,28 @@ async def test_channels_outside_the_allowlist_are_ignored(group_harness: Discord
 async def test_groups_are_ignored_when_a_server_needs_per_user_authorization(group_harness: DiscordHarness) -> None:
     group_harness.agent.groups_supported = False
 
-    await group_harness.gateway._handle_dispatch('MESSAGE_CREATE', _guild_message(f'<@{BOT}> hi', message_id='M6'))
+    await group_harness.send(_guild_message(f'<@{BOT}> hi', message_id='M6'))
 
     assert group_harness.agent.inputs == []
 
 
+async def test_a_click_while_groups_cannot_be_served_is_acknowledged_silently(group_harness: DiscordHarness) -> None:
+    group_harness.agent.groups_supported = False
+
+    await group_harness.click(_guild_click('More', interaction_id='I3'))
+
+    assert group_harness.agent.inputs == []
+    assert group_harness.interaction_responses == [('I3', 'interaction-token', {'type': 6})]
+
+
 async def test_another_members_confirm_click_is_acknowledged_silently(group_harness: DiscordHarness) -> None:
     confirm = i18n.t('approval.confirm', None)
-    owner = f'discord:{USER}'
     await group_harness.message_store.park_approval(
-        f'discord:group:{CHANNEL}', {'parked': True}, ttl_seconds=60, owner=owner
+        f'discord:group:{CHANNEL}', {'parked': True}, ttl_seconds=60, owner=f'discord:{USER}'
     )
 
-    await group_harness.gateway._handle_dispatch(
-        'INTERACTION_CREATE', _guild_click(confirm, interaction_id='I1', user='U2')
-    )
-    await group_harness.gateway._handle_dispatch('INTERACTION_CREATE', _guild_click(confirm, interaction_id='I2'))
+    await group_harness.click(_guild_click(confirm, interaction_id='I1', user='U2'))
+    await group_harness.click(_guild_click(confirm, interaction_id='I2'))
 
     interaction_id, _, acknowledgement = group_harness.interaction_responses[0]
     assert (interaction_id, acknowledgement) == ('I1', {'type': 6})
@@ -130,27 +130,20 @@ async def test_another_members_confirm_click_is_acknowledged_silently(group_harn
     assert 'message_reference' not in group_harness.messages[-1][1]
 
 
-def test_intents_widen_with_group_chats(harness: DiscordHarness) -> None:
-    assert harness.gateway._intents() == _INTENT_DIRECT_MESSAGES
-    _set_groups(harness, GroupPolicy(enabled=True))
-    assert harness.gateway._intents() == _INTENT_DIRECT_MESSAGES | _INTENT_GUILD_MESSAGES
-    _set_groups(harness, GroupPolicy(enabled=True, reply_to='all'))
-    assert harness.gateway._intents() & _INTENT_MESSAGE_CONTENT
+async def test_intents_widen_with_group_chats(discord_app: BuildHarness) -> None:
+    direct_only = await discord_app()
+    mention_groups = await discord_app(groups=ALLOW_CHANNEL)
+    every_message = await discord_app(groups=ALLOW_CHANNEL._replace(reply_to='all'))
 
-
-async def test_a_click_while_groups_cannot_be_served_is_acknowledged_silently(group_harness: DiscordHarness) -> None:
-    group_harness.agent.groups_supported = False
-
-    await group_harness.gateway._handle_dispatch('INTERACTION_CREATE', _guild_click('More', interaction_id='I3'))
-
-    assert group_harness.agent.inputs == []
-    assert group_harness.interaction_responses == [('I3', 'tok', {'type': 6})]
+    assert direct_only.gateway._intents() == _INTENT_DIRECT_MESSAGES
+    assert mention_groups.gateway._intents() == _INTENT_DIRECT_MESSAGES | _INTENT_GUILD_MESSAGES
+    assert every_message.gateway._intents() & _INTENT_MESSAGE_CONTENT
 
 
 async def test_a_refused_message_content_intent_falls_back_to_mentions(
-    harness: DiscordHarness, monkeypatch: pytest.MonkeyPatch
+    discord_app: BuildHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _set_groups(harness, GroupPolicy(enabled=True, allowed=frozenset({CHANNEL}), reply_to='all'))
+    harness = await discord_app(groups=ALLOW_CHANNEL._replace(reply_to='all'))
     requested: list[int] = []
 
     async def connect_once() -> None:
