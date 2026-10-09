@@ -4,6 +4,7 @@ import typing
 import uuid
 
 import redis.asyncio
+from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent.defaults import DEFAULTS
 
@@ -95,17 +96,18 @@ class MessageStore:
         payload = await self._redis.getdel(f'{_PREFIX}:approval:{conversation}')
         return json.loads(payload) if payload is not None else None
 
-    async def deliver_oauth_code(self, state: str, code: str) -> None:
+    async def deliver_oauth_code(self, state: str, code: str, iss: str | None = None) -> None:
         # The payload carries the state alongside the code so the waiter returns the state the callback received,
-        # which the MCP SDK checks against the one it put in the authorize URL.
-        payload = json.dumps({'code': code, 'state': state})
+        # which the MCP SDK checks against the one it put in the authorize URL. It also carries the RFC 9207 iss,
+        # which the SDK requires when the authorization server advertises it.
+        payload = json.dumps({'code': code, 'state': state, 'iss': iss})
         pipeline = self._redis.pipeline(transaction=True)
         pipeline.rpush(f'{_PREFIX}:oauth-code:{state}', payload)
         # A stranded payload with no waiter is garbage collected by the expiry.
         pipeline.expire(f'{_PREFIX}:oauth-code:{state}', _OAUTH_CODE_TTL_SECONDS)
         await pipeline.execute()
 
-    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> tuple[str, str] | None:
+    async def await_oauth_code(self, state: str, *, timeout_seconds: float) -> AuthorizationCodeResult | None:
         key = f'{_PREFIX}:oauth-code:{state}'
         if timeout_seconds <= 0:
             # BLPOP treats a zero timeout as block-forever, so a non-positive wait checks once instead.
@@ -125,8 +127,7 @@ def _text(value: bytes | str) -> str:
     return value.decode() if isinstance(value, bytes) else value
 
 
-def _decode_handoff(payload: typing.Any) -> tuple[str, str] | None:
+def _decode_handoff(payload: typing.Any) -> AuthorizationCodeResult | None:
     if not isinstance(payload, bytes | str):
         return None
-    data = json.loads(payload)
-    return data['code'], data['state']
+    return AuthorizationCodeResult.model_validate_json(payload)

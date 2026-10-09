@@ -3,6 +3,8 @@ import dataclasses
 import typing
 import urllib.parse
 
+from mcp.shared.auth import AuthorizationCodeResult
+
 from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Reply
 from conciergent.store.message import MessageStore
@@ -48,8 +50,8 @@ class OAuthBridge(abc.ABC):
     """Drive an OAuth authorization that happens inside the conversation."""
 
     @abc.abstractmethod
-    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
-        """Show the user the authorize URL and return the code and its state once they complete the flow."""
+    async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
+        """Show the user the authorize URL and return the redirect's code, state, and iss once they complete the flow."""
         ...
 
 
@@ -70,7 +72,7 @@ class StatefulOAuthBridge(OAuthBridge):
         self._wait_timeout_seconds = wait_timeout_seconds
 
     @typing.override
-    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+    async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
         query = urllib.parse.parse_qs(urllib.parse.urlparse(authorize_url).query)
         states = query.get('state')
         if not states:
@@ -99,7 +101,7 @@ class AuthorizationProbe(OAuthBridge):
         self.authorized = False
 
     @typing.override
-    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+    async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
         result = await self._inner.request_authorization(authorize_url)
         self.authorized = True
         return result

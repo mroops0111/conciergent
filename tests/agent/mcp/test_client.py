@@ -1,7 +1,8 @@
 import typing
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.auth import AuthorizationCodeResult
 from mcp.types import ToolAnnotations
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPToolset
@@ -24,20 +25,20 @@ class _FakeBridge(OAuthBridge):
         self.state = state
         self.seen_url: str | None = None
 
-    async def request_authorization(self, authorize_url: str) -> tuple[str, str]:
+    async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
         self.seen_url = authorize_url
-        return self.code, self.state
+        return AuthorizationCodeResult(code=self.code, state=self.state)
 
 
-def _agent_over(server: FastMCP) -> Agent[None, typing.Any]:
+def _agent_over(server: MCPServer) -> Agent[None, typing.Any]:
     gated = MCPToolset(server).approval_required(needs_approval)
     return Agent(TestModel(), output_type=[str, DeferredToolRequests], toolsets=[gated])
 
 
 async def test_destructive_tool_is_gated():
-    server = FastMCP('test')
+    server = MCPServer('test')
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_it(x: int) -> str:
         return 'deleted'
 
@@ -47,7 +48,7 @@ async def test_destructive_tool_is_gated():
 
 
 async def test_benign_tool_is_not_gated():
-    server = FastMCP('test')
+    server = MCPServer('test')
 
     @server.tool()
     def read_it(x: int) -> str:
@@ -81,10 +82,9 @@ async def test_bridge_handoff_delegates_to_bridge():
     authorize_url = 'https://example.com/authorize?state=abc'
 
     await adapter.redirect_handler(authorize_url)
-    code, state = await adapter.callback_handler()
+    result = await adapter.callback_handler()
 
-    assert code == 'the-code'
-    assert state == 'abc'
+    assert result == AuthorizationCodeResult(code='the-code', state='abc')
     assert bridge.seen_url == authorize_url
 
 
