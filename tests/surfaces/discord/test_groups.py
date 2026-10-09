@@ -1,6 +1,9 @@
+import asyncio
 import typing
 
 import pytest
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
 
 from conciergent import i18n
 from conciergent.groups import GroupPolicy
@@ -63,7 +66,6 @@ async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(group_harne
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'discord:{USER}'
     assert call['speaker'] == 'Amy (ops)'
-    assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'discord:group:{CHANNEL}')
     channel, payload = group_harness.messages[0]
     assert channel == CHANNEL
@@ -134,3 +136,35 @@ def test_intents_widen_with_group_chats(harness: DiscordHarness) -> None:
     assert harness.gateway._intents() == _INTENT_DIRECT_MESSAGES | _INTENT_GUILD_MESSAGES
     _set_groups(harness, GroupPolicy(enabled=True, reply_to='all'))
     assert harness.gateway._intents() & _INTENT_MESSAGE_CONTENT
+
+
+async def test_a_click_while_groups_cannot_be_served_is_acknowledged_silently(group_harness: DiscordHarness) -> None:
+    group_harness.agent.groups_supported = False
+
+    await group_harness.gateway._handle_dispatch('INTERACTION_CREATE', _guild_click('More', interaction_id='I3'))
+
+    assert group_harness.agent.inputs == []
+    assert group_harness.interaction_responses == [('I3', 'tok', {'type': 6})]
+
+
+async def test_a_refused_message_content_intent_falls_back_to_mentions(
+    harness: DiscordHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_groups(harness, GroupPolicy(enabled=True, allowed=frozenset({CHANNEL}), reply_to='all'))
+    requested: list[int] = []
+
+    async def connect_once() -> None:
+        requested.append(harness.gateway._intents())
+        if len(requested) == 1:
+            raise ConnectionClosedError(Close(4014, 'Disallowed intent(s)'), None)
+        # The second connect is the fallback, so end the test by stopping the loop.
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(harness.gateway, '_connect_once', connect_once)
+
+    with pytest.raises(asyncio.CancelledError):
+        await harness.gateway.run()
+
+    assert requested[0] & _INTENT_MESSAGE_CONTENT
+    assert requested[1] == _INTENT_DIRECT_MESSAGES | _INTENT_GUILD_MESSAGES
+    assert harness.gateway._reply_to() == 'mention'

@@ -168,6 +168,8 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
 | `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
 | `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
+| `agent.mcp_probe_timeout_seconds` | `10` | Group chats only. How long the no-credential probe of an MCP server waits. |
+| `agent.mcp_probe_retry_seconds` | `60` | Group chats only. When an unreachable MCP server is probed again. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
 | `surface.slack.enabled` | `false` | Turn the Slack surface on. |
 | `surface.slack.signing_secret` | *(required if enabled)* | Verifies inbound Slack signatures. |
@@ -207,7 +209,7 @@ Each surface can also answer in group chats, a LINE group, a Slack channel, or a
 A group is shared by several people, so it never runs a per-user OAuth. Group chats are served only when every MCP tool works without a user's token.
 
 - **Embedded Gateway Specs**: a spec with no `auth`, a static `bearer` or `api_key`, or an `oauth2` spec with `flow: client_credentials` works in groups. Any other `oauth2` spec fails config validation while groups are on.
-- **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses groups until a later check reaches it.
+- **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses groups, and is probed again after `agent.mcp_probe_retry_seconds`.
 
 ### Configuration
 
@@ -263,7 +265,7 @@ Each platform needs a little more setup before the bot can read a group.
 
 - **Allowlist**: list a channel id, or a server id to cover every channel and thread in that server.
 - **Mention Mode**: needs no extra setup. Discord delivers a server message's content to a bot it mentions, even without the message-content intent.
-- **All Mode**: enable the privileged **Message Content Intent** on the bot in the Developer Portal.
+- **All Mode**: enable the privileged **Message Content Intent** on the bot in the Developer Portal. If Discord refuses it, the bot logs an error and answers mentions only, while direct messages keep working.
 
 </details>
 

@@ -17,6 +17,8 @@ agent:
     - http://localhost:9000/mcp
   # input_token_limit: null # auto-detects the model's context window; set an integer to override
   # mcp_read_timeout_seconds: 300 # must exceed conversation.oauth_wait_timeout_seconds (OAuth runs in the connect)
+  # mcp_probe_timeout_seconds: 10 # group chats only, how long the no-credential authorization probe waits
+  # mcp_probe_retry_seconds: 60 # group chats only, when to probe an unreachable server again
   # client_name: conciergent # name shown on the MCP OAuth screen
 
 surface:

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.auth import OAuthToken
@@ -9,6 +11,7 @@ from conciergent import Card, Carousel, PendingApproval, ReplySurface, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
+from conciergent.groups import GroupTurn
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
 
@@ -367,9 +370,35 @@ async def test_an_unreachable_server_pauses_groups_until_a_probe_decides(
     agent = _oauth_agent(credential_store)
 
     assert await agent.supports_groups() is False
+    assert await agent.supports_groups() is False  # still inside the retry interval, so no second probe yet
+    agent._groups_retry_at = 0.0  # the retry interval has passed
     assert await agent.supports_groups() is True
     assert await agent.supports_groups() is True  # a reached verdict is cached
     assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
+
+
+async def test_concurrent_group_checks_share_one_probe_of_each_server(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    servers = ['https://a.example/mcp', 'https://b.example/mcp']
+    probed: list[str] = []
+    both_started = asyncio.Event()
+
+    async def probe(url: str, **_: object) -> bool | None:
+        probed.append(url)
+        if len(probed) == len(servers):
+            both_started.set()
+        # The servers are probed side by side, so neither finishes before both have started.
+        await both_started.wait()
+        return False
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
+    agent = _oauth_agent(credential_store, servers=servers)
+
+    verdicts = await asyncio.gather(*(agent.supports_groups() for _ in range(5)))
+
+    assert verdicts == [True] * 5
+    assert sorted(probed) == servers
 
 
 async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_store: CredentialStore):
@@ -386,7 +415,7 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
 
     await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
     direct = model.last_model_request_parameters
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, speaker='Amy')
+    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, group=GroupTurn('g', 'Amy'))
     group = model.last_model_request_parameters
 
     assert direct is not None and group is not None

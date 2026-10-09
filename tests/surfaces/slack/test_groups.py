@@ -63,7 +63,6 @@ async def test_a_mention_runs_a_group_turn_in_its_thread(
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'slack:{TEAM}:{USER}'
     assert call['speaker'] == f'name-{USER}'
-    assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'slack:{TEAM}:group:{CHANNEL}:{TS}')
     channel, payload = group_harness.posts[0]
     assert channel == CHANNEL and payload['thread_ts'] == TS

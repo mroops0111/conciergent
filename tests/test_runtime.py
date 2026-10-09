@@ -11,6 +11,7 @@ from conciergent import (
     run_turn,
 )
 from conciergent.agent.runner import ChatRunner
+from conciergent.groups import GroupTurn
 from conciergent.store.message import MessageStore
 
 
@@ -41,6 +42,10 @@ class ScriptedRunner:
     invalidate_history: bool = False
     # The pending approval each run received, so a test can tell whose approval a turn resumed.
     resumed: list[dict[str, typing.Any] | None] = dataclasses.field(default_factory=list)
+    groups_supported: bool = True
+
+    async def supports_groups(self) -> bool:
+        return self.groups_supported
 
     async def run(
         self,
@@ -51,7 +56,7 @@ class ScriptedRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-        speaker: str | None = None,
+        group: typing.Any = None,
     ) -> TurnResult:
         self.resumed.append(pending_approval)
         return TurnResult(output=self.output, history=self.new_history, invalidate_history=self.invalidate_history)
@@ -180,11 +185,10 @@ async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store
     await run_turn(
         'delete it',
         principal=_ALICE,
-        conversation=_GROUP,
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        speaker='Alice',
+        group=GroupTurn(_GROUP, 'Alice'),
     )
     runner.output = 'ok'
 
@@ -192,20 +196,18 @@ async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store
     await run_turn(
         'what time is it',
         principal=_BOB,
-        conversation=_GROUP,
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        speaker='Bob',
+        group=GroupTurn(_GROUP, 'Bob'),
     )
     await run_turn(
         'Confirm',
         principal=_ALICE,
-        conversation=_GROUP,
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        speaker='Alice',
+        group=GroupTurn(_GROUP, 'Alice'),
     )
 
     assert runner.resumed == [None, None, state]
@@ -220,11 +222,10 @@ async def test_group_confirm_without_an_own_approval_is_dropped_quietly(message_
     await run_turn(
         'Confirm',
         principal=_BOB,
-        conversation=_GROUP,
         runner=typing.cast(ChatRunner, runner),
         surface=surface,
         message_store=message_store,
-        speaker='Bob',
+        group=GroupTurn(_GROUP, 'Bob'),
     )
 
     assert runner.resumed == []
@@ -244,3 +245,20 @@ async def test_direct_confirm_without_an_approval_still_runs(message_store: Mess
     )
 
     assert runner.resumed == [None]
+
+
+async def test_a_group_turn_is_dropped_quietly_while_groups_cannot_be_served(message_store: MessageStore):
+    runner = ScriptedRunner(output='ok', groups_supported=False)
+    surface = AcknowledgingSurface()
+
+    await run_turn(
+        'hello',
+        principal=_BOB,
+        runner=typing.cast(ChatRunner, runner),
+        surface=surface,
+        message_store=message_store,
+        group=GroupTurn(_GROUP, 'Bob'),
+    )
+
+    assert runner.resumed == []
+    assert surface.calls == [('acknowledged', None)]

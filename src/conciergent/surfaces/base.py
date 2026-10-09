@@ -6,6 +6,7 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import GroupPolicy
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -30,15 +31,14 @@ class Surface(abc.ABC):
     and passing an instance to ``App``, never editing the assembly.
     """
 
+    def __init__(self, *, groups: GroupPolicy = GroupPolicy()) -> None:
+        # Which group chats this platform answers in, beyond direct messages. Off unless configured.
+        self.groups = groups
+
     @abc.abstractmethod
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
         """Return the webhook and auxiliary routes this platform needs, empty for a connection surface."""
         ...
-
-    @property
-    def groups_enabled(self) -> bool:
-        """Whether this surface is configured to answer in group chats, as well as direct messages."""
-        return False
 
     async def run_connection(self, context: SurfaceContext) -> None:
         """Serve a platform that streams its events over a persistent connection, until the app stops.

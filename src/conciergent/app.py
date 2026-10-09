@@ -87,6 +87,8 @@ class App:
             credential_store=credential_store,
             redirect_uri=redirect_uri,
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
+            mcp_probe_timeout_seconds=config.agent.mcp_probe_timeout_seconds,
+            mcp_probe_retry_seconds=config.agent.mcp_probe_retry_seconds,
             client_name=config.agent.client_name,
             known_user_authorization=known_user_authorization,
         )
@@ -131,7 +133,7 @@ class App:
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
             await self._credential_store.prepare()
-            if any(surface.groups_enabled for surface in self._surfaces):
+            if any(surface.groups.enabled for surface in self._surfaces):
                 # Check up front so a server that rules group chats out is logged at startup, not at the first group.
                 await self._runner.supports_groups()
             async with contextlib.AsyncExitStack() as stack:

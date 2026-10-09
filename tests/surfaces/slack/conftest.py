@@ -18,6 +18,7 @@ from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import webhook
 from conciergent.surfaces.slack.install import SlackInstallSettings, build_install_router
+from conciergent.surfaces.slack.surface import SlackUser
 from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
 from tests.surfaces.conftest import EchoAgent
 
@@ -73,11 +74,8 @@ async def slack_app(
                 async def respond_via_response_url(self, response_url: str, payload: dict[str, typing.Any]) -> None:
                     patches.append(payload)
 
-                async def get_lang(self, user_id: str) -> None:
-                    return None
-
-                async def get_display_name(self, user_id: str) -> str | None:
-                    return f'name-{user_id}'
+                async def get_user(self, user_id: str) -> SlackUser:
+                    return SlackUser(display_name=f'name-{user_id}')
 
             monkeypatch.setattr(webhook, 'SlackMessenger', RecordingMessenger)
             app = fastapi.FastAPI()

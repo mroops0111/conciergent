@@ -21,17 +21,12 @@ class Line(Surface):
         api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds,
         groups: GroupPolicy = GroupPolicy(),
     ) -> None:
+        super().__init__(groups=groups)
         self._channel_secret = channel_secret
         self._channel_access_token = channel_access_token
         self._brand_color = brand_color
         self._destructive_color = destructive_color
         self._api_timeout_seconds = api_timeout_seconds
-        self._groups = groups
-
-    @property
-    @typing.override
-    def groups_enabled(self) -> bool:
-        return self._groups.enabled
 
     @typing.override
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:
@@ -46,7 +41,7 @@ class Line(Surface):
                     api_timeout_seconds=self._api_timeout_seconds,
                     brand_color=self._brand_color,
                     destructive_color=self._destructive_color,
-                    groups=self._groups,
+                    groups=self.groups,
                 ),
                 message_store=context.message_store,
                 runner=context.runner,

@@ -11,7 +11,7 @@ from conciergent import i18n
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, without_spans
+from conciergent.groups import GroupPolicy, GroupTurn, without_spans
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
@@ -106,7 +106,12 @@ async def _dispatch_event(
         return
     if chat is None and source.get('type') != 'user':
         return
-    if chat is not None and not (settings.groups.admits(chat.chat_id) and await runner.supports_groups()):
+    if chat is not None and not settings.groups.admits(chat.chat_id):
+        return
+    # Settle whether the event starts a turn before any API call, so the chatter in a group costs nothing.
+    is_follow = event_type == 'follow' and chat is None
+    user_text = _turn_input(event, addressed_only=chat is not None and settings.groups.reply_to == 'mention')
+    if not (is_follow or user_text):
         return
     principal = make_principal(ChatSurface.line, user_id)
     async with LineMessenger(settings.channel_access_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
@@ -118,7 +123,7 @@ async def _dispatch_event(
         )
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
-        if event_type == 'follow' and chat is None:
+        if is_follow:
             # The add-time prompt shows the welcome-flavored body; only a follow event reaches here.
             follow_bridge = LineOAuthBridge(
                 message_store,
@@ -130,9 +135,6 @@ async def _dispatch_event(
             )
             await _greet_follower(runner=runner, principal=principal, bridge=follow_bridge, slot=slot, lang=lang)
             return
-        user_text = _turn_input(event, addressed_only=chat is not None and settings.groups.reply_to == 'mention')
-        if not user_text:
-            return
         surface = LineReplySurface(
             slot,
             lang=lang,
@@ -141,21 +143,17 @@ async def _dispatch_event(
             # A typed group message gets its text reply quoting it, a postback tap carries no message to quote.
             quote_token=(event.get('message') or {}).get('quoteToken') if chat is not None else None,
         )
+        bridge = LineOAuthBridge(
+            message_store,
+            slot,
+            lang=lang,
+            wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+            brand_color=settings.brand_color,
+        )
+        group = None
         if chat is not None:
-            # A group turn holds no one's authorization, so it gets no OAuth bridge and names its speaker instead.
-            conversation = make_principal(ChatSurface.line, chat.kind, chat.chat_id)
-            bridge = None
             speaker = await messenger.get_display_name(user_id, chat=chat) or _anonymous_speaker(user_id)
-        else:
-            conversation = None
-            bridge = LineOAuthBridge(
-                message_store,
-                slot,
-                lang=lang,
-                wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
-                brand_color=settings.brand_color,
-            )
-            speaker = None
+            group = GroupTurn(conversation=make_principal(ChatSurface.line, chat.kind, chat.chat_id), speaker=speaker)
         try:
             await run_turn(
                 user_text,
@@ -163,12 +161,11 @@ async def _dispatch_event(
                 runner=runner,
                 surface=surface,
                 message_store=message_store,
-                conversation=conversation,
                 bridge=bridge,
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                speaker=speaker,
+                group=group,
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.

@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 _API_BASE_URL = 'https://slack.com/api'
 
 
+class SlackUser(typing.NamedTuple):
+    """What the surface reads from a user's Slack profile."""
+
+    lang: Lang | None = None
+    display_name: str | None = None
+
+
 class SlackMessenger:
     """A thin async client for the handful of Slack Web API calls the surface needs."""
 
@@ -47,36 +54,21 @@ class SlackMessenger:
         response = await self._client.post(response_url, json=payload)
         response.raise_for_status()
 
-    async def get_display_name(self, user_id: str) -> str | None:
-        """Resolve the name a user shows in Slack, their display name before their full name, or None."""
-        try:
-            response = await self._client.get('/users.info', params={'user': user_id})
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPError:
-            return None
-        if not data.get('ok'):
-            return None
-        user = data.get('user') or {}
-        profile = user.get('profile') or {}
-        return profile.get('display_name') or profile.get('real_name') or user.get('real_name') or user.get('name')
-
-    async def get_lang(self, user_id: str) -> Lang | None:
-        """Resolve the user's UI language from their Slack profile locale, or None when unavailable."""
+    async def get_user(self, user_id: str) -> SlackUser:
+        """Resolve the user's UI language and display name in one profile lookup, either None when unavailable."""
         try:
             # include_locale=true forces users.info to return the locale, e.g. "zh-TW".
             response = await self._client.get('/users.info', params={'user': user_id, 'include_locale': 'true'})
             response.raise_for_status()
             data = response.json()
-            if not data.get('ok'):
-                return None
-            locale = (data.get('user') or {}).get('locale') or ''
         except httpx.HTTPError:
-            return None
-        try:
-            return Lang(locale) if locale else None
-        except ValueError:
-            return None
+            return SlackUser()
+        if not data.get('ok'):
+            return SlackUser()
+        user = data.get('user') or {}
+        profile = user.get('profile') or {}
+        name = profile.get('display_name') or profile.get('real_name') or user.get('real_name') or user.get('name')
+        return SlackUser(lang=_parse_lang(user.get('locale') or ''), display_name=name or None)
 
 
 class SlackReplySurface(ReplySurface):
@@ -215,3 +207,10 @@ def _raise_on_error(response: httpx.Response, call: str) -> None:
     data = response.json()
     if not data.get('ok'):
         raise RuntimeError(f'Slack {call} failed: {data.get("error")}')
+
+
+def _parse_lang(locale: str) -> Lang | None:
+    try:
+        return Lang(locale) if locale else None
+    except ValueError:
+        return None

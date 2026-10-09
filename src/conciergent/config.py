@@ -37,6 +37,8 @@ class AgentSettings(pydantic.BaseModel):
     mcp_servers: list[str] = pydantic.Field(default_factory=list)
     input_token_limit: int | None = None
     mcp_read_timeout_seconds: float
+    mcp_probe_timeout_seconds: float
+    mcp_probe_retry_seconds: float
     client_name: str
 
     @pydantic.field_validator('mcp_servers', mode='before')

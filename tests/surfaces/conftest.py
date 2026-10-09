@@ -10,10 +10,12 @@ class EchoAgent:
         self.bootstrapped: list[str] = []
         self.bootstrap_result = False
         self.groups_supported = True
+        self.group_checks = 0
         # One entry per run, the keyword arguments a test may want to inspect beyond the input.
         self.calls: list[dict[str, typing.Any]] = []
 
     async def supports_groups(self) -> bool:
+        self.group_checks += 1
         return self.groups_supported
 
     async def bootstrap(self, principal: str, *, bridge: typing.Any = None) -> bool:
@@ -29,14 +31,15 @@ class EchoAgent:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-        speaker: str | None = None,
+        group: typing.Any = None,
     ) -> TurnResult:
         self.inputs.append(user_input)
         self.calls.append(
             {
                 'principal': principal,
                 'bridge': bridge,
-                'speaker': speaker,
+                'group': group,
+                'speaker': group.speaker if group is not None else None,
                 'pending_approval': pending_approval,
                 'history': history,
             }

@@ -61,7 +61,6 @@ async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'line:{USER}'
     assert call['speaker'] == 'Amy'
-    assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'line:group:{GROUP}')
     assert group_harness.loadings == [], 'the loading animation only exists in one-on-one chats'
     # The text reply quotes the member's message.
@@ -258,3 +257,13 @@ async def test_a_real_approval_waits_for_the_member_who_requested_it(
     # Alice taps Confirm, and only now the tool runs, once.
     await _post(harness, sign_headers, line_body, tap(USER, 'r3'))
     assert len(calls) == 1
+
+
+async def test_group_chatter_is_dropped_before_any_check_or_lookup(
+    group_harness: LineHarness, sign_headers: SignHeaders, line_body: BuildBody
+) -> None:
+    await _post(group_harness, sign_headers, line_body, _group_message('just chatting', event_id='c1'))
+
+    assert group_harness.lang_lookups == []
+    assert group_harness.agent.group_checks == 0
+    assert group_harness.replies == [] and group_harness.pushes == []

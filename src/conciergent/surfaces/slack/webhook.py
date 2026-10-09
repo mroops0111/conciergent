@@ -12,7 +12,7 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, without_spans
+from conciergent.groups import GroupPolicy, GroupTurn, without_spans
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
@@ -164,20 +164,21 @@ async def _dispatch_turn(
     bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
-    if is_group and not await runner.supports_groups():
-        return
     principal = make_principal(ChatSurface.slack, team_id, user_id)
     # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
-    # A channel thread is shared by everyone in it, while a DM thread belongs to its one user.
-    if is_group:
-        scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
-        conversation = f'{scope}:{thread_ts}' if thread_ts else scope
-    else:
-        conversation = f'{principal}:{thread_ts}' if thread_ts else principal
+    conversation = f'{principal}:{thread_ts}' if thread_ts else principal
     async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
-        lang = await messenger.get_lang(user_id)
-        speaker = (await messenger.get_display_name(user_id) or user_id) if is_group else None
+        user = await messenger.get_user(user_id)
+        lang = user.lang
+        group = None
+        if is_group:
+            # A channel thread is shared by everyone in it, rather than belonging to one user like a DM thread.
+            scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
+            group = GroupTurn(
+                conversation=f'{scope}:{thread_ts}' if thread_ts else scope,
+                speaker=user.display_name or user_id,
+            )
         surface = SlackReplySurface(
             messenger,
             channel=channel,
@@ -191,19 +192,14 @@ async def _dispatch_turn(
             # A typed group message gets its text reply addressed to the sender, a button tap has no message to answer.
             reply_to_user=user_id if is_group and interacted_message is None else None,
         )
-        # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
-        bridge = (
-            None
-            if is_group
-            else SlackOAuthBridge(
-                message_store,
-                messenger,
-                channel=channel,
-                thread_ts=thread_ts,
-                lang=lang,
-                wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
-                brand_color=settings.brand_color,
-            )
+        bridge = SlackOAuthBridge(
+            message_store,
+            messenger,
+            channel=channel,
+            thread_ts=thread_ts,
+            lang=lang,
+            wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+            brand_color=settings.brand_color,
         )
         try:
             await run_turn(
@@ -217,7 +213,7 @@ async def _dispatch_turn(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                speaker=speaker,
+                group=group,
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.

@@ -1,5 +1,6 @@
 import collections.abc
 import json
+import typing
 
 import httpx
 import pytest
@@ -15,11 +16,13 @@ Handler = collections.abc.Callable[[httpx.Request], httpx.Response]
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
-    # The probe builds its client through the SDK's factory, so swap in one that answers from the handler.
-    def client_factory(**kwargs: object) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    # Swap in a client that answers from the handler, keeping whatever options the probe asks for.
+    client_class = httpx.AsyncClient
 
-    monkeypatch.setattr(probe, 'create_mcp_http_client', client_factory)
+    def client_factory(**kwargs: typing.Any) -> httpx.AsyncClient:
+        return client_class(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(probe.httpx, 'AsyncClient', client_factory)
 
 
 def _public_server(request: httpx.Request) -> httpx.Response:

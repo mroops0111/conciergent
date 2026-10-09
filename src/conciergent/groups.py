@@ -24,6 +24,17 @@ class GroupPolicy(typing.NamedTuple):
         return self.enabled and any(chat_id in self.allowed for chat_id in chat_ids if chat_id)
 
 
+class GroupTurn(typing.NamedTuple):
+    """One message in a group chat, the conversation its members share and the member who sent it.
+
+    Passing one to ``run_turn`` is what makes a turn a group turn. The runtime then checks the app can serve groups,
+    keeps the speaker's approvals their own, and reaches every MCP server without a user's token.
+    """
+
+    conversation: str
+    speaker: str
+
+
 def speaker_prompt(speaker: str | None, text: str) -> str:
     """Prefix a group message with its speaker's name, so the agent can tell members apart in a shared history."""
     return f'[{speaker}] {text}' if speaker else text

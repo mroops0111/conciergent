@@ -33,6 +33,7 @@ class LineHarness:
     message_store: MessageStore
     loadings: list[str]
     display_names: dict[str, str]
+    lang_lookups: list[str]
 
 
 @pytest.fixture
@@ -49,6 +50,7 @@ async def line_app(
             pushes: list[dict[str, typing.Any]] = []
             loadings: list[str] = []
             display_names: dict[str, str] = {}
+            lang_lookups: list[str] = []
 
             class RecordingMessenger:
                 def __init__(self, channel_access_token: str, *, timeout_seconds: float = 30.0) -> None:
@@ -73,6 +75,7 @@ async def line_app(
                     return display_names.get(user_id)
 
                 async def get_lang(self, user_id: str) -> None:
+                    lang_lookups.append(user_id)
                     return None
 
             monkeypatch.setattr(webhook, 'LineMessenger', RecordingMessenger)
@@ -93,6 +96,7 @@ async def line_app(
                 message_store=message_store,
                 loadings=loadings,
                 display_names=display_names,
+                lang_lookups=lang_lookups,
             )
 
         yield build

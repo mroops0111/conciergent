@@ -11,7 +11,7 @@ from websockets.exceptions import ConnectionClosed
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, without_spans
+from conciergent.groups import GroupPolicy, GroupTurn, ReplyTo, without_spans
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
@@ -45,6 +45,8 @@ _MESSAGE_COMPONENT = 3
 # Close codes Discord marks non-recoverable, so a reconnect would only reproduce the same rejection.
 # They cover a bad bot token, an unsupported API version, and invalid or disallowed intents.
 _FATAL_CLOSE_CODES = frozenset({4004, 4010, 4011, 4012, 4013, 4014})
+# The close code for an intent the bot was not granted, such as message content left off in the developer portal.
+_DISALLOWED_INTENTS = 4014
 
 
 class _Op(enum.IntEnum):
@@ -77,11 +79,12 @@ class DiscordGatewaySettings(typing.NamedTuple):
 
 
 class DiscordGateway:
-    """A hand-rolled Discord gateway client that turns direct messages and button clicks into turns.
+    """A hand-rolled Discord gateway client that turns direct messages, group messages, and button clicks into turns.
 
     It owns the WebSocket lifecycle, identify, heartbeat, resume, and reconnect, so the rest of the surface
     stays a plain REST client. Only direct messages, messages in allowed server channels, and component
-    interactions are acted on; everything else is ignored. The dispatch entry point is separated from the socket so it can be driven directly in tests.
+    interactions are acted on; everything else is ignored.
+    The dispatch entry point is separated from the socket so it can be driven directly in tests.
     """
 
     def __init__(
@@ -104,6 +107,8 @@ class DiscordGateway:
         self._heartbeat_acked = True
         # The bot's own user id, learned from READY, to tell whether a server message mentions it.
         self._bot_user_id: str | None = None
+        # Set when Discord refused the message-content intent, so group chats fall back to answering mentions.
+        self._message_content_denied = False
 
     async def run(self) -> None:
         """Hold the gateway connection for the app's lifetime, reconnecting with backoff until cancelled."""
@@ -115,7 +120,16 @@ class DiscordGateway:
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                if _received_close_code(error) in _FATAL_CLOSE_CODES:
+                close_code = _received_close_code(error)
+                if close_code == _DISALLOWED_INTENTS and self._intents() & _INTENT_MESSAGE_CONTENT:
+                    # Only reply_to=all asks for the privileged intent, so drop it rather than stop the DMs as well.
+                    logger.error(
+                        'Discord refused the Message Content Intent, so group chats answer mentions only. '
+                        'Enable it for the bot in the Discord Developer Portal to use reply_to: all.'
+                    )
+                    self._message_content_denied = True
+                    continue
+                if close_code in _FATAL_CLOSE_CODES:
                     # A misconfigured token or intent fails identically on every retry, so stop rather than loop.
                     # Only this surface's task ends, because the app runs each enabled surface on its own task.
                     logger.error('Discord gateway closed with a fatal code, not reconnecting', exc_info=True)
@@ -189,11 +203,10 @@ class DiscordGateway:
         guild_id = data.get('guild_id')
         if author.get('bot') or not user_id or not channel_id:
             return
-        groups = self._settings.groups
         if guild_id:
-            if not groups.admits(channel_id, guild_id):
+            if not self._settings.groups.admits(channel_id, guild_id):
                 return
-            if groups.reply_to == 'mention':
+            if self._reply_to() == 'mention':
                 if not self._mentions_bot(data):
                     return
                 content = self._without_bot_mentions(content)
@@ -209,7 +222,7 @@ class DiscordGateway:
             channel_id=channel_id,
             user_text=content,
             locale=None,
-            speaker=_display_name(author, data.get('member')) if guild_id else None,
+            group=_group_turn(channel_id, _display_name(author, data.get('member'))) if guild_id else None,
             reply_to_message_id=message_id if guild_id else None,
         )
 
@@ -248,7 +261,7 @@ class DiscordGateway:
             user_text=parsed[1],
             locale=data.get('locale'),
             interaction=Interaction(interaction_id=interaction_id, token=token),
-            speaker=_display_name(user, member) if guild_id else None,
+            group=_group_turn(channel_id, _display_name(user, member)) if guild_id else None,
         )
 
     async def _dispatch_turn(
@@ -259,18 +272,11 @@ class DiscordGateway:
         user_text: str,
         locale: str | None,
         interaction: Interaction | None = None,
-        speaker: str | None = None,
+        group: GroupTurn | None = None,
         reply_to_message_id: str | None = None,
     ) -> None:
-        """Run one turn, a group turn when a ``speaker`` is named, since only a server message or click names one."""
-        is_group = speaker is not None
-        if is_group and not await self._runner.supports_groups():
-            return
         principal = make_principal(ChatSurface.discord, user_id)
         lang = await self._resolve_lang(principal, locale)
-        # A direct message has no threads, so the whole dialog with a user is one conversation.
-        # A server channel is shared by everyone in it, so its conversation is keyed by the channel instead.
-        conversation = make_principal(ChatSurface.discord, 'group', channel_id) if is_group else None
         async with DiscordMessenger(
             self._settings.bot_token, timeout_seconds=self._settings.api_timeout_seconds
         ) as messenger:
@@ -283,18 +289,13 @@ class DiscordGateway:
                 destructive_color=self._settings.destructive_color,
                 reply_to_message_id=reply_to_message_id,
             )
-            # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
-            bridge = (
-                None
-                if is_group
-                else DiscordOAuthBridge(
-                    self._message_store,
-                    messenger,
-                    channel_id=channel_id,
-                    lang=lang,
-                    wait_timeout_seconds=self._settings.oauth_wait_timeout_seconds,
-                    brand_color=self._settings.brand_color,
-                )
+            bridge = DiscordOAuthBridge(
+                self._message_store,
+                messenger,
+                channel_id=channel_id,
+                lang=lang,
+                wait_timeout_seconds=self._settings.oauth_wait_timeout_seconds,
+                brand_color=self._settings.brand_color,
             )
             try:
                 await run_turn(
@@ -303,12 +304,11 @@ class DiscordGateway:
                     runner=self._runner,
                     surface=surface,
                     message_store=self._message_store,
-                    conversation=conversation,
                     bridge=bridge,
                     compactor=self._compactor,
                     approval_ttl_seconds=self._settings.approval_ttl_seconds,
                     history_ttl_seconds=self._settings.history_ttl_seconds,
-                    speaker=speaker,
+                    group=group,
                 )
             except Exception as error:
                 # An unfinished authorization is an expected ending, anything else is a real failure.
@@ -339,12 +339,15 @@ class DiscordGateway:
             },
         }
 
+    def _reply_to(self) -> ReplyTo:
+        # Without the message-content intent only a mention carries text, so reply_to=all degrades to mentions.
+        return 'mention' if self._message_content_denied else self._settings.groups.reply_to
+
     def _intents(self) -> int:
         intents = _INTENT_DIRECT_MESSAGES
-        groups = self._settings.groups
-        if groups.enabled:
+        if self._settings.groups.enabled:
             intents |= _INTENT_GUILD_MESSAGES
-            if groups.reply_to == 'all':
+            if self._reply_to() == 'all':
                 intents |= _INTENT_MESSAGE_CONTENT
         return intents
 
@@ -360,6 +363,11 @@ def _received_close_code(error: Exception) -> int | None:
     if isinstance(error, ConnectionClosed) and error.rcvd is not None:
         return error.rcvd.code
     return None
+
+
+def _group_turn(channel_id: str, speaker: str) -> GroupTurn:
+    # A direct message is one conversation per user, while a server channel is shared by everyone in it.
+    return GroupTurn(conversation=make_principal(ChatSurface.discord, 'group', channel_id), speaker=speaker)
 
 
 def _display_name(user: dict[str, typing.Any], member: dict[str, typing.Any] | None) -> str:
