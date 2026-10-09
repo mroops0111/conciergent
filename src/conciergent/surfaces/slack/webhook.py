@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import typing
 import urllib.parse
@@ -11,6 +12,7 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import GroupPolicy, without_spans
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
@@ -41,6 +43,7 @@ class SlackWebhookSettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
+    groups: GroupPolicy = GroupPolicy()
 
 
 def build_router(
@@ -72,7 +75,13 @@ def build_router(
         if payload.get('type') != 'event_callback':
             return {}
         event = payload.get('event') or {}
-        if not _is_direct_user_message(event):
+        if _is_direct_user_message(event):
+            shared = False
+            user_text = event.get('text', '')
+        elif _is_group_message(event, settings.groups):
+            shared = True
+            user_text = _without_bot_mentions(event.get('text', ''), _bot_user_id(payload))
+        else:
             return {}
         if await message_store.dedupe(f'slack:event:{payload.get("event_id")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
@@ -87,7 +96,8 @@ def build_router(
             user_id=event['user'],
             channel=event['channel'],
             thread_ts=event.get('thread_ts') or event.get('ts'),
-            user_text=event.get('text', ''),
+            user_text=user_text,
+            shared=shared,
         )
         return {}
 
@@ -105,7 +115,11 @@ def build_router(
             return {}
         message = payload.get('message') or {}
         channel = (payload.get('channel') or {}).get('id', '')
-        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message)
+        # Direct-message channel ids start with D, any other channel is a group the bot was let into.
+        shared = not channel.startswith('D')
+        if shared and not settings.groups.admits(channel):
+            return {}
+        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message, shared=shared)
         if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
         background.add_task(
@@ -123,6 +137,7 @@ def build_router(
             response_url=payload.get('response_url'),
             interacted_message=message,
             button_label=(action.get('text') or {}).get('text') or action.get('value', ''),
+            shared=shared,
         )
         return {}
 
@@ -144,16 +159,25 @@ async def _dispatch_turn(
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
     button_label: str = '',
+    shared: bool = False,
 ) -> None:
     bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
+    if shared and not await runner.supports_groups():
+        return
     principal = make_principal(ChatSurface.slack, team_id, user_id)
     # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
-    conversation = f'{principal}:{thread_ts}' if thread_ts else principal
+    # A channel thread is shared by everyone in it, while a DM thread belongs to its one user.
+    if shared:
+        scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
+        conversation = f'{scope}:{thread_ts}' if thread_ts else scope
+    else:
+        conversation = f'{principal}:{thread_ts}' if thread_ts else principal
     async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
+        speaker = (await messenger.get_display_name(user_id) or user_id) if shared else None
         surface = SlackReplySurface(
             messenger,
             channel=channel,
@@ -164,15 +188,21 @@ async def _dispatch_turn(
             lang=lang,
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
+            user_id=user_id,
         )
-        bridge = SlackOAuthBridge(
-            message_store,
-            messenger,
-            channel=channel,
-            thread_ts=thread_ts,
-            lang=lang,
-            wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
-            brand_color=settings.brand_color,
+        # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
+        bridge = (
+            None
+            if shared
+            else SlackOAuthBridge(
+                message_store,
+                messenger,
+                channel=channel,
+                thread_ts=thread_ts,
+                lang=lang,
+                wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
+                brand_color=settings.brand_color,
+            )
         )
         try:
             await run_turn(
@@ -186,6 +216,8 @@ async def _dispatch_turn(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
+                shared=shared,
+                speaker=speaker,
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.
@@ -217,14 +249,53 @@ def _is_direct_user_message(event: dict[str, typing.Any]) -> bool:
     )
 
 
+# The channel types a group message arrives from: a public channel, a private one, and a multi-person DM.
+_GROUP_CHANNEL_TYPES = frozenset({'channel', 'group', 'mpim'})
+
+
+def _is_group_message(event: dict[str, typing.Any], groups: GroupPolicy) -> bool:
+    # With reply_to=mention only app_mention starts a turn. With all, every message does, and app_mention is skipped
+    # because the same message also arrives as a plain message event.
+    if event.get('bot_id') or event.get('subtype') or not event.get('user'):
+        return False
+    if not groups.admits(event.get('channel')):
+        return False
+    if groups.reply_to == 'mention':
+        return event.get('type') == 'app_mention'
+    return event.get('type') == 'message' and event.get('channel_type') in _GROUP_CHANNEL_TYPES
+
+
+def _bot_user_id(payload: dict[str, typing.Any]) -> str | None:
+    # Every event callback names the installation it was delivered to, whose user_id is the bot's own.
+    authorizations = payload.get('authorizations') or [{}]
+    return authorizations[0].get('user_id')
+
+
+def _without_bot_mentions(text: str, bot_user_id: str | None) -> str:
+    if not bot_user_id:
+        return text
+    mentions = re.finditer(rf'<@{re.escape(bot_user_id)}(?:\|[^>]*)?>', text)
+    return without_spans(text, (match.span() for match in mentions))
+
+
 def _interaction_dedupe_key(
-    payload: dict[str, typing.Any], *, scope: render.Scope, channel: str, message: dict[str, typing.Any]
+    payload: dict[str, typing.Any],
+    *,
+    scope: render.Scope,
+    channel: str,
+    message: dict[str, typing.Any],
+    shared: bool = False,
 ) -> str:
     message_ts = message.get('ts')
     if not message_ts:
         return f'slack:interaction:{payload.get("trigger_id")}'
     if scope == 'exclusive':
         # An exclusive pick consumes the whole message, so every button shares one key.
+        # In a group each member picks for themselves, so one member's tap never swallows another's,
+        # such as a passer-by tapping the confirmation another member is waiting on.
+        if shared:
+            user = (payload.get('user') or {}).get('id', '')
+            return f'slack:interaction:{channel}:{message_ts}:{user}'
         return f'slack:interaction:{channel}:{message_ts}'
     # An open button is dedup'd per action_id, so each distinct button dispatches at most once.
     action = (payload.get('actions') or [{}])[0]

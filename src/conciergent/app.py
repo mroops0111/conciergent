@@ -72,9 +72,14 @@ class App:
         credential_store = CredentialStore.from_url(config.store.credentials_url)
         redirect_uri = f'{config.server.url.rstrip("/")}/oauth/mcp/callback'
         mcp_servers = list(config.agent.mcp_servers)
+        # The config already says which embedded specs need a per-user authorization, so only other servers are probed.
+        known_user_authorization: dict[str, bool] = {}
         if config.gateway.enabled:
             # Each embedded spec is served by this same process, so the agent dials back into itself.
-            mcp_servers.extend(f'{config.server.url.rstrip("/")}/{spec.name}/mcp' for spec in config.gateway.specs)
+            for spec in config.gateway.specs:
+                url = f'{config.server.url.rstrip("/")}/{spec.name}/mcp'
+                mcp_servers.append(url)
+                known_user_authorization[url] = spec.needs_user_authorization
         runner = ChatRunner(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
@@ -83,6 +88,7 @@ class App:
             redirect_uri=redirect_uri,
             mcp_read_timeout_seconds=config.agent.mcp_read_timeout_seconds,
             client_name=config.agent.client_name,
+            known_user_authorization=known_user_authorization,
         )
         # Compaction is always on; the limit is auto-detected from the model unless the config overrides it.
         compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
@@ -125,6 +131,9 @@ class App:
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
             await self._credential_store.prepare()
+            if any(surface.groups_enabled for surface in self._surfaces):
+                # Check up front so a server that rules group chats out is logged at startup, not at the first group.
+                await self._runner.supports_groups()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
                     # The mounted MCP sub-apps only serve while their session managers run,

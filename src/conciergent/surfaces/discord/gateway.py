@@ -2,6 +2,7 @@ import asyncio
 import enum
 import json
 import logging
+import re
 import typing
 
 from websockets.asyncio.client import ClientConnection, connect
@@ -10,6 +11,7 @@ from websockets.exceptions import ConnectionClosed
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import GroupPolicy, without_spans
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
@@ -30,6 +32,10 @@ logger = logging.getLogger(__name__)
 _GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json'
 # The one non-privileged intent a direct-message bot needs; DM content is exempt from the message-content intent.
 _INTENT_DIRECT_MESSAGES = 1 << 12
+# Server messages, for group chats. Their content arrives only when the bot is mentioned,
+# unless the privileged message-content intent is on, which reply_to=all needs.
+_INTENT_GUILD_MESSAGES = 1 << 9
+_INTENT_MESSAGE_CONTENT = 1 << 15
 _DEDUPE_TTL_SECONDS = 86400
 _MAX_BACKOFF_SECONDS = 60
 
@@ -67,14 +73,15 @@ class DiscordGatewaySettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.discord.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
+    groups: GroupPolicy = GroupPolicy()
 
 
 class DiscordGateway:
     """A hand-rolled Discord gateway client that turns direct messages and button clicks into turns.
 
     It owns the WebSocket lifecycle, identify, heartbeat, resume, and reconnect, so the rest of the surface
-    stays a plain REST client. Only direct messages and component interactions are acted on; everything else
-    is ignored. The dispatch entry point is separated from the socket so it can be driven directly in tests.
+    stays a plain REST client. Only direct messages, messages in allowed server channels, and component
+    interactions are acted on; everything else is ignored. The dispatch entry point is separated from the socket so it can be driven directly in tests.
     """
 
     def __init__(
@@ -95,6 +102,8 @@ class DiscordGateway:
         self._session_id: str | None = None
         self._resume_gateway_url: str | None = None
         self._heartbeat_acked = True
+        # The bot's own user id, learned from READY, to tell whether a server message mentions it.
+        self._bot_user_id: str | None = None
 
     async def run(self) -> None:
         """Hold the gateway connection for the app's lifetime, reconnecting with backoff until cancelled."""
@@ -164,25 +173,54 @@ class DiscordGateway:
         if event_type == 'READY':
             self._session_id = data.get('session_id')
             self._resume_gateway_url = data.get('resume_gateway_url')
+            self._bot_user_id = (data.get('user') or {}).get('id')
         elif event_type == 'MESSAGE_CREATE':
             await self._maybe_dispatch_message(data)
         elif event_type == 'INTERACTION_CREATE':
             await self._maybe_dispatch_interaction(data)
 
     async def _maybe_dispatch_message(self, data: dict[str, typing.Any]) -> None:
-        # Only a fresh direct message from a human starts a turn; guild messages and bot echoes are dropped.
+        # A fresh message from a human starts a turn, in a direct message or an allowed server channel.
+        # Bot echoes and messages in any other server channel are dropped.
         author = data.get('author') or {}
         user_id = author.get('id')
         content = data.get('content') or ''
         channel_id = data.get('channel_id')
-        if data.get('guild_id') or author.get('bot') or not user_id or not channel_id or not content:
+        guild_id = data.get('guild_id')
+        if author.get('bot') or not user_id or not channel_id:
+            return
+        groups = self._settings.groups
+        if guild_id:
+            if not groups.admits(channel_id, guild_id):
+                return
+            if groups.reply_to == 'mention':
+                if not self._mentions_bot(data):
+                    return
+                content = self._without_bot_mentions(content)
+        if not content:
             return
         message_id = data.get('id')
         if message_id and await self._message_store.dedupe(
             f'discord:message:{message_id}', ttl_seconds=_DEDUPE_TTL_SECONDS
         ):
             return
-        await self._dispatch_turn(user_id=user_id, channel_id=channel_id, user_text=content, locale=None)
+        await self._dispatch_turn(
+            user_id=user_id,
+            channel_id=channel_id,
+            user_text=content,
+            locale=None,
+            speaker=_display_name(author, data.get('member')) if guild_id else None,
+        )
+
+    def _mentions_bot(self, data: dict[str, typing.Any]) -> bool:
+        bot_user_id = self._bot_user_id
+        return bot_user_id is not None and any(user.get('id') == bot_user_id for user in data.get('mentions') or [])
+
+    def _without_bot_mentions(self, content: str) -> str:
+        if self._bot_user_id is None:
+            return content
+        mentions = re.finditer(rf'<@!?{re.escape(self._bot_user_id)}>', content)
+        return without_spans(content, (match.span() for match in mentions))
 
     async def _maybe_dispatch_interaction(self, data: dict[str, typing.Any]) -> None:
         if data.get('type') != _MESSAGE_COMPONENT:
@@ -190,12 +228,16 @@ class DiscordGateway:
         parsed = render.parse_suggestion((data.get('data') or {}).get('custom_id', ''))
         if parsed is None:
             return
-        user = data.get('user') or (data.get('member') or {}).get('user') or {}
+        member = data.get('member')
+        user = data.get('user') or (member or {}).get('user') or {}
         user_id = user.get('id')
         channel_id = data.get('channel_id')
+        guild_id = data.get('guild_id')
         interaction_id = data.get('id')
         token = data.get('token')
         if not user_id or not channel_id or not interaction_id or not token:
+            return
+        if guild_id and not self._settings.groups.admits(channel_id, guild_id):
             return
         if await self._message_store.dedupe(f'discord:interaction:{interaction_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return
@@ -205,6 +247,7 @@ class DiscordGateway:
             user_text=parsed[1],
             locale=data.get('locale'),
             interaction=Interaction(interaction_id=interaction_id, token=token),
+            speaker=_display_name(user, member) if guild_id else None,
         )
 
     async def _dispatch_turn(
@@ -215,10 +258,17 @@ class DiscordGateway:
         user_text: str,
         locale: str | None,
         interaction: Interaction | None = None,
+        speaker: str | None = None,
     ) -> None:
+        """Run one turn, a group turn when a ``speaker`` is named, since only a server message or click names one."""
+        shared = speaker is not None
+        if shared and not await self._runner.supports_groups():
+            return
         principal = make_principal(ChatSurface.discord, user_id)
         lang = await self._resolve_lang(principal, locale)
         # A direct message has no threads, so the whole dialog with a user is one conversation.
+        # A server channel is shared by everyone in it, so its conversation is keyed by the channel instead.
+        conversation = make_principal(ChatSurface.discord, 'group', channel_id) if shared else None
         async with DiscordMessenger(
             self._settings.bot_token, timeout_seconds=self._settings.api_timeout_seconds
         ) as messenger:
@@ -230,13 +280,18 @@ class DiscordGateway:
                 brand_color=self._settings.brand_color,
                 destructive_color=self._settings.destructive_color,
             )
-            bridge = DiscordOAuthBridge(
-                self._message_store,
-                messenger,
-                channel_id=channel_id,
-                lang=lang,
-                wait_timeout_seconds=self._settings.oauth_wait_timeout_seconds,
-                brand_color=self._settings.brand_color,
+            # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
+            bridge = (
+                None
+                if shared
+                else DiscordOAuthBridge(
+                    self._message_store,
+                    messenger,
+                    channel_id=channel_id,
+                    lang=lang,
+                    wait_timeout_seconds=self._settings.oauth_wait_timeout_seconds,
+                    brand_color=self._settings.brand_color,
+                )
             )
             try:
                 await run_turn(
@@ -245,10 +300,13 @@ class DiscordGateway:
                     runner=self._runner,
                     surface=surface,
                     message_store=self._message_store,
+                    conversation=conversation,
                     bridge=bridge,
                     compactor=self._compactor,
                     approval_ttl_seconds=self._settings.approval_ttl_seconds,
                     history_ttl_seconds=self._settings.history_ttl_seconds,
+                    shared=shared,
+                    speaker=speaker,
                 )
             except Exception as error:
                 # An unfinished authorization is an expected ending, anything else is a real failure.
@@ -274,10 +332,19 @@ class DiscordGateway:
             'op': _Op.IDENTIFY,
             'd': {
                 'token': self._settings.bot_token,
-                'intents': _INTENT_DIRECT_MESSAGES,
+                'intents': self._intents(),
                 'properties': {'os': 'linux', 'browser': 'conciergent', 'device': 'conciergent'},
             },
         }
+
+    def _intents(self) -> int:
+        intents = _INTENT_DIRECT_MESSAGES
+        groups = self._settings.groups
+        if groups.enabled:
+            intents |= _INTENT_GUILD_MESSAGES
+            if groups.reply_to == 'all':
+                intents |= _INTENT_MESSAGE_CONTENT
+        return intents
 
     def _resume_payload(self) -> dict[str, typing.Any]:
         return {
@@ -291,6 +358,11 @@ def _received_close_code(error: Exception) -> int | None:
     if isinstance(error, ConnectionClosed) and error.rcvd is not None:
         return error.rcvd.code
     return None
+
+
+def _display_name(user: dict[str, typing.Any], member: dict[str, typing.Any] | None) -> str:
+    # The name the speaker shows in this server, their server nickname before their global display name.
+    return (member or {}).get('nick') or user.get('global_name') or user.get('username') or user.get('id', '')
 
 
 def _parse_lang(locale: str | None) -> Lang | None:

@@ -198,6 +198,13 @@ class ReplySurface(abc.ABC):
     @abc.abstractmethod
     async def send_carousel(self, cards: list[Card]) -> None: ...
 
+    async def send_private_notice(self, text: str) -> None:
+        """Show a short notice only to the person who started the turn, such as a Slack ephemeral message.
+
+        A surface with no private channel inside a group leaves this a no-op, rather than tell the whole group.
+        """
+        return None
+
     @abc.abstractmethod
     async def show_processing(self) -> None:
         """Signal to the user that work is in progress, for example a typing or loading indicator."""

@@ -35,6 +35,11 @@ class Surface(abc.ABC):
         """Return the webhook and auxiliary routes this platform needs, empty for a connection surface."""
         ...
 
+    @property
+    def groups_enabled(self) -> bool:
+        """Whether this surface is configured to answer in group chats, as well as direct messages."""
+        return False
+
     async def run_connection(self, context: SurfaceContext) -> None:
         """Serve a platform that streams its events over a persistent connection, until the app stops.
 

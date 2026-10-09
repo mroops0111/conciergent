@@ -19,6 +19,13 @@ _API_BASE_URL = 'https://api.line.me'
 _LOADING_SECONDS = 60
 
 
+class GroupChat(typing.NamedTuple):
+    """A LINE group or legacy multi-person room, keyed the way the Messaging API paths name them."""
+
+    kind: typing.Literal['group', 'room']
+    chat_id: str
+
+
 class LineMessenger:
     """A thin async client for the handful of LINE Messaging API calls the surface needs."""
 
@@ -43,8 +50,9 @@ class LineMessenger:
         )
         response.raise_for_status()
 
-    async def push(self, user_id: str, message: dict[str, typing.Any]) -> None:
-        response = await self._client.post('/v2/bot/message/push', json={'to': user_id, 'messages': [message]})
+    async def push(self, to: str, message: dict[str, typing.Any]) -> None:
+        """Push a message to a user, group, or room id."""
+        response = await self._client.post('/v2/bot/message/push', json={'to': to, 'messages': [message]})
         response.raise_for_status()
 
     async def start_loading(self, user_id: str) -> None:
@@ -52,6 +60,22 @@ class LineMessenger:
             '/v2/bot/chat/loading/start', json={'chatId': user_id, 'loadingSeconds': _LOADING_SECONDS}
         )
         response.raise_for_status()
+
+    async def get_display_name(self, user_id: str, *, chat: GroupChat | None = None) -> str | None:
+        """Resolve a user's display name, through the group or room member profile when inside one.
+
+        A member profile works for anyone in the chat, while the plain profile only works for a user who added the bot.
+        """
+        path = (
+            f'/v2/bot/{chat.kind}/{chat.chat_id}/member/{user_id}' if chat is not None else f'/v2/bot/profile/{user_id}'
+        )
+        try:
+            response = await self._client.get(path)
+            response.raise_for_status()
+            name = response.json().get('displayName')
+        except httpx.HTTPError:
+            return None
+        return name or None
 
     async def get_lang(self, user_id: str) -> Lang | None:
         """Resolve the user's UI language from their LINE profile language, or None when unavailable."""
@@ -73,12 +97,17 @@ class ReplyTokenSlot:
     A turn may emit several messages, an OAuth prompt and then the agent reply,
     but the reply token is single-use and expires within a minute.
     A failed reply attempt also falls through to push, so a message is never lost to a stale token.
+    The push goes to ``to``, the user id in a direct chat and the group or room id in a group.
     """
 
-    def __init__(self, messenger: LineMessenger, *, user_id: str, reply_token: str | None) -> None:
+    def __init__(
+        self, messenger: LineMessenger, *, to: str, reply_token: str | None, show_loading: bool = True
+    ) -> None:
         self._messenger = messenger
-        self._user_id = user_id
+        self._to = to
         self._reply_token = reply_token
+        # LINE's loading animation exists only in one-on-one chats, so a group skips the call.
+        self._show_loading = show_loading
 
     async def send(self, message: dict[str, typing.Any]) -> None:
         token, self._reply_token = self._reply_token, None
@@ -88,12 +117,14 @@ class ReplyTokenSlot:
                 return
             except httpx.HTTPStatusError:
                 logger.warning('LINE reply token failed, falling back to push')
-        await self._messenger.push(self._user_id, message)
+        await self._messenger.push(self._to, message)
 
     async def start_loading(self) -> None:
+        if not self._show_loading:
+            return
         # The loading indicator is cosmetic, so a failed ping is logged at debug and never aborts the turn.
         try:
-            await self._messenger.start_loading(self._user_id)
+            await self._messenger.start_loading(self._to)
         except Exception:
             logger.debug('LINE loading indicator failed', exc_info=True)
 

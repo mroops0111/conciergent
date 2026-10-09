@@ -87,12 +87,19 @@ class MessageStore:
         return recorded is None
 
     async def park_approval(
-        self, conversation: str, state: collections.abc.Mapping[str, typing.Any], *, ttl_seconds: int
+        self,
+        conversation: str,
+        state: collections.abc.Mapping[str, typing.Any],
+        *,
+        ttl_seconds: int,
+        owner: str | None = None,
     ) -> None:
-        await self._redis.set(f'{_PREFIX}:approval:{conversation}', json.dumps(dict(state)), ex=ttl_seconds)
+        """Park a pending approval, owned by one member when ``owner`` is set, as in a group chat."""
+        await self._redis.set(self._approval_key(conversation, owner), json.dumps(dict(state)), ex=ttl_seconds)
 
-    async def take_approval(self, conversation: str) -> dict[str, typing.Any] | None:
-        payload = await self._redis.getdel(f'{_PREFIX}:approval:{conversation}')
+    async def take_approval(self, conversation: str, *, owner: str | None = None) -> dict[str, typing.Any] | None:
+        """Take the approval parked for ``owner``, so another member's message never confirms or drops it."""
+        payload = await self._redis.getdel(self._approval_key(conversation, owner))
         return json.loads(payload) if payload is not None else None
 
     async def deliver_oauth_code(self, state: str, code: str) -> None:
@@ -113,6 +120,10 @@ class MessageStore:
             return _decode_handoff(popped_now)
         popped = await self._redis.blpop([key], timeout=timeout_seconds)
         return _decode_handoff(popped[1]) if popped is not None else None
+
+    def _approval_key(self, conversation: str, owner: str | None) -> str:
+        key = f'{_PREFIX}:approval:{conversation}'
+        return f'{key}:owner:{owner}' if owner is not None else key
 
     def _index_key(self, conversation: str) -> str:
         return f'{_PREFIX}:history:{conversation}:index'

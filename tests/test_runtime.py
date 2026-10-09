@@ -8,6 +8,7 @@ from conciergent import (
     ReplySurface,
     Section,
     TurnResult,
+    i18n,
     run_turn,
 )
 from conciergent.agent.runner import ChatRunner
@@ -39,6 +40,8 @@ class ScriptedRunner:
     output: typing.Any
     new_history: list[typing.Any] = dataclasses.field(default_factory=list)
     invalidate_history: bool = False
+    # The pending approval each run received, so a test can tell whose approval a turn resumed.
+    resumed: list[dict[str, typing.Any] | None] = dataclasses.field(default_factory=list)
 
     async def run(
         self,
@@ -49,7 +52,10 @@ class ScriptedRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
+        shared: bool = False,
+        speaker: str | None = None,
     ) -> TurnResult:
+        self.resumed.append(pending_approval)
         return TurnResult(output=self.output, history=self.new_history, invalidate_history=self.invalidate_history)
 
 
@@ -158,3 +164,85 @@ async def test_conversations_scope_history_within_one_principal(message_store: M
     assert await message_store.load_history(conversation) == turn_history
     assert await message_store.load_history('p:thread-b') == []
     assert await message_store.load_history(principal) == []
+
+
+class NoticeSurface(RecordingSurface):
+    async def send_private_notice(self, text: str) -> None:
+        self.calls.append(('notice', text))
+
+
+_GROUP = 'line:group:G1'
+_ALICE = 'line:Ua'
+_BOB = 'line:Ub'
+
+
+async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store: MessageStore):
+    state = {'resume': 'alice'}
+    runner = ScriptedRunner(output=PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state=state))
+    await run_turn(
+        'delete it',
+        principal=_ALICE,
+        conversation=_GROUP,
+        runner=typing.cast(ChatRunner, runner),
+        surface=RecordingSurface(),
+        message_store=message_store,
+        shared=True,
+    )
+    runner.output = 'ok'
+
+    # Bob's own message runs as a fresh turn and leaves Alice's approval parked.
+    await run_turn(
+        'what time is it',
+        principal=_BOB,
+        conversation=_GROUP,
+        runner=typing.cast(ChatRunner, runner),
+        surface=RecordingSurface(),
+        message_store=message_store,
+        shared=True,
+    )
+    await run_turn(
+        'Confirm',
+        principal=_ALICE,
+        conversation=_GROUP,
+        runner=typing.cast(ChatRunner, runner),
+        surface=RecordingSurface(),
+        message_store=message_store,
+        shared=True,
+    )
+
+    assert runner.resumed == [None, None, state]
+
+
+async def test_group_confirm_without_an_own_approval_only_notifies_the_speaker(message_store: MessageStore):
+    state = {'resume': 'alice'}
+    await message_store.park_approval(_GROUP, state, ttl_seconds=60, owner=_ALICE)
+    runner = ScriptedRunner(output='ok')
+    surface = NoticeSurface()
+
+    await run_turn(
+        'Confirm',
+        principal=_BOB,
+        conversation=_GROUP,
+        runner=typing.cast(ChatRunner, runner),
+        surface=surface,
+        message_store=message_store,
+        shared=True,
+    )
+
+    assert runner.resumed == []
+    assert surface.calls == [('notice', i18n.t('approval.unavailable', None))]
+    assert await message_store.take_approval(_GROUP, owner=_ALICE) == state
+
+
+async def test_direct_confirm_without_an_approval_still_runs(message_store: MessageStore):
+    runner = ScriptedRunner(output='ok')
+
+    await run_turn(
+        'Confirm',
+        principal=_ALICE,
+        runner=typing.cast(ChatRunner, runner),
+        surface=NoticeSurface(),
+        message_store=message_store,
+    )
+
+    assert runner.resumed == [None]

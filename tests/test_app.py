@@ -128,6 +128,8 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
 
     assert isinstance(app._runner, ChatRunner)
     assert app._runner.mcp_servers == (mcp_server, 'https://example.com/petstore/mcp')
+    # The config already knows the spec needs no user's token, so only the external server is left to probe.
+    assert app._runner._known_user_authorization == {'https://example.com/petstore/mcp': False}
 
 
 def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):

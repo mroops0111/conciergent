@@ -1,9 +1,9 @@
 # Create a Slack app from this manifest at https://api.slack.com/apps (Create New App, From a manifest).
 # Replace YOUR-PUBLIC-URL with the public URL your conciergent server is reachable at.
 #
-# conciergent replies to users in direct messages only, through the message.im event below.
+# conciergent replies to users in direct messages, through the message.im event below.
 # The in-chat OAuth authorization for MCP tools also happens in that DM.
-# So the bot needs only im scopes, not channel scopes, and channel scopes will not make it reply in channels.
+# Channels are opt-in through surface.slack.groups. Uncomment the app_mention lines to answer mentions there.
 display_information:
   name: My conciergent bot
 features:
@@ -20,11 +20,13 @@ oauth_config:
       - im:read
       - im:write
       - users:read
+      # - app_mentions:read # group chats, reply_to: mention
 settings:
   event_subscriptions:
     request_url: https://YOUR-PUBLIC-URL/slack/events
     bot_events:
       - message.im
+      # - app_mention # group chats, reply_to: mention
   interactivity:
     is_enabled: true
     request_url: https://YOUR-PUBLIC-URL/slack/interactions

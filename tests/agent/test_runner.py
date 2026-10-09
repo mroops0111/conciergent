@@ -2,9 +2,11 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.test import TestModel
 
 from conciergent import Card, Carousel, PendingApproval, ReplySurface, i18n
+from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.i18n.lang import Lang
@@ -315,3 +317,82 @@ async def test_surface_formatting_hint_joins_the_instructions():
     instructions = ' '.join(part.content for part in params.instruction_parts)
     assert _SYSTEM_PROMPT in instructions
     assert formatting_hint in instructions
+
+
+async def test_groups_are_supported_without_oauth():
+    agent = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=[_destructive_server([])])
+
+    assert await agent.supports_groups() is True
+
+
+async def test_groups_follow_the_known_authorization_without_probing(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    async def no_probe(url: str, **_: object) -> bool | None:
+        raise AssertionError('a server with a known verdict is never probed')
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', no_probe)
+    shared = ChatRunner(
+        model=TestModel(),
+        system_prompt=_SYSTEM_PROMPT,
+        mcp_servers=[_OAUTH_SERVER],
+        credential_store=credential_store,
+        redirect_uri=_REDIRECT_URI,
+        known_user_authorization={_OAUTH_SERVER: False},
+    )
+    per_user = ChatRunner(
+        model=TestModel(),
+        system_prompt=_SYSTEM_PROMPT,
+        mcp_servers=[_OAUTH_SERVER],
+        credential_store=credential_store,
+        redirect_uri=_REDIRECT_URI,
+        known_user_authorization={_OAUTH_SERVER: True},
+    )
+
+    assert await shared.supports_groups() is True
+    assert await per_user.supports_groups() is False
+
+
+async def test_an_unreachable_server_pauses_groups_until_a_probe_decides(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    verdicts: list[bool | None] = [None, False]
+    probed: list[str] = []
+
+    async def probe(url: str, **_: object) -> bool | None:
+        probed.append(url)
+        return verdicts.pop(0)
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
+    agent = _oauth_agent(credential_store)
+
+    assert await agent.supports_groups() is False
+    assert await agent.supports_groups() is True
+    assert await agent.supports_groups() is True  # a reached verdict is cached
+    assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
+
+
+async def test_a_shared_turn_names_its_speaker_and_hides_the_sign_out(credential_store: CredentialStore):
+    model = TestModel(call_tools=[])
+    agent = ChatRunner(
+        model=model,
+        system_prompt=_SYSTEM_PROMPT,
+        mcp_servers=[_OAUTH_SERVER],
+        credential_store=credential_store,
+        redirect_uri=_REDIRECT_URI,
+    )
+    # Keep the sign-out tool registered but connect to nothing, so the turn needs no live MCP server.
+    agent._mcp_servers = []
+
+    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
+    direct = model.last_model_request_parameters
+    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, shared=True, speaker='Amy')
+    shared = model.last_model_request_parameters
+
+    assert direct is not None and shared is not None
+    assert REVOKE_TOOL_NAME in {tool.name for tool in direct.function_tools}
+    assert REVOKE_TOOL_NAME not in {tool.name for tool in shared.function_tools}
+    instructions = ' '.join(part.content for part in shared.instruction_parts or [])
+    assert 'group chat' in instructions
+    first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
+    assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)

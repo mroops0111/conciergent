@@ -31,6 +31,8 @@ class LineHarness:
     replies: list[dict[str, typing.Any]]
     pushes: list[dict[str, typing.Any]]
     message_store: MessageStore
+    loadings: list[str]
+    display_names: dict[str, str]
 
 
 @pytest.fixture
@@ -40,10 +42,13 @@ async def line_app(
     # A factory so a test can serve the webhook under whatever LineWebhookSettings it needs.
     async with contextlib.AsyncExitStack() as stack:
 
-        async def build(**settings_overrides: typing.Any) -> LineHarness:
-            agent = EchoAgent()
+        async def build(*, runner: typing.Any = None, **settings_overrides: typing.Any) -> LineHarness:
+            # A test can pass a real ChatRunner to drive the whole turn, the echo stand-in serves the rest.
+            agent = runner if runner is not None else EchoAgent()
             replies: list[dict[str, typing.Any]] = []
             pushes: list[dict[str, typing.Any]] = []
+            loadings: list[str] = []
+            display_names: dict[str, str] = {}
 
             class RecordingMessenger:
                 def __init__(self, channel_access_token: str, *, timeout_seconds: float = 30.0) -> None:
@@ -58,11 +63,14 @@ async def line_app(
                 async def reply(self, reply_token: str, message: dict[str, typing.Any]) -> None:
                     replies.append(message)
 
-                async def push(self, user_id: str, message: dict[str, typing.Any]) -> None:
-                    pushes.append(message)
+                async def push(self, to: str, message: dict[str, typing.Any]) -> None:
+                    pushes.append({**message, 'to': to})
 
                 async def start_loading(self, user_id: str) -> None:
-                    return None
+                    loadings.append(user_id)
+
+                async def get_display_name(self, user_id: str, *, chat: typing.Any = None) -> str | None:
+                    return display_names.get(user_id)
 
                 async def get_lang(self, user_id: str) -> None:
                     return None
@@ -77,7 +85,15 @@ async def line_app(
             )
             transport = httpx.ASGITransport(app=app)
             client = await stack.enter_async_context(httpx.AsyncClient(transport=transport, base_url='http://test'))
-            return LineHarness(client=client, agent=agent, replies=replies, pushes=pushes, message_store=message_store)
+            return LineHarness(
+                client=client,
+                agent=agent,
+                replies=replies,
+                pushes=pushes,
+                message_store=message_store,
+                loadings=loadings,
+                display_names=display_names,
+            )
 
         yield build
 

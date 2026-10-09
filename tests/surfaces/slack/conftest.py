@@ -36,6 +36,7 @@ class SlackHarness:
     agent: EchoAgent
     posts: list[tuple[str, dict[str, typing.Any]]]
     patches: list[dict[str, typing.Any]]
+    ephemerals: list[tuple[str, str]]
     message_store: MessageStore
     credential_store: CredentialStore
 
@@ -54,6 +55,7 @@ async def slack_app(
             agent = EchoAgent()
             posts: list[tuple[str, dict[str, typing.Any]]] = []
             patches: list[dict[str, typing.Any]] = []
+            ephemerals: list[tuple[str, str]] = []
 
             class RecordingMessenger:
                 def __init__(self, bot_token: str, *, timeout_seconds: float = 30.0) -> None:
@@ -68,13 +70,21 @@ async def slack_app(
                 async def post_message(
                     self, channel: str, payload: dict[str, typing.Any], *, thread_ts: str | None = None
                 ) -> None:
-                    posts.append((channel, payload))
+                    posts.append((channel, {**payload, 'thread_ts': thread_ts}))
 
                 async def respond_via_response_url(self, response_url: str, payload: dict[str, typing.Any]) -> None:
                     patches.append(payload)
 
                 async def get_lang(self, user_id: str) -> None:
                     return None
+
+                async def get_display_name(self, user_id: str) -> str | None:
+                    return f'name-{user_id}'
+
+                async def post_ephemeral(
+                    self, channel: str, user: str, text: str, *, thread_ts: str | None = None
+                ) -> None:
+                    ephemerals.append((user, text))
 
             monkeypatch.setattr(webhook, 'SlackMessenger', RecordingMessenger)
             app = fastapi.FastAPI()
@@ -93,6 +103,7 @@ async def slack_app(
                 agent=agent,
                 posts=posts,
                 patches=patches,
+                ephemerals=ephemerals,
                 message_store=message_store,
                 credential_store=credential_store,
             )

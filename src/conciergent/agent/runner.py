@@ -1,6 +1,7 @@
 import collections.abc
 import contextlib
 import dataclasses
+import logging
 import typing
 
 import pydantic
@@ -9,17 +10,21 @@ from pydantic_ai.mcp import MCPToolsetClient
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
 from pydantic_ai.models import Model
 from pydantic_ai.output import OutputSpec
-from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
+from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDefinition, ToolDenied
 
 from conciergent import i18n
 from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
+from conciergent.agent.mcp.probe import requires_user_authorization
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import speaker_prompt
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
 from conciergent.store.credential import CredentialStore
 
+
+logger = logging.getLogger(__name__)
 
 _BASELINE_INSTRUCTIONS = (
     'Your available tools are the source of truth for what you can do. '
@@ -37,6 +42,12 @@ _REPLY_FORMAT_INSTRUCTIONS = (
     'Use reply_carousel for a small set of distinct items that each deserve their own card and action, '
     'giving every option a suggestion or link so it can be chosen. '
     'Put a URL in a card link button instead of writing it inline, and offer next steps as suggestions.'
+)
+_GROUP_INSTRUCTIONS = (
+    'This is a group chat shared by several people. '
+    "Each user message starts with its speaker's name in square brackets, such as [Alice]. "
+    'Answer the latest speaker, and tell people apart by those names. '
+    'Never write the bracketed name prefix in your own reply.'
 )
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
 _IGNORE_DENIAL = 'User skipped the approval and changed topic. Drop the pending_approval action silently and answer their new message.'
@@ -57,6 +68,8 @@ class _AgentDeps:
     surface: ReplySurface | None
     lang: Lang | None
     principal: str
+    # A group turn, shared by several people and run without any per-user authorization.
+    shared: bool = False
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -89,6 +102,7 @@ class ChatRunner:
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = DEFAULTS.agent.client_name,
         mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
+        known_user_authorization: collections.abc.Mapping[str, bool] | None = None,
     ) -> None:
         # The credential store only holds MCP OAuth tokens, which redirect_uri enables; a public server needs neither.
         if mcp_servers and redirect_uri is not None and credential_store is None:
@@ -103,6 +117,11 @@ class ChatRunner:
         self._approval_predicate = approval_predicate
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
+        # Whether a server URL needs a per-user authorization, when the config already says so, as for a gateway spec.
+        # Any other URL is probed, see supports_groups.
+        self._known_user_authorization = dict(known_user_authorization or {})
+        # Set once the probe reaches a verdict, an unreachable server leaves it unset so the next group asks again.
+        self._groups_supported: bool | None = None
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
@@ -134,9 +153,19 @@ class ChatRunner:
                 f"When that message alone leaves the language unclear, default to the user's platform language, {lang.display_name}."
             )
 
+        @self._agent.instructions
+        def group_chat(ctx: RunContext[_AgentDeps]) -> str:
+            return _GROUP_INSTRUCTIONS if ctx.deps.shared else ''
+
         if self._oauth_servers:
 
-            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True)
+            async def only_in_direct_chats(
+                ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
+            ) -> ToolDefinition | None:
+                # A group turn holds no one's authorization, so there is nothing for its members to sign out of.
+                return None if ctx.deps.shared else tool_def
+
+            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_in_direct_chats)
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
                 """Sign the user out by revoking their authorization for every connected service.
 
@@ -154,6 +183,36 @@ class ChatRunner:
             return
         for server in self._oauth_servers:
             await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
+
+    async def supports_groups(self) -> bool:
+        """Report whether group chats may be served, which needs every MCP server to work without a user's token.
+
+        A group is shared by several people, so it never runs a per-user authorization.
+        Any server that needs one rules groups out for the whole app, rather than leaving some tools half-working.
+        The verdict is cached once reached, and an unreachable server is asked again on the next call.
+        """
+        if self._groups_supported is not None:
+            return self._groups_supported
+        # Without OAuth configured no server is ever reached with a user's token, so all of them already work this way.
+        if not self._oauth_servers:
+            self._groups_supported = True
+            return True
+        undecided: list[str] = []
+        for server in self._oauth_servers:
+            needs_user = self._known_user_authorization.get(server)
+            if needs_user is None:
+                needs_user = await requires_user_authorization(server, client_name=self._client_name)
+            if needs_user:
+                logger.error('Group chats are disabled because %s needs a per-user authorization', server)
+                self._groups_supported = False
+                return False
+            if needs_user is None:
+                undecided.append(server)
+        if undecided:
+            logger.warning('Group chats are paused until these MCP servers can be checked: %s', ', '.join(undecided))
+            return False
+        self._groups_supported = True
+        return True
 
     @property
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
@@ -192,14 +251,23 @@ class ChatRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
         surface: ReplySurface | None = None,
+        shared: bool = False,
+        speaker: str | None = None,
     ) -> TurnResult:
+        """Run one turn for ``principal``.
+
+        A ``shared`` turn serves a group chat. It reaches every server without a user's token or an OAuth bridge,
+        and prefixes the input with the ``speaker`` name so the agent can tell the members apart.
+        """
+        # OAuth needs a bridge to show its link, so a turn without one, like every group turn, reaches servers plainly.
+        authorized = bridge is not None and not shared
         toolsets = [
             await build_toolset(
                 server,
                 principal=principal,
-                credential_store=self._credential_store,
-                oauth_bridge=bridge,
-                redirect_uri=self._redirect_uri,
+                credential_store=self._credential_store if authorized else None,
+                oauth_bridge=bridge if authorized else None,
+                redirect_uri=self._redirect_uri if authorized else None,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
@@ -207,10 +275,10 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal)
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, shared=shared)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
-            self._resume(pending_approval, user_input=user_input, history=history)
+            self._resume(pending_approval, user_input=user_input, history=history, speaker=speaker)
             if pending_approval is not None
             else None
         )
@@ -221,7 +289,10 @@ class ChatRunner:
             except pydantic.ValidationError:
                 decoded_history = None
             run_inputs = _RunInputs(
-                prompt=user_input, message_history=decoded_history, deferred_tool_results=None, held_messages=[]
+                prompt=speaker_prompt(speaker, user_input),
+                message_history=decoded_history,
+                deferred_tool_results=None,
+                held_messages=[],
             )
         result = await self._agent.run(
             run_inputs.prompt,
@@ -241,7 +312,12 @@ class ChatRunner:
         return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
 
     def _resume(
-        self, pending_approval: dict[str, typing.Any], *, user_input: str, history: list[typing.Any]
+        self,
+        pending_approval: dict[str, typing.Any],
+        *,
+        user_input: str,
+        history: list[typing.Any],
+        speaker: str | None = None,
     ) -> _RunInputs | None:
         """Rebuild the deferred run from parked state, or None when the state is unreadable.
 
@@ -267,7 +343,7 @@ class ChatRunner:
         elif user_input == cancel_prompt:
             decision, prompt = ToolDenied(_CANCEL_DENIAL), None
         else:
-            decision, prompt = ToolDenied(_IGNORE_DENIAL), user_input
+            decision, prompt = ToolDenied(_IGNORE_DENIAL), speaker_prompt(speaker, user_input)
         deferred = DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, decision))
         return _RunInputs(
             prompt=prompt, message_history=messages, deferred_tool_results=deferred, held_messages=held_messages

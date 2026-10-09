@@ -18,6 +18,9 @@ _API_BASE_URL = 'https://discord.com/api/v10'
 
 # Interaction callback type 7 updates the clicked message in place, which also acknowledges the interaction.
 _UPDATE_MESSAGE = 7
+# Interaction callback type 4 answers with a new message, and the ephemeral flag shows it only to the clicker.
+_CHANNEL_MESSAGE = 4
+_EPHEMERAL_FLAG = 1 << 6
 
 
 class DiscordMessenger:
@@ -106,6 +109,20 @@ class DiscordReplySurface(ReplySurface):
     async def send_carousel(self, cards: list[Card]) -> None:
         payload = render.build_carousel_message(cards, brand_color=self._brand_color)
         await self._messenger.create_message(self._channel_id, payload)
+
+    @typing.override
+    async def send_private_notice(self, text: str) -> None:
+        # Only a button click carries an interaction to answer privately, a typed message has no private channel.
+        if self._interaction is None:
+            return
+        try:
+            await self._messenger.respond_to_interaction(
+                self._interaction.interaction_id,
+                self._interaction.token,
+                {'type': _CHANNEL_MESSAGE, 'data': {'content': text, 'flags': _EPHEMERAL_FLAG}},
+            )
+        except Exception:
+            logger.debug('Discord ephemeral notice failed', exc_info=True)
 
     @typing.override
     async def show_processing(self) -> None:

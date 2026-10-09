@@ -48,3 +48,4 @@ approval:
   body: 即將「{tools}」，此動作可能無法復原，請確認以繼續。
   confirm: 確認
   cancel: 取消
+  unavailable: 這個確認屬於其他人，或已經過期。
