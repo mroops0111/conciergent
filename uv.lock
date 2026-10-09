@@ -345,7 +345,7 @@ wheels = [
 
 [[package]]
 name = "conciergent"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -387,7 +387,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1,<2" },
-    { name = "openapi-mcp-gateway", marker = "extra == 'gateway'", specifier = ">=0.5.2" },
+    { name = "openapi-mcp-gateway", marker = "extra == 'gateway'", specifier = ">=0.5.2,<0.6" },
     { name = "pydantic", specifier = ">=2.13.0" },
     { name = "pydantic-ai-slim", extras = ["openai", "google", "anthropic", "mcp"], specifier = ">=2.1.0,<3" },
     { name = "pydantic-settings", specifier = ">=2.14.0" },
