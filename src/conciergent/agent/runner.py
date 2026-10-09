@@ -68,8 +68,8 @@ class _AgentDeps:
     surface: ReplySurface | None
     lang: Lang | None
     principal: str
-    # Set on a group-chat turn, which several people share.
-    in_group: bool = False
+    # The member who sent a group-chat message, None in a direct chat.
+    speaker: str | None = None
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -155,7 +155,7 @@ class ChatRunner:
 
         @self._agent.instructions
         def group_chat(ctx: RunContext[_AgentDeps]) -> str:
-            return _GROUP_INSTRUCTIONS if ctx.deps.in_group else ''
+            return _GROUP_INSTRUCTIONS if ctx.deps.speaker is not None else ''
 
         if self._oauth_servers:
 
@@ -163,7 +163,7 @@ class ChatRunner:
                 ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
             ) -> ToolDefinition | None:
                 # A sign-out clears the conversation's history, which in a group belongs to everyone, not the speaker.
-                return None if ctx.deps.in_group else tool_def
+                return None if ctx.deps.speaker is not None else tool_def
 
             @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_in_direct_chats)
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
@@ -273,7 +273,7 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, in_group=speaker is not None)
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, speaker=speaker)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
             self._resume(pending_approval, user_input=user_input, history=history, speaker=speaker)

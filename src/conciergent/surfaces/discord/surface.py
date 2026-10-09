@@ -18,9 +18,8 @@ _API_BASE_URL = 'https://discord.com/api/v10'
 
 # Interaction callback type 7 updates the clicked message in place, which also acknowledges the interaction.
 _UPDATE_MESSAGE = 7
-# Interaction callback type 4 answers with a new message, and the ephemeral flag shows it only to the clicker.
-_CHANNEL_MESSAGE = 4
-_EPHEMERAL_FLAG = 1 << 6
+# Interaction callback type 6 acknowledges a click and leaves the clicked message as it is.
+_DEFERRED_UPDATE_MESSAGE = 6
 
 
 class DiscordMessenger:
@@ -76,10 +75,13 @@ class DiscordReplySurface(ReplySurface):
         lang: Lang | None = None,
         brand_color: str = render.BRAND_COLOR,
         destructive_color: str = render.DESTRUCTIVE_COLOR,
+        reply_to_message_id: str | None = None,
     ) -> None:
         self._messenger = messenger
         self._channel_id = channel_id
         self._interaction = interaction
+        # The group message a text reply answers, as a native reply. Cards are left unmarked.
+        self._reply_to_message_id = reply_to_message_id
         self._lang = lang
         self._brand_color = brand_color
         self._destructive_color = destructive_color
@@ -96,7 +98,8 @@ class DiscordReplySurface(ReplySurface):
 
     @typing.override
     async def send_text(self, text: str) -> None:
-        await self._messenger.create_message(self._channel_id, render.build_text_message(text))
+        payload = render.build_text_message(text, reply_to_message_id=self._reply_to_message_id)
+        await self._messenger.create_message(self._channel_id, payload)
 
     @typing.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:
@@ -111,18 +114,16 @@ class DiscordReplySurface(ReplySurface):
         await self._messenger.create_message(self._channel_id, payload)
 
     @typing.override
-    async def send_private_notice(self, text: str) -> None:
-        # Only a button click carries an interaction to answer privately, a typed message has no private channel.
+    async def acknowledge_silently(self) -> None:
+        # Discord shows "This interaction failed" for an unanswered click, so a dropped one is still acknowledged.
         if self._interaction is None:
             return
         try:
             await self._messenger.respond_to_interaction(
-                self._interaction.interaction_id,
-                self._interaction.token,
-                {'type': _CHANNEL_MESSAGE, 'data': {'content': text, 'flags': _EPHEMERAL_FLAG}},
+                self._interaction.interaction_id, self._interaction.token, {'type': _DEFERRED_UPDATE_MESSAGE}
             )
         except Exception:
-            logger.debug('Discord ephemeral notice failed', exc_info=True)
+            logger.debug('Discord silent acknowledgement failed', exc_info=True)
 
     @typing.override
     async def show_processing(self) -> None:

@@ -139,9 +139,12 @@ class LineReplySurface(ReplySurface):
         lang: Lang | None = None,
         brand_color: str = render.BRAND_COLOR,
         destructive_color: str = render.DESTRUCTIVE_COLOR,
+        quote_token: str | None = None,
     ) -> None:
         self._slot = slot
         self._lang = lang
+        # The quote token of the group message a text reply answers. LINE cannot quote from a Flex card.
+        self._quote_token = quote_token
         self._brand_color = brand_color
         self._destructive_color = destructive_color
 
@@ -157,7 +160,10 @@ class LineReplySurface(ReplySurface):
 
     @typing.override
     async def send_text(self, text: str) -> None:
-        await self._slot.send({'type': 'text', 'text': text})
+        message: dict[str, typing.Any] = {'type': 'text', 'text': text}
+        if self._quote_token is not None:
+            message['quoteToken'] = self._quote_token
+        await self._slot.send(message)
 
     @typing.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:

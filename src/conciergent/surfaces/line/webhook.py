@@ -138,6 +138,8 @@ async def _dispatch_event(
             lang=lang,
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
+            # A typed group message gets its text reply quoting it, a postback tap carries no message to quote.
+            quote_token=(event.get('message') or {}).get('quoteToken') if chat is not None else None,
         )
         if chat is not None:
             # A group turn holds no one's authorization, so it gets no OAuth bridge and names its speaker instead.
@@ -166,7 +168,6 @@ async def _dispatch_event(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                in_group=chat is not None,
                 speaker=speaker,
             )
         except Exception as error:

@@ -198,10 +198,10 @@ class ReplySurface(abc.ABC):
     @abc.abstractmethod
     async def send_carousel(self, cards: list[Card]) -> None: ...
 
-    async def send_private_notice(self, text: str) -> None:
-        """Show a short notice only to the person who started the turn, such as a Slack ephemeral message.
+    async def acknowledge_silently(self) -> None:
+        """Settle the event behind a turn that is dropped without a reply, showing nothing to anyone.
 
-        A surface with no private channel inside a group leaves this a no-op, rather than tell the whole group.
+        Most platforms need nothing, while one that requires every button click to be answered overrides this.
         """
         return None
 

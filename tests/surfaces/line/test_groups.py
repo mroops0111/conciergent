@@ -22,7 +22,7 @@ GROUP = 'Cgroup1'
 def _group_message(
     text: str, *, event_id: str, mentions: list[dict[str, typing.Any]] | None = None, group: str = GROUP
 ) -> dict[str, typing.Any]:
-    message: dict[str, typing.Any] = {'type': 'text', 'text': text}
+    message: dict[str, typing.Any] = {'type': 'text', 'text': text, 'quoteToken': f'q-{event_id}'}
     if mentions is not None:
         message['mention'] = {'mentionees': mentions}
     return {
@@ -64,6 +64,8 @@ async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(
     assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'line:group:{GROUP}')
     assert group_harness.loadings == [], 'the loading animation only exists in one-on-one chats'
+    # The text reply quotes the member's message.
+    assert group_harness.replies[0]['quoteToken'] == 'q-g1'
 
 
 async def test_a_mention_after_an_emoji_is_stripped_by_utf16_offset(
@@ -150,6 +152,8 @@ async def test_a_suggestion_tap_needs_no_mention(
 
     assert group_harness.agent.inputs == ['Show more']
     assert group_harness.agent.calls[0]['speaker'] == 'Amy'
+    # A postback carries no message to quote.
+    assert 'quoteToken' not in group_harness.replies[0]
 
 
 async def test_the_push_fallback_targets_the_group(

@@ -65,7 +65,10 @@ async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(group_harne
     assert call['speaker'] == 'Amy (ops)'
     assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'discord:group:{CHANNEL}')
-    assert group_harness.messages[0][0] == CHANNEL
+    channel, payload = group_harness.messages[0]
+    assert channel == CHANNEL
+    # The text reply is a native reply to the member's message.
+    assert payload['message_reference'] == {'message_id': 'M1', 'fail_if_not_exists': False}
 
 
 async def test_messages_without_a_mention_are_ignored_unless_reply_to_all(group_harness: DiscordHarness) -> None:
@@ -106,7 +109,7 @@ async def test_groups_are_ignored_when_a_server_needs_per_user_authorization(gro
     assert group_harness.agent.inputs == []
 
 
-async def test_another_members_confirm_click_is_answered_privately(group_harness: DiscordHarness) -> None:
+async def test_another_members_confirm_click_is_acknowledged_silently(group_harness: DiscordHarness) -> None:
     confirm = i18n.t('approval.confirm', None)
     owner = f'discord:{USER}'
     await group_harness.message_store.park_approval(
@@ -118,12 +121,11 @@ async def test_another_members_confirm_click_is_answered_privately(group_harness
     )
     await group_harness.gateway._handle_dispatch('INTERACTION_CREATE', _guild_click(confirm, interaction_id='I2'))
 
-    _, _, notice = group_harness.interaction_responses[0]
-    assert notice['type'] == 4
-    assert notice['data']['flags'] == 1 << 6
-    assert notice['data']['content'] == i18n.t('approval.unavailable', None)
+    interaction_id, _, acknowledgement = group_harness.interaction_responses[0]
+    assert (interaction_id, acknowledgement) == ('I1', {'type': 6})
     assert group_harness.agent.inputs == [confirm]
     assert group_harness.agent.calls[0]['pending_approval'] == {'parked': True}
+    assert 'message_reference' not in group_harness.messages[-1][1]
 
 
 def test_intents_widen_with_group_chats(harness: DiscordHarness) -> None:

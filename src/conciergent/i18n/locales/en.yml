@@ -48,5 +48,3 @@ approval:
   body: 'I am about to "{tools}". This action may not be undone. Confirm to proceed.'
   confirm: Confirm
   cancel: Cancel
-  # Shown only to a group member who taps a confirmation that is not theirs or has expired.
-  unavailable: This confirmation belongs to someone else or has expired.

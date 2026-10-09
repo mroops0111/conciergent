@@ -67,6 +67,8 @@ async def test_a_mention_runs_a_group_turn_in_its_thread(
     assert await group_harness.message_store.load_history(f'slack:{TEAM}:group:{CHANNEL}:{TS}')
     channel, payload = group_harness.posts[0]
     assert channel == CHANNEL and payload['thread_ts'] == TS
+    # The text reply mentions the member it answers.
+    assert payload['text'] == f'<@{USER}> echo what is up'
 
 
 async def test_channels_outside_the_allowlist_are_ignored(
@@ -107,7 +109,7 @@ async def test_groups_are_ignored_when_a_server_needs_per_user_authorization(
     assert group_harness.agent.inputs == []
 
 
-async def test_another_members_confirm_tap_is_answered_privately_and_leaves_the_card_for_its_owner(
+async def test_another_members_confirm_tap_is_ignored_and_leaves_the_card_for_its_owner(
     group_harness: SlackHarness, sign_headers: SignHeaders
 ) -> None:
     confirm = i18n.t('approval.confirm', None)
@@ -118,9 +120,10 @@ async def test_another_members_confirm_tap_is_answered_privately_and_leaves_the_
     await _post(group_harness, sign_headers, '/slack/interactions', _click(value=confirm, user='U2'))
     await _post(group_harness, sign_headers, '/slack/interactions', _click(value=confirm))
 
-    assert group_harness.ephemerals == [('U2', i18n.t('approval.unavailable', None))]
     assert group_harness.agent.inputs == [confirm]
     assert group_harness.agent.calls[0]['pending_approval'] == {'parked': True}
+    # A tap has no message of its own to answer, so its text reply mentions no one.
+    assert group_harness.posts[-1][1]['text'] == f'echo {confirm}'
 
 
 async def test_clicks_in_channels_outside_the_allowlist_are_ignored(

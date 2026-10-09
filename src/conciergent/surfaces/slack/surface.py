@@ -43,14 +43,6 @@ class SlackMessenger:
         response = await self._client.post('/chat.postMessage', json=body)
         _raise_on_error(response, 'chat.postMessage')
 
-    async def post_ephemeral(self, channel: str, user: str, text: str, *, thread_ts: str | None = None) -> None:
-        """Post a message only ``user`` sees, in a channel or thread the rest of the group shares."""
-        body: dict[str, typing.Any] = {'channel': channel, 'user': user, 'text': text}
-        if thread_ts is not None:
-            body['thread_ts'] = thread_ts
-        response = await self._client.post('/chat.postEphemeral', json=body)
-        _raise_on_error(response, 'chat.postEphemeral')
-
     async def respond_via_response_url(self, response_url: str, payload: dict[str, typing.Any]) -> None:
         response = await self._client.post(response_url, json=payload)
         response.raise_for_status()
@@ -102,11 +94,11 @@ class SlackReplySurface(ReplySurface):
         lang: Lang | None = None,
         brand_color: str = render.BRAND_COLOR,
         destructive_color: str = render.DESTRUCTIVE_COLOR,
-        user_id: str | None = None,
+        reply_to_user: str | None = None,
     ) -> None:
         self._messenger = messenger
-        # The member who started the turn, the one a private notice goes to.
-        self._user_id = user_id
+        # The group member whose message a text reply answers, mentioned at its start. Cards are left unmarked.
+        self._reply_to_user = reply_to_user
         self._channel = channel
         self._thread_ts = thread_ts
         self._response_url = response_url
@@ -131,6 +123,8 @@ class SlackReplySurface(ReplySurface):
     @typing.override
     async def send_text(self, text: str) -> None:
         await self._finalize_processing_if_active()
+        if self._reply_to_user is not None:
+            text = f'<@{self._reply_to_user}> {text}'
         await self._messenger.post_message(self._channel, {'text': text}, thread_ts=self._thread_ts)
 
     @typing.override
@@ -146,16 +140,6 @@ class SlackReplySurface(ReplySurface):
         await self._finalize_processing_if_active()
         payload = render.build_carousel_payload(cards, brand_color=self._brand_color)
         await self._messenger.post_message(self._channel, payload, thread_ts=self._thread_ts)
-
-    @typing.override
-    async def send_private_notice(self, text: str) -> None:
-        if self._user_id is None:
-            return
-        # A notice is a courtesy, so a failed post is logged and never aborts the turn.
-        try:
-            await self._messenger.post_ephemeral(self._channel, self._user_id, text, thread_ts=self._thread_ts)
-        except Exception:
-            logger.debug('Slack ephemeral notice failed', exc_info=True)
 
     @typing.override
     async def show_processing(self) -> None:
