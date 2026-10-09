@@ -372,7 +372,7 @@ async def test_an_unreachable_server_pauses_groups_until_a_probe_decides(
     assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
 
 
-async def test_a_shared_turn_names_its_speaker_and_hides_the_sign_out(credential_store: CredentialStore):
+async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_store: CredentialStore):
     model = TestModel(call_tools=[])
     agent = ChatRunner(
         model=model,
@@ -386,13 +386,13 @@ async def test_a_shared_turn_names_its_speaker_and_hides_the_sign_out(credential
 
     await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
     direct = model.last_model_request_parameters
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, shared=True, speaker='Amy')
-    shared = model.last_model_request_parameters
+    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, speaker='Amy')
+    group = model.last_model_request_parameters
 
-    assert direct is not None and shared is not None
+    assert direct is not None and group is not None
     assert REVOKE_TOOL_NAME in {tool.name for tool in direct.function_tools}
-    assert REVOKE_TOOL_NAME not in {tool.name for tool in shared.function_tools}
-    instructions = ' '.join(part.content for part in shared.instruction_parts or [])
+    assert REVOKE_TOOL_NAME not in {tool.name for tool in group.function_tools}
+    instructions = ' '.join(part.content for part in group.instruction_parts or [])
     assert 'group chat' in instructions
     first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
     assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)

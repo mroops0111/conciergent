@@ -1,7 +1,11 @@
 import logging
 
+import anyio
 import httpx
-from mcp.types import LATEST_PROTOCOL_VERSION
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.types import Implementation
 
 from conciergent.defaults import DEFAULTS
 
@@ -17,40 +21,35 @@ async def requires_user_authorization(
 ) -> bool | None:
     """Ask an MCP server, without credentials, whether it needs a per-user authorization.
 
-    MCP authorization happens at the transport, so an unauthenticated ``initialize`` answered with 401 or 403 means
-    the server needs a user's token, and a success means anyone may call it.
-    Returns None when the server cannot be reached or answers anything else, so the caller can ask again later.
+    MCP authorization happens at the transport, so an ``initialize`` the server rejects with 401 or 403 means
+    it needs a user's token, and a completed handshake means anyone may call it.
+    Returns None when the server cannot be reached or fails otherwise, so the caller can ask again later.
     """
-    body = {
-        'jsonrpc': '2.0',
-        'id': 0,
-        'method': 'initialize',
-        'params': {
-            'protocolVersion': LATEST_PROTOCOL_VERSION,
-            'capabilities': {},
-            'clientInfo': {'name': client_name, 'version': '0'},
-        },
-    }
-    headers = {'Accept': 'application/json, text/event-stream'}
+    client_info = Implementation(name=client_name, version='0')
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            # Stream so only the status is read, a server answering with an event stream never holds the probe open.
-            async with client.stream('POST', url, json=body, headers=headers) as response:
-                status = response.status_code
-                session_id = response.headers.get('mcp-session-id')
-            if session_id:
-                # End the session the probe opened rather than leave it for the server to time out.
-                # The verdict is already known, so a failed cleanup must not turn it into an unknown.
-                try:
-                    await client.delete(url, headers={'mcp-session-id': session_id})
-                except httpx.HTTPError:
-                    logger.debug('MCP authorization probe could not end its session on %s', url, exc_info=True)
-    except httpx.HTTPError as error:
-        logger.warning('MCP authorization probe could not reach %s: %s', url, error)
+        with anyio.fail_after(timeout_seconds):
+            async with (
+                create_mcp_http_client(timeout=httpx.Timeout(timeout_seconds)) as http_client,
+                streamable_http_client(url, http_client=http_client) as (read_stream, write_stream, _),
+                ClientSession(read_stream, write_stream, client_info=client_info) as session,
+            ):
+                await session.initialize()
+    except Exception as error:
+        status = _http_status(error)
+        if status in (401, 403):
+            return True
+        logger.warning('MCP authorization probe could not check %s: %r', url, error)
         return None
-    if status in (401, 403):
-        return True
-    if 200 <= status < 300:
-        return False
-    logger.warning('MCP authorization probe got an unexpected status %s from %s', status, url)
+    return False
+
+
+def _http_status(error: BaseException) -> int | None:
+    # The SDK raises the transport's HTTP error from inside its task group, so it arrives wrapped in a group.
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code
+    if isinstance(error, BaseExceptionGroup):
+        for inner in error.exceptions:
+            status = _http_status(inner)
+            if status is not None:
+                return status
     return None

@@ -54,7 +54,7 @@ def _guild_click(prompt: str, *, interaction_id: str, user: str = USER) -> dict[
     }
 
 
-async def test_a_mention_runs_a_shared_turn_with_the_mention_stripped(group_harness: DiscordHarness) -> None:
+async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(group_harness: DiscordHarness) -> None:
     await group_harness.gateway._handle_dispatch(
         'MESSAGE_CREATE', _guild_message(f'<@{BOT}> hi there', message_id='M1')
     )
@@ -62,7 +62,6 @@ async def test_a_mention_runs_a_shared_turn_with_the_mention_stripped(group_harn
     assert group_harness.agent.inputs == ['hi there']
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'discord:{USER}'
-    assert call['shared'] is True
     assert call['speaker'] == 'Amy (ops)'
     assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'discord:group:{CHANNEL}')

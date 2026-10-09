@@ -261,14 +261,14 @@ class DiscordGateway:
         speaker: str | None = None,
     ) -> None:
         """Run one turn, a group turn when a ``speaker`` is named, since only a server message or click names one."""
-        shared = speaker is not None
-        if shared and not await self._runner.supports_groups():
+        in_group = speaker is not None
+        if in_group and not await self._runner.supports_groups():
             return
         principal = make_principal(ChatSurface.discord, user_id)
         lang = await self._resolve_lang(principal, locale)
         # A direct message has no threads, so the whole dialog with a user is one conversation.
         # A server channel is shared by everyone in it, so its conversation is keyed by the channel instead.
-        conversation = make_principal(ChatSurface.discord, 'group', channel_id) if shared else None
+        conversation = make_principal(ChatSurface.discord, 'group', channel_id) if in_group else None
         async with DiscordMessenger(
             self._settings.bot_token, timeout_seconds=self._settings.api_timeout_seconds
         ) as messenger:
@@ -283,7 +283,7 @@ class DiscordGateway:
             # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
             bridge = (
                 None
-                if shared
+                if in_group
                 else DiscordOAuthBridge(
                     self._message_store,
                     messenger,
@@ -305,7 +305,7 @@ class DiscordGateway:
                     compactor=self._compactor,
                     approval_ttl_seconds=self._settings.approval_ttl_seconds,
                     history_ttl_seconds=self._settings.history_ttl_seconds,
-                    shared=shared,
+                    in_group=in_group,
                     speaker=speaker,
                 )
             except Exception as error:

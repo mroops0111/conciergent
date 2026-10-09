@@ -166,7 +166,7 @@ async def _dispatch_event(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                shared=chat is not None,
+                in_group=chat is not None,
                 speaker=speaker,
             )
         except Exception as error:

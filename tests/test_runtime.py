@@ -52,7 +52,6 @@ class ScriptedRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-        shared: bool = False,
         speaker: str | None = None,
     ) -> TurnResult:
         self.resumed.append(pending_approval)
@@ -186,7 +185,7 @@ async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        shared=True,
+        in_group=True,
     )
     runner.output = 'ok'
 
@@ -198,7 +197,7 @@ async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        shared=True,
+        in_group=True,
     )
     await run_turn(
         'Confirm',
@@ -207,7 +206,7 @@ async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store
         runner=typing.cast(ChatRunner, runner),
         surface=RecordingSurface(),
         message_store=message_store,
-        shared=True,
+        in_group=True,
     )
 
     assert runner.resumed == [None, None, state]
@@ -226,7 +225,7 @@ async def test_group_confirm_without_an_own_approval_only_notifies_the_speaker(m
         runner=typing.cast(ChatRunner, runner),
         surface=surface,
         message_store=message_store,
-        shared=True,
+        in_group=True,
     )
 
     assert runner.resumed == []

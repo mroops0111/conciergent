@@ -76,10 +76,10 @@ def build_router(
             return {}
         event = payload.get('event') or {}
         if _is_direct_user_message(event):
-            shared = False
+            in_group = False
             user_text = event.get('text', '')
         elif _is_group_message(event, settings.groups):
-            shared = True
+            in_group = True
             user_text = _without_bot_mentions(event.get('text', ''), _bot_user_id(payload))
         else:
             return {}
@@ -97,7 +97,7 @@ def build_router(
             channel=event['channel'],
             thread_ts=event.get('thread_ts') or event.get('ts'),
             user_text=user_text,
-            shared=shared,
+            in_group=in_group,
         )
         return {}
 
@@ -116,10 +116,10 @@ def build_router(
         message = payload.get('message') or {}
         channel = (payload.get('channel') or {}).get('id', '')
         # Direct-message channel ids start with D, any other channel is a group the bot was let into.
-        shared = not channel.startswith('D')
-        if shared and not settings.groups.admits(channel):
+        in_group = not channel.startswith('D')
+        if in_group and not settings.groups.admits(channel):
             return {}
-        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message, shared=shared)
+        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message, in_group=in_group)
         if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
         background.add_task(
@@ -137,7 +137,7 @@ def build_router(
             response_url=payload.get('response_url'),
             interacted_message=message,
             button_label=(action.get('text') or {}).get('text') or action.get('value', ''),
-            shared=shared,
+            in_group=in_group,
         )
         return {}
 
@@ -159,17 +159,17 @@ async def _dispatch_turn(
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
     button_label: str = '',
-    shared: bool = False,
+    in_group: bool = False,
 ) -> None:
     bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
-    if shared and not await runner.supports_groups():
+    if in_group and not await runner.supports_groups():
         return
     principal = make_principal(ChatSurface.slack, team_id, user_id)
     # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
     # A channel thread is shared by everyone in it, while a DM thread belongs to its one user.
-    if shared:
+    if in_group:
         scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
         conversation = f'{scope}:{thread_ts}' if thread_ts else scope
     else:
@@ -177,7 +177,7 @@ async def _dispatch_turn(
     async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
-        speaker = (await messenger.get_display_name(user_id) or user_id) if shared else None
+        speaker = (await messenger.get_display_name(user_id) or user_id) if in_group else None
         surface = SlackReplySurface(
             messenger,
             channel=channel,
@@ -193,7 +193,7 @@ async def _dispatch_turn(
         # A group turn holds no one's authorization, so it never posts an authorize link to the channel.
         bridge = (
             None
-            if shared
+            if in_group
             else SlackOAuthBridge(
                 message_store,
                 messenger,
@@ -216,7 +216,7 @@ async def _dispatch_turn(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                shared=shared,
+                in_group=in_group,
                 speaker=speaker,
             )
         except Exception as error:
@@ -284,7 +284,7 @@ def _interaction_dedupe_key(
     scope: render.Scope,
     channel: str,
     message: dict[str, typing.Any],
-    shared: bool = False,
+    in_group: bool = False,
 ) -> str:
     message_ts = message.get('ts')
     if not message_ts:
@@ -293,7 +293,7 @@ def _interaction_dedupe_key(
         # An exclusive pick consumes the whole message, so every button shares one key.
         # In a group each member picks for themselves, so one member's tap never swallows another's,
         # such as a passer-by tapping the confirmation another member is waiting on.
-        if shared:
+        if in_group:
             user = (payload.get('user') or {}).get('id', '')
             return f'slack:interaction:{channel}:{message_ts}:{user}'
         return f'slack:interaction:{channel}:{message_ts}'

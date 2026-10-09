@@ -29,7 +29,6 @@ class EchoAgent:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-        shared: bool = False,
         speaker: str | None = None,
     ) -> TurnResult:
         self.inputs.append(user_input)
@@ -37,7 +36,6 @@ class EchoAgent:
             {
                 'principal': principal,
                 'bridge': bridge,
-                'shared': shared,
                 'speaker': speaker,
                 'pending_approval': pending_approval,
                 'history': history,

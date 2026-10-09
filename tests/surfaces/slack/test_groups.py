@@ -54,7 +54,7 @@ async def _post(harness: SlackHarness, sign_headers: SignHeaders, path: str, bod
     await harness.client.post(path, content=body, headers=sign_headers(body))
 
 
-async def test_a_mention_runs_a_shared_turn_in_its_thread(
+async def test_a_mention_runs_a_group_turn_in_its_thread(
     group_harness: SlackHarness, sign_headers: SignHeaders
 ) -> None:
     await _post(group_harness, sign_headers, '/slack/events', _event(event_id='E1', text=f'<@{BOT}> what is up'))
@@ -62,7 +62,6 @@ async def test_a_mention_runs_a_shared_turn_in_its_thread(
     assert group_harness.agent.inputs == ['what is up']
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'slack:{TEAM}:{USER}'
-    assert call['shared'] is True
     assert call['speaker'] == f'name-{USER}'
     assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'slack:{TEAM}:group:{CHANNEL}:{TS}')

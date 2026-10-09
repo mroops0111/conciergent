@@ -50,7 +50,7 @@ async def _post(harness: LineHarness, sign_headers: SignHeaders, line_body: Buil
     await harness.client.post('/line/events', content=body, headers=sign_headers(body))
 
 
-async def test_a_mention_runs_a_shared_turn_with_the_mention_stripped(
+async def test_a_mention_runs_a_group_turn_with_the_mention_stripped(
     group_harness: LineHarness, sign_headers: SignHeaders, line_body: BuildBody
 ) -> None:
     event = _group_message('@Bot what is up', event_id='g1', mentions=[_self_mention(0, 4)])
@@ -60,7 +60,6 @@ async def test_a_mention_runs_a_shared_turn_with_the_mention_stripped(
     assert group_harness.agent.inputs == ['what is up']
     call = group_harness.agent.calls[0]
     assert call['principal'] == f'line:{USER}'
-    assert call['shared'] is True
     assert call['speaker'] == 'Amy'
     assert call['bridge'] is None
     assert await group_harness.message_store.load_history(f'line:group:{GROUP}')
@@ -150,7 +149,7 @@ async def test_a_suggestion_tap_needs_no_mention(
     await _post(group_harness, sign_headers, line_body, event)
 
     assert group_harness.agent.inputs == ['Show more']
-    assert group_harness.agent.calls[0]['shared'] is True
+    assert group_harness.agent.calls[0]['speaker'] == 'Amy'
 
 
 async def test_the_push_fallback_targets_the_group(
@@ -214,7 +213,7 @@ async def test_a_direct_suggestion_tap_runs_the_prompt(
     await _post(group_harness, sign_headers, line_body, event)
 
     assert group_harness.agent.inputs == ['Confirm']
-    assert group_harness.agent.calls[0]['shared'] is False
+    assert group_harness.agent.calls[0]['speaker'] is None
     assert group_harness.agent.calls[0]['bridge'] is not None
 
 

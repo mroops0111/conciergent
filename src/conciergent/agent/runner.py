@@ -68,8 +68,8 @@ class _AgentDeps:
     surface: ReplySurface | None
     lang: Lang | None
     principal: str
-    # A group turn, shared by several people and run without any per-user authorization.
-    shared: bool = False
+    # Set on a group-chat turn, which several people share.
+    in_group: bool = False
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -155,15 +155,15 @@ class ChatRunner:
 
         @self._agent.instructions
         def group_chat(ctx: RunContext[_AgentDeps]) -> str:
-            return _GROUP_INSTRUCTIONS if ctx.deps.shared else ''
+            return _GROUP_INSTRUCTIONS if ctx.deps.in_group else ''
 
         if self._oauth_servers:
 
             async def only_in_direct_chats(
                 ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
             ) -> ToolDefinition | None:
-                # A group turn holds no one's authorization, so there is nothing for its members to sign out of.
-                return None if ctx.deps.shared else tool_def
+                # A sign-out clears the conversation's history, which in a group belongs to everyone, not the speaker.
+                return None if ctx.deps.in_group else tool_def
 
             @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_in_direct_chats)
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
@@ -251,16 +251,14 @@ class ChatRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
         surface: ReplySurface | None = None,
-        shared: bool = False,
         speaker: str | None = None,
     ) -> TurnResult:
         """Run one turn for ``principal``.
 
-        A ``shared`` turn serves a group chat. It reaches every server without a user's token or an OAuth bridge,
-        and prefixes the input with the ``speaker`` name so the agent can tell the members apart.
+        A ``speaker`` marks a group-chat turn. The input is prefixed with that name so the agent can tell members apart.
         """
-        # OAuth needs a bridge to show its link, so a turn without one, like every group turn, reaches servers plainly.
-        authorized = bridge is not None and not shared
+        # OAuth needs a bridge to show its link, so a turn without one, like a group turn, reaches servers plainly.
+        authorized = bridge is not None
         toolsets = [
             await build_toolset(
                 server,
@@ -275,7 +273,7 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, shared=shared)
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, in_group=speaker is not None)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
             self._resume(pending_approval, user_input=user_input, history=history, speaker=speaker)

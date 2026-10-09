@@ -1,7 +1,9 @@
-import functools
+import collections.abc
+import json
 
 import httpx
 import pytest
+from mcp.types import LATEST_PROTOCOL_VERSION
 
 from conciergent.agent.mcp import probe
 from conciergent.agent.mcp.probe import requires_user_authorization
@@ -9,30 +11,50 @@ from conciergent.agent.mcp.probe import requires_user_authorization
 
 _URL = 'https://mcp.example/mcp'
 
-
-def _serve(monkeypatch: pytest.MonkeyPatch, handler: httpx.MockTransport) -> None:
-    monkeypatch.setattr(probe.httpx, 'AsyncClient', functools.partial(httpx.AsyncClient, transport=handler))
+Handler = collections.abc.Callable[[httpx.Request], httpx.Response]
 
 
-@pytest.mark.parametrize(
-    ('status', 'verdict'), [(401, True), (403, True), (200, False), (202, False), (500, None), (404, None)]
-)
-async def test_the_unauthenticated_status_decides_the_verdict(
-    monkeypatch: pytest.MonkeyPatch, status: int, verdict: bool | None
-):
-    _serve(monkeypatch, httpx.MockTransport(lambda request: httpx.Response(status)))
+def _serve(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
+    # The probe builds its client through the SDK's factory, so swap in one that answers from the handler.
+    def client_factory(**kwargs: object) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
-    assert await requires_user_authorization(_URL) is verdict
+    monkeypatch.setattr(probe, 'create_mcp_http_client', client_factory)
 
 
-async def test_the_probe_sends_an_initialize_without_credentials(monkeypatch: pytest.MonkeyPatch):
+def _public_server(request: httpx.Request) -> httpx.Response:
+    message = json.loads(request.content) if request.content else {}
+    if message.get('method') != 'initialize':
+        return httpx.Response(202)
+    result = {
+        'protocolVersion': LATEST_PROTOCOL_VERSION,
+        'capabilities': {},
+        'serverInfo': {'name': 'public', 'version': '1'},
+    }
+    return httpx.Response(200, json={'jsonrpc': '2.0', 'id': message['id'], 'result': result})
+
+
+async def test_a_completed_handshake_needs_no_user(monkeypatch: pytest.MonkeyPatch):
+    _serve(monkeypatch, _public_server)
+
+    assert await requires_user_authorization(_URL) is False
+
+
+@pytest.mark.parametrize('status', [401, 403])
+async def test_a_rejected_handshake_needs_a_user(monkeypatch: pytest.MonkeyPatch, status: int):
+    _serve(monkeypatch, lambda request: httpx.Response(status))
+
+    assert await requires_user_authorization(_URL) is True
+
+
+async def test_the_handshake_carries_no_credentials(monkeypatch: pytest.MonkeyPatch):
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         return httpx.Response(401)
 
-    _serve(monkeypatch, httpx.MockTransport(handler))
+    _serve(monkeypatch, handler)
 
     await requires_user_authorization(_URL)
 
@@ -40,26 +62,17 @@ async def test_the_probe_sends_an_initialize_without_credentials(monkeypatch: py
     assert 'authorization' not in requests[0].headers
 
 
-async def test_an_opened_session_is_ended(monkeypatch: pytest.MonkeyPatch):
-    methods: list[str] = []
+@pytest.mark.parametrize('status', [500, 400])
+async def test_another_error_status_has_no_verdict(monkeypatch: pytest.MonkeyPatch, status: int):
+    _serve(monkeypatch, lambda request: httpx.Response(status))
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        methods.append(request.method)
-        if request.method == 'DELETE':
-            raise httpx.ConnectError('gone', request=request)
-        return httpx.Response(200, headers={'mcp-session-id': 's1'})
-
-    _serve(monkeypatch, httpx.MockTransport(handler))
-
-    # A failed cleanup keeps the verdict the initialize already gave.
-    assert await requires_user_authorization(_URL) is False
-    assert methods == ['POST', 'DELETE']
+    assert await requires_user_authorization(_URL) is None
 
 
 async def test_an_unreachable_server_has_no_verdict(monkeypatch: pytest.MonkeyPatch):
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError('refused', request=request)
 
-    _serve(monkeypatch, httpx.MockTransport(handler))
+    _serve(monkeypatch, handler)
 
     assert await requires_user_authorization(_URL) is None

@@ -19,7 +19,7 @@ async def run_turn(
     compactor: HistorySummarizer | None = None,
     approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
     history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
-    shared: bool = False,
+    in_group: bool = False,
     speaker: str | None = None,
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
@@ -27,7 +27,7 @@ async def run_turn(
     The ``principal`` is the user's identity and keys credentials,
     while ``conversation`` scopes history and pending approvals, for example one Slack thread.
     Surfaces without threads leave it unset and the whole dialog with a user is one conversation.
-    A ``shared`` conversation is a group chat, its members share the history while each one owns their own approvals,
+    An ``in_group`` conversation is a group chat. Its members share the history while each one owns their approvals,
     and the ``speaker`` names who sent this message.
     This is side-effect only, the surface sends and the appended history turn.
     """
@@ -39,9 +39,9 @@ async def run_turn(
             await message_store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
             history = compacted
     # In a group each member owns the approvals their own turns parked, so another member's message never takes one.
-    owner = principal if shared else None
+    owner = principal if in_group else None
     pending_approval = await message_store.take_approval(conversation, owner=owner)
-    if shared and pending_approval is None and _is_approval_decision(user_input):
+    if in_group and pending_approval is None and _is_approval_decision(user_input):
         # A confirm or cancel with nothing of the speaker's to resolve is someone else's card or an expired one,
         # and running it as a message would only confuse the agent, so tell the speaker and stop.
         await surface.send_private_notice(i18n.t('approval.unavailable', surface.lang))
@@ -55,7 +55,6 @@ async def run_turn(
         pending_approval=pending_approval,
         bridge=bridge,
         surface=surface,
-        shared=shared,
         speaker=speaker,
     )
 
