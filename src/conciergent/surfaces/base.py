@@ -6,6 +6,7 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import GroupPolicy
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -29,6 +30,10 @@ class Surface(abc.ABC):
     The application stays ignorant of concrete platforms, adding one means implementing this
     and passing an instance to ``App``, never editing the assembly.
     """
+
+    def __init__(self, *, groups: GroupPolicy = GroupPolicy()) -> None:
+        # Which group chats this platform answers in, beyond direct messages. Off unless configured.
+        self.groups = groups
 
     @abc.abstractmethod
     def build_routers(self, context: SurfaceContext) -> list[fastapi.APIRouter]:

@@ -19,6 +19,10 @@ agent:
   # A missing token runs the full OAuth flow inside the MCP connect, so this stays above the handoff wait,
   # conversation.oauth_wait_timeout_seconds, letting a slow authorization end with a clean expiry.
   mcp_read_timeout_seconds: 300
+  # Group chats probe each MCP server, without credentials, for whether it needs a per-user authorization.
+  # A probe gives up after the timeout, and an unreachable server is probed again after the retry interval.
+  mcp_probe_timeout_seconds: 10
+  mcp_probe_retry_seconds: 60
   client_name: conciergent
 
 surface:
@@ -31,6 +35,11 @@ surface:
     brand_color: '#586af2'
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
+    # Opt-in group chats, served only when no MCP server needs a per-user authorization.
+    groups:
+      enabled: false
+      allowed: []
+      reply_to: mention
   line:
     enabled: false
     channel_secret: ''
@@ -38,12 +47,22 @@ surface:
     brand_color: '#586af2'
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
+    # Opt-in group chats, served only when no MCP server needs a per-user authorization.
+    groups:
+      enabled: false
+      allowed: []
+      reply_to: mention
   discord:
     enabled: false
     bot_token: ''
     brand_color: '#586af2'
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
+    # Opt-in group chats, served only when no MCP server needs a per-user authorization.
+    groups:
+      enabled: false
+      allowed: []
+      reply_to: mention
 
 store:
   messages_url: ''

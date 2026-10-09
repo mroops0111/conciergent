@@ -3,12 +3,13 @@ import typing
 import fastapi
 
 from conciergent.defaults import DEFAULTS
+from conciergent.groups import GroupPolicy
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
 
 class Line(Surface):
-    """The LINE platform, one webhook route serving messages and follow events."""
+    """The LINE platform, one webhook route serving direct messages, follow events, and opt-in group chats."""
 
     def __init__(
         self,
@@ -18,7 +19,9 @@ class Line(Surface):
         brand_color: str = DEFAULTS.surface.line.brand_color,
         destructive_color: str = DEFAULTS.surface.line.destructive_color,
         api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds,
+        groups: GroupPolicy = GroupPolicy(),
     ) -> None:
+        super().__init__(groups=groups)
         self._channel_secret = channel_secret
         self._channel_access_token = channel_access_token
         self._brand_color = brand_color
@@ -38,6 +41,7 @@ class Line(Surface):
                     api_timeout_seconds=self._api_timeout_seconds,
                     brand_color=self._brand_color,
                     destructive_color=self._destructive_color,
+                    groups=self.groups,
                 ),
                 message_store=context.message_store,
                 runner=context.runner,

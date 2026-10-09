@@ -17,6 +17,8 @@ agent:
     - http://localhost:9000/mcp
   # input_token_limit: null # auto-detects the model's context window; set an integer to override
   # mcp_read_timeout_seconds: 300 # must exceed conversation.oauth_wait_timeout_seconds (OAuth runs in the connect)
+  # mcp_probe_timeout_seconds: 10 # group chats only, how long the no-credential authorization probe waits
+  # mcp_probe_retry_seconds: 60 # group chats only, when to probe an unreachable server again
   # client_name: conciergent # name shown on the MCP OAuth screen
 
 surface:
@@ -29,6 +31,10 @@ surface:
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
     # api_timeout_seconds: 30
+    # groups: # opt-in group chats, only when no MCP server needs a per-user authorization
+    #   enabled: false
+    #   allowed: [] # channel ids
+    #   reply_to: mention # mention answers only when the bot is mentioned, all answers every message
   line:
     enabled: false
     # channel_secret: ${LINE_CHANNEL_SECRET}
@@ -36,12 +42,20 @@ surface:
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
     # api_timeout_seconds: 30
+    # groups: # opt-in group chats, only when no MCP server needs a per-user authorization
+    #   enabled: false
+    #   allowed: [] # groupId / roomId, logged when the bot joins
+    #   reply_to: mention # mention answers only when the bot is mentioned, all answers every message
   discord:
     enabled: false
     # bot_token: ${DISCORD_BOT_TOKEN} # the bot connects over the gateway and replies in direct messages
     # brand_color: '#586af2'
     # destructive_color: '#DC3545'
     # api_timeout_seconds: 30
+    # groups: # opt-in group chats, only when no MCP server needs a per-user authorization
+    #   enabled: false
+    #   allowed: [] # channel or server ids
+    #   reply_to: mention # mention answers only when the bot is mentioned, all answers every message
 
 # Message-bearing state (history, approvals, dedupe, OAuth handoff) expires on Redis,
 # while long-lived credentials (MCP and bot tokens) live in Postgres and survive restarts.

@@ -20,7 +20,7 @@ class FakeMessenger:
             raise httpx.HTTPStatusError('expired', request=request, response=httpx.Response(400, request=request))
         self.replies.append(message)
 
-    async def push(self, user_id: str, message: dict[str, typing.Any]) -> None:
+    async def push(self, to: str, message: dict[str, typing.Any]) -> None:
         self.pushes.append(message)
 
     async def start_loading(self, user_id: str) -> None:
@@ -28,7 +28,7 @@ class FakeMessenger:
 
 
 def _slot(messenger: FakeMessenger, *, reply_token: str | None = 'tok') -> ReplyTokenSlot:
-    return ReplyTokenSlot(typing.cast(typing.Any, messenger), user_id='U1', reply_token=reply_token)
+    return ReplyTokenSlot(typing.cast(typing.Any, messenger), to='U1', reply_token=reply_token)
 
 
 async def test_first_send_uses_reply_then_push():
@@ -72,7 +72,7 @@ async def test_card_with_suggestions_gets_quick_reply_chips():
 
     message = messenger.replies[0]
     assert message['type'] == 'flex'
-    assert message['quickReply']['items'][0]['action']['text'] == 'more'
+    assert message['quickReply']['items'][0]['action']['data'] == 'suggestion:more'
 
 
 async def test_destructive_card_has_no_chips():
