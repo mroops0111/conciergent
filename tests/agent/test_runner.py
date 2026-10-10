@@ -1,5 +1,5 @@
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
 from pydantic_ai.models.test import TestModel
@@ -44,10 +44,10 @@ class LangSurface(RecordingSurfaceBase):
         return self._lang
 
 
-def _destructive_server(calls: list[int]) -> FastMCP:
-    server = FastMCP('test')
+def _destructive_server(calls: list[int]) -> MCPServer:
+    server = MCPServer('test')
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_it(x: int) -> str:
         calls.append(x)
         return 'deleted'
@@ -55,7 +55,7 @@ def _destructive_server(calls: list[int]) -> FastMCP:
     return server
 
 
-def _agent(server: FastMCP) -> ChatRunner:
+def _agent(server: MCPServer) -> ChatRunner:
     return ChatRunner(
         model=TestModel(),
         system_prompt=_SYSTEM_PROMPT,
@@ -136,14 +136,14 @@ async def test_confirm_matches_the_parked_prompt_after_the_locale_changes():
 
 async def test_confirm_runs_all_deferred_tools():
     calls: list[str] = []
-    server = FastMCP('test')
+    server = MCPServer('test')
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_a(x: int) -> str:
         calls.append('a')
         return 'a'
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_b(x: int) -> str:
         calls.append('b')
         return 'b'

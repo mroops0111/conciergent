@@ -160,7 +160,8 @@ class GatewaySpec(pydantic.BaseModel):
     """One OpenAPI spec exposed as MCP tools through the embedded gateway.
 
     Fields mirror openapi-mcp-gateway's per-server config, so an embedded spec supports the same auth,
-    exposure, and policy as running the gateway standalone.
+    exposure, policy, per-operation shaping, headers, and instructions as running the gateway standalone.
+    The mappings are validated by the gateway itself when it starts, so they follow its documented shapes.
     """
 
     name: str
@@ -170,7 +171,25 @@ class GatewaySpec(pydantic.BaseModel):
     auth: dict[str, typing.Any] | None = None
     policy: dict[str, typing.Any] | None = None
     timeout: float = 90
-    exposure: typing.Literal['static', 'dynamic'] = 'static'
+    # ``{style: static | dynamic, promote_resources: bool}``. A bare ``static`` or ``dynamic`` is shorthand for the style.
+    exposure: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    # Per-operation shaping keyed by operationId, for example renaming a tool or fixing a parameter.
+    operations: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    # Static headers sent on every upstream call.
+    headers: dict[str, str] = pydantic.Field(default_factory=dict)
+    # Guidance about the API as a whole, sent to the agent in the MCP initialize result.
+    instructions: str | None = None
+
+    @pydantic.field_validator('exposure', mode='before')
+    @classmethod
+    def _exposure_shorthand(cls, value: typing.Any) -> typing.Any:
+        if value is None:
+            return {}
+        return {'style': value} if isinstance(value, str) else value
+
+    def server_config(self) -> dict[str, typing.Any]:
+        """This spec as an openapi-mcp-gateway ``servers`` entry, leaving out what is unset."""
+        return self.model_dump(exclude_none=True, exclude_defaults=True) | {'name': self.name, 'spec': self.spec}
 
 
 class GatewaySettings(pydantic.BaseModel):

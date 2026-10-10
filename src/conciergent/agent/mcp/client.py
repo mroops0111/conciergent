@@ -2,7 +2,7 @@ import collections.abc
 import logging
 import typing
 
-import httpx
+import httpx2
 import pydantic
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.auth.utils import (
@@ -11,7 +11,7 @@ from mcp.client.auth.utils import (
     handle_auth_metadata_response,
     handle_protected_resource_response,
 )
-from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata, OAuthMetadata
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import MCPToolset, MCPToolsetClient
 from pydantic_ai.tools import ToolDefinition
@@ -126,7 +126,7 @@ async def _discover_oauth_metadata(server_url: str) -> OAuthMetadata | None:
     if server_url in _OAUTH_METADATA_CACHE:
         return _OAUTH_METADATA_CACHE[server_url]
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx2.AsyncClient() as client:
             auth_server_url: str | None = None
             for url in build_protected_resource_metadata_discovery_urls(None, server_url):
                 resource_metadata = await handle_protected_resource_response(await client.get(url))
@@ -157,9 +157,9 @@ class _OAuthBridgeAdapter:
     async def redirect_handler(self, authorization_url: str) -> None:
         self._authorize_url = authorization_url
 
-    async def callback_handler(self) -> tuple[str, str | None]:
+    async def callback_handler(self) -> AuthorizationCodeResult:
         if self._authorize_url is None:
             raise RuntimeError('the redirect handler must run before the callback handler')
-        # The bridge returns the code with the state the callback received,
-        # which the SDK checks against the state it put in the authorize URL.
+        # The bridge returns the code with the state and iss the callback received,
+        # which the SDK checks against the state it put in the authorize URL and the server's issuer.
         return await self._oauth_bridge.request_authorization(self._authorize_url)

@@ -1,5 +1,7 @@
 import asyncio
 
+from mcp.shared.auth import AuthorizationCodeResult
+
 from conciergent.store.message import MessageStore
 
 
@@ -61,7 +63,9 @@ async def test_oauth_code_reaches_the_waiter(message_store: MessageStore):
         await message_store.deliver_oauth_code('s1', 'code-1')
 
     task = asyncio.create_task(deliver())
-    assert await message_store.await_oauth_code('s1', timeout_seconds=5) == ('code-1', 's1')
+    assert await message_store.await_oauth_code('s1', timeout_seconds=5) == AuthorizationCodeResult(
+        code='code-1', state='s1'
+    )
     await task
 
 
@@ -72,4 +76,12 @@ async def test_oauth_code_wait_times_out(message_store: MessageStore):
 async def test_oauth_code_zero_timeout_checks_once(message_store: MessageStore):
     assert await message_store.await_oauth_code('nobody', timeout_seconds=0) is None
     await message_store.deliver_oauth_code('ready', 'code-r')
-    assert await message_store.await_oauth_code('ready', timeout_seconds=0) == ('code-r', 'ready')
+    assert await message_store.await_oauth_code('ready', timeout_seconds=0) == AuthorizationCodeResult(
+        code='code-r', state='ready'
+    )
+
+
+async def test_oauth_code_carries_the_issuer(message_store: MessageStore):
+    await message_store.deliver_oauth_code('s2', 'code-2', 'https://as.example.com')
+    result = await message_store.await_oauth_code('s2', timeout_seconds=0)
+    assert result == AuthorizationCodeResult(code='code-2', state='s2', iss='https://as.example.com')

@@ -6,6 +6,7 @@ import typing
 
 import fastapi
 import fastapi.responses
+import pydantic_ai
 import uvicorn
 
 from conciergent import i18n, logger
@@ -152,12 +153,15 @@ class App:
 
         @app.get('/oauth/mcp/callback')
         async def mcp_oauth_callback(
-            code: str = '', state: str = '', accept_language: str = fastapi.Header(default='')
+            code: str = '',
+            state: str = '',
+            iss: str | None = None,
+            accept_language: str = fastapi.Header(default=''),
         ) -> fastapi.responses.HTMLResponse:
             lang = parse_accept_language(accept_language)
             if not code or not state:
                 return _callback_page(lang, 'callback.failed', status_code=400)
-            await self._message_store.deliver_oauth_code(state, code)
+            await self._message_store.deliver_oauth_code(state, code, iss)
             return _callback_page(lang, 'callback.completed')
 
         for surface in self._surfaces:
@@ -168,6 +172,8 @@ class App:
 
     def run(self) -> None:
         """Serve the webhook application."""
+        # The process owns its output, which may be JSON logs, so pydantic-ai's first-run banner stays off.
+        pydantic_ai.BANNER_ENABLED = False
         if self._logger_settings is not None:
             # Configure process-wide logging once, before uvicorn brings up its own loggers.
             logger.setup(
@@ -194,16 +200,11 @@ def _build_gateway(settings: GatewaySettings, base_url: str) -> typing.Any:
     # The Redis store persists the gateway's OAuth client registrations across restarts,
     # so a client id saved by the agent is not later rejected as unknown once the gateway forgets it.
     store = StoreConfig(type='redis', redis_url=settings.redis_url)
-    gateway = openapi_mcp_gateway.Gateway(openapi_mcp_gateway.GatewayConfig(url=base_url, store=store))
-    for spec in settings.specs:
-        gateway.add_server(
-            spec.name,
-            spec.spec,
-            base_url=spec.base_url,
-            path_prefix=spec.path_prefix,
-            auth=spec.auth,
-            policy=spec.policy,
-            timeout=spec.timeout,
-            exposure=spec.exposure,
-        )
-    return gateway
+    config = openapi_mcp_gateway.GatewayConfig.model_validate(
+        {
+            'url': base_url,
+            'store': store.model_dump(),
+            'servers': [spec.server_config() for spec in settings.specs],
+        }
+    )
+    return openapi_mcp_gateway.Gateway.from_config(config)

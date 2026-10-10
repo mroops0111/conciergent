@@ -6,6 +6,7 @@ import fastapi
 import fastapi.testclient
 import pytest
 import yaml
+from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent import App, AppConfig, TurnResult, i18n
 from conciergent.agent.runner import ChatRunner
@@ -68,15 +69,18 @@ def test_mcp_oauth_callback_delivers_the_code(stores):
     client = _client(_silent_app(stores))
     code = 'c9'
     state = 's9'
+    iss = 'https://bot.example.com/github'
 
-    async def scenario() -> tuple[str, str] | None:
+    async def scenario() -> AuthorizationCodeResult | None:
         waiter = asyncio.create_task(message_store.await_oauth_code(state, timeout_seconds=5))
         await asyncio.sleep(0)
-        response = await asyncio.to_thread(client.get, '/oauth/mcp/callback', params={'code': code, 'state': state})
+        response = await asyncio.to_thread(
+            client.get, '/oauth/mcp/callback', params={'code': code, 'state': state, 'iss': iss}
+        )
         assert response.status_code == 200
         return await waiter
 
-    assert asyncio.run(scenario()) == (code, state)
+    assert asyncio.run(scenario()) == AuthorizationCodeResult(code=code, state=state, iss=iss)
 
 
 def test_mcp_oauth_callback_rejects_missing_params(stores):

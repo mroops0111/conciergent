@@ -49,7 +49,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra gateway
       - run: uv run pytest tests/ -v --tb=short
 
   build:
