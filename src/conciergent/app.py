@@ -6,6 +6,7 @@ import typing
 
 import fastapi
 import fastapi.responses
+import pydantic_ai
 import uvicorn
 
 from conciergent import i18n, logger
@@ -171,6 +172,8 @@ class App:
 
     def run(self) -> None:
         """Serve the webhook application."""
+        # The process owns its output, which may be JSON logs, so pydantic-ai's first-run banner stays off.
+        pydantic_ai.BANNER_ENABLED = False
         if self._logger_settings is not None:
             # Configure process-wide logging once, before uvicorn brings up its own loggers.
             logger.setup(
