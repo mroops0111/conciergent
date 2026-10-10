@@ -72,16 +72,7 @@ gateway:
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
-A spec entry mirrors openapi-mcp-gateway's per-server config, so you can add:
-
-- `exposure: dynamic` for a large spec, so the agent sees three meta-tools instead of one per endpoint. The full form is `exposure: {style: dynamic, promote_resources: false}`.
-- A `policy` filter.
-- `auth` (`bearer`, `api_key`, `oauth2`, or `passthrough`).
-- `operations` to shape tools per operationId, for example fixing a parameter the agent should never choose.
-- `headers` sent on every upstream call.
-- `instructions` that tell the agent what the API is for.
-
-An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
+A spec entry takes openapi-mcp-gateway's per-server options, such as `exposure: dynamic` for a large spec, a `policy` filter, `auth`, and per-operation `operations` shaping. An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
 
 ### 3. Connect Your Chat App
 
