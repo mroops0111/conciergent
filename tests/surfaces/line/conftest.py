@@ -128,11 +128,8 @@ def user_source(user: str = USER) -> dict[str, typing.Any]:
     return {'type': 'user', 'userId': user}
 
 
-def group_source(group_id: str, *, user: str | None = USER) -> dict[str, typing.Any]:
-    source: dict[str, typing.Any] = {'type': 'group', 'groupId': group_id}
-    if user is not None:
-        source['userId'] = user
-    return source
+def group_source(group_id: str, *, user: str = USER) -> dict[str, typing.Any]:
+    return {'type': 'group', 'groupId': group_id, 'userId': user}
 
 
 def room_source(room_id: str, *, user: str = USER) -> dict[str, typing.Any]:
@@ -178,12 +175,3 @@ def postback_event(
 
 def follow_event(*, event_id: str = 'ev-follow') -> dict[str, typing.Any]:
     return {'type': 'follow', 'webhookEventId': event_id, 'replyToken': 'rt2', 'source': user_source()}
-
-
-def join_event(group_id: str, *, event_id: str = 'ev-join') -> dict[str, typing.Any]:
-    return {
-        'type': 'join',
-        'webhookEventId': event_id,
-        'replyToken': 'rt3',
-        'source': group_source(group_id, user=None),
-    }

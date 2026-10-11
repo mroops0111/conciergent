@@ -19,7 +19,7 @@ from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs
 from conciergent.agent.mcp.probe import requires_user_authorization
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupTurn, speaker_prompt
+from conciergent.group_chat import GroupChatTurn, speaker_prompt
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
@@ -71,7 +71,7 @@ class _AgentDeps:
     lang: Lang | None
     principal: str
     # Set on a group-chat turn, None in a direct chat.
-    group: GroupTurn | None = None
+    group: GroupChatTurn | None = None
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -122,15 +122,15 @@ class ChatRunner:
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
         # Whether a server URL needs a per-user authorization, when the config already says so, as for a gateway spec.
-        # Any other URL is probed, see supports_groups.
+        # Any other URL is probed, see supports_group_chats.
         self._known_user_authorization = dict(known_user_authorization or {})
         self._probe_timeout_seconds = mcp_probe_timeout_seconds
         self._probe_retry_seconds = mcp_probe_retry_seconds
         # Set once the probes reach a verdict. An unreachable server leaves it unset until the retry time passes.
-        self._groups_supported: bool | None = None
-        self._groups_retry_at = 0.0
+        self._group_chats_supported: bool | None = None
+        self._group_chats_retry_at = 0.0
         # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
-        self._groups_lock = asyncio.Lock()
+        self._group_chats_lock = asyncio.Lock()
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
@@ -193,17 +193,17 @@ class ChatRunner:
         for server in self._oauth_servers:
             await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
 
-    async def supports_groups(self) -> bool:
+    async def supports_group_chats(self) -> bool:
         """Report whether group chats may be served, which needs every MCP server to work without a user's token.
 
         A group is shared by several people, so it never runs a per-user authorization.
-        Any server that needs one rules groups out for the whole app, rather than leaving some tools half-working.
-        The verdict is cached once reached. An unreachable server pauses groups until the retry interval passes.
+        Any server that needs one rules group chats out for the whole app, rather than leaving some tools half-working.
+        The verdict is cached once reached. An unreachable server pauses group chats until the retry interval passes.
         """
-        async with self._groups_lock:
-            if self._groups_supported is not None:
-                return self._groups_supported
-            if time.monotonic() < self._groups_retry_at:
+        async with self._group_chats_lock:
+            if self._group_chats_supported is not None:
+                return self._group_chats_supported
+            if time.monotonic() < self._group_chats_retry_at:
                 return False
             needs_user = await asyncio.gather(*(self._needs_user_authorization(s) for s in self._oauth_servers))
             per_user = [server for server, verdict in zip(self._oauth_servers, needs_user, strict=True) if verdict]
@@ -215,16 +215,16 @@ class ChatRunner:
                     'Group chats are disabled because these MCP servers need a per-user authorization: %s',
                     ', '.join(per_user),
                 )
-                self._groups_supported = False
+                self._group_chats_supported = False
             elif undecided:
                 logger.warning(
                     'Group chats are paused until these MCP servers can be checked: %s', ', '.join(undecided)
                 )
-                self._groups_retry_at = time.monotonic() + self._probe_retry_seconds
+                self._group_chats_retry_at = time.monotonic() + self._probe_retry_seconds
                 return False
             else:
-                self._groups_supported = True
-            return self._groups_supported
+                self._group_chats_supported = True
+            return self._group_chats_supported
 
     async def _needs_user_authorization(self, server: str) -> bool | None:
         # Without OAuth configured _oauth_servers is empty, so no server is ever reached with a user's token.
@@ -272,7 +272,7 @@ class ChatRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
         surface: ReplySurface | None = None,
-        group: GroupTurn | None = None,
+        group: GroupChatTurn | None = None,
     ) -> TurnResult:
         """Run one turn for ``principal``, a group-chat turn when ``group`` is set.
 

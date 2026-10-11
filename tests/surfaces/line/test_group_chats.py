@@ -5,14 +5,13 @@ from pydantic_ai.models.test import TestModel
 
 from conciergent import i18n
 from conciergent.agent.runner import ChatRunner
-from conciergent.groups import GroupPolicy
+from conciergent.group_chat import GroupChatPolicy
 from tests.conftest import destructive_server
 from tests.surfaces.line.conftest import (
     USER,
     BuildHarness,
     LineHarness,
     group_source,
-    join_event,
     message_event,
     postback_event,
     room_source,
@@ -22,26 +21,26 @@ from tests.surfaces.line.conftest import (
 
 
 GROUP = 'Cgroup1'
-ALLOW_GROUP = GroupPolicy(enabled=True, allowed=frozenset({GROUP}))
+GROUP_CHATS_ON = GroupChatPolicy(enabled=True)
 
 
 def _group_message(
-    text: str, *, event_id: str, mentions: list[dict[str, typing.Any]] | None = None, group: str = GROUP
+    text: str, *, event_id: str, mentions: list[dict[str, typing.Any]] | None = None
 ) -> dict[str, typing.Any]:
     fields: dict[str, typing.Any] = {'quoteToken': f'q-{event_id}'}
     if mentions is not None:
         fields['mention'] = {'mentionees': mentions}
-    return message_event(text, event_id=event_id, source=group_source(group), **fields)
+    return message_event(text, event_id=event_id, source=group_source(GROUP), **fields)
 
 
-def _addressed(text: str, *, event_id: str, group: str = GROUP) -> dict[str, typing.Any]:
+def _addressed(text: str, *, event_id: str) -> dict[str, typing.Any]:
     """A group message that opens by mentioning the bot as ``@Bot``."""
-    return _group_message(f'@Bot {text}', event_id=event_id, mentions=[self_mention(0, 4)], group=group)
+    return _group_message(f'@Bot {text}', event_id=event_id, mentions=[self_mention(0, 4)])
 
 
 @pytest.fixture
 async def group_harness(line_app: BuildHarness) -> LineHarness:
-    harness = await line_app(groups=ALLOW_GROUP)
+    harness = await line_app(group_chat_policy=GROUP_CHATS_ON)
     harness.display_names[USER] = 'Amy'
     return harness
 
@@ -76,33 +75,27 @@ async def test_group_chatter_is_dropped_before_any_check_or_lookup(group_harness
 
     assert group_harness.agent.inputs == []
     assert group_harness.lang_lookups == []
-    assert group_harness.agent.group_checks == 0
+    assert group_harness.agent.group_chat_checks == 0
 
 
 async def test_reply_to_all_answers_every_message(line_app: BuildHarness) -> None:
-    harness = await line_app(groups=ALLOW_GROUP._replace(reply_to='all'))
+    harness = await line_app(group_chat_policy=GROUP_CHATS_ON._replace(reply_trigger='every_message'))
 
     await harness.post(_group_message('no mention needed', event_id='g5'))
 
     assert harness.agent.inputs == ['no mention needed']
 
 
-async def test_groups_outside_the_allowlist_are_ignored(group_harness: LineHarness) -> None:
-    await group_harness.post(_addressed('hi', event_id='g6', group='Cother'))
-
-    assert group_harness.agent.inputs == []
-
-
-async def test_groups_are_ignored_while_disabled(line_app: BuildHarness) -> None:
-    harness = await line_app(groups=ALLOW_GROUP._replace(enabled=False))
+async def test_group_chats_are_ignored_while_disabled(line_app: BuildHarness) -> None:
+    harness = await line_app(group_chat_policy=GroupChatPolicy())
 
     await harness.post(_addressed('hi', event_id='g7'))
 
     assert harness.agent.inputs == []
 
 
-async def test_groups_are_ignored_when_a_server_needs_per_user_authorization(group_harness: LineHarness) -> None:
-    group_harness.agent.groups_supported = False
+async def test_group_chats_are_ignored_when_a_server_needs_per_user_authorization(group_harness: LineHarness) -> None:
+    group_harness.agent.group_chats_supported = False
 
     await group_harness.post(_addressed('hi', event_id='g8'))
 
@@ -135,7 +128,7 @@ async def test_the_push_fallback_targets_the_group(group_harness: LineHarness) -
 
 
 async def test_a_room_is_its_own_conversation(line_app: BuildHarness) -> None:
-    harness = await line_app(groups=GroupPolicy(enabled=True, allowed=frozenset({'Rroom1'}), reply_to='all'))
+    harness = await line_app(group_chat_policy=GROUP_CHATS_ON._replace(reply_trigger='every_message'))
 
     await harness.post(message_event('hi', event_id='g11', source=room_source('Rroom1')))
 
@@ -144,20 +137,10 @@ async def test_a_room_is_its_own_conversation(line_app: BuildHarness) -> None:
     assert harness.agent.calls[0]['speaker'] == f'user-{USER[-4:]}'
 
 
-async def test_a_join_event_logs_the_group_and_starts_no_turn(
-    group_harness: LineHarness, caplog: pytest.LogCaptureFixture
-) -> None:
-    with caplog.at_level('INFO'):
-        await group_harness.post(join_event('Cnew'))
-
-    assert group_harness.agent.inputs == []
-    assert 'Cnew' in caplog.text
-
-
 async def test_a_real_approval_waits_for_the_member_who_requested_it(line_app: BuildHarness) -> None:
     calls: list[int] = []
     runner = ChatRunner(model=TestModel(), system_prompt='be helpful', mcp_servers=[destructive_server(calls)])
-    harness = await line_app(runner=runner, groups=ALLOW_GROUP)
+    harness = await line_app(runner=runner, group_chat_policy=GROUP_CHATS_ON)
     confirm = f'suggestion:{i18n.t("approval.confirm", None)}'
 
     # Alice asks, and the destructive tool parks behind a confirmation card in the group.

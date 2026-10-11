@@ -36,10 +36,10 @@ surface:
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
     # Opt-in group chats, served only when no MCP server needs a per-user authorization.
-    groups:
+    # reply_trigger is mention or every_message.
+    group_chats:
       enabled: false
-      allowed: []
-      reply_to: mention
+      reply_trigger: mention
   line:
     enabled: false
     channel_secret: ''
@@ -48,10 +48,10 @@ surface:
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
     # Opt-in group chats, served only when no MCP server needs a per-user authorization.
-    groups:
+    # reply_trigger is mention or every_message.
+    group_chats:
       enabled: false
-      allowed: []
-      reply_to: mention
+      reply_trigger: mention
   discord:
     enabled: false
     bot_token: ''
@@ -59,10 +59,10 @@ surface:
     destructive_color: '#DC3545'
     api_timeout_seconds: 30
     # Opt-in group chats, served only when no MCP server needs a per-user authorization.
-    groups:
+    # reply_trigger is mention or every_message.
+    group_chats:
       enabled: false
-      allowed: []
-      reply_to: mention
+      reply_trigger: mention
 
 store:
   messages_url: ''

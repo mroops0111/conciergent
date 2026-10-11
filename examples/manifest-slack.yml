@@ -3,7 +3,7 @@
 #
 # conciergent replies to users in direct messages, through the message.im event below.
 # The in-chat OAuth authorization for MCP tools also happens in that DM.
-# Channels are opt-in through surface.slack.groups. Uncomment the app_mention lines to answer mentions there.
+# Channels are opt-in through surface.slack.group_chats. Uncomment the app_mention lines to answer mentions there.
 display_information:
   name: My conciergent bot
 features:
@@ -20,13 +20,13 @@ oauth_config:
       - im:read
       - im:write
       - users:read
-      # - app_mentions:read # group chats, reply_to: mention
+      # - app_mentions:read # group chats, reply_trigger: mention
 settings:
   event_subscriptions:
     request_url: https://YOUR-PUBLIC-URL/slack/events
     bot_events:
       - message.im
-      # - app_mention # group chats, reply_to: mention
+      # - app_mention # group chats, reply_trigger: mention
   interactivity:
     is_enabled: true
     request_url: https://YOUR-PUBLIC-URL/slack/interactions

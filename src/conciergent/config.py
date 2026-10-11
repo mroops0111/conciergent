@@ -7,7 +7,7 @@ import pydantic
 import yaml
 
 from conciergent.defaults import defaults_layer
-from conciergent.groups import GroupPolicy, ReplyTo
+from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.surfaces.base import Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
@@ -48,26 +48,18 @@ class AgentSettings(pydantic.BaseModel):
         return [] if value is None else value
 
 
-class GroupSettings(pydantic.BaseModel):
+class GroupChatSettings(pydantic.BaseModel):
     """Opt-in group chats for one surface, off by default.
 
-    A group turn runs with no per-user authorization, so groups are served only when every MCP server
+    A group turn runs with no per-user authorization, so group chats are served only when every MCP server
     works without a user's token, a public server or a gateway spec with a static ``bearer`` or ``api_key``.
     """
 
     enabled: bool = False
-    # Platform ids of the group chats the bot answers in. Any other group is ignored.
-    allowed: list[str] = pydantic.Field(default_factory=list)
-    reply_to: ReplyTo = 'mention'
+    reply_trigger: ReplyTrigger = 'mention'
 
-    @pydantic.field_validator('allowed', mode='before')
-    @classmethod
-    def _empty_when_null(cls, value: typing.Any) -> typing.Any:
-        # A bare `allowed:` in YAML parses to None; treat that as no groups rather than an error.
-        return [] if value is None else value
-
-    def policy(self) -> GroupPolicy:
-        return GroupPolicy(enabled=self.enabled, allowed=frozenset(self.allowed), reply_to=self.reply_to)
+    def policy(self) -> GroupChatPolicy:
+        return GroupChatPolicy(enabled=self.enabled, reply_trigger=self.reply_trigger)
 
 
 class SlackSettings(pydantic.BaseModel):
@@ -84,7 +76,7 @@ class SlackSettings(pydantic.BaseModel):
     brand_color: str
     destructive_color: str
     api_timeout_seconds: float
-    groups: GroupSettings = pydantic.Field(default_factory=GroupSettings)
+    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_secret_when_enabled(self) -> typing.Self:
@@ -102,7 +94,7 @@ class SlackSettings(pydantic.BaseModel):
             brand_color=self.brand_color,
             destructive_color=self.destructive_color,
             api_timeout_seconds=self.api_timeout_seconds,
-            groups=self.groups.policy(),
+            group_chat_policy=self.group_chats.policy(),
         )
 
 
@@ -115,7 +107,7 @@ class LineSettings(pydantic.BaseModel):
     brand_color: str
     destructive_color: str
     api_timeout_seconds: float
-    groups: GroupSettings = pydantic.Field(default_factory=GroupSettings)
+    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_credentials_when_enabled(self) -> typing.Self:
@@ -130,7 +122,7 @@ class LineSettings(pydantic.BaseModel):
             brand_color=self.brand_color,
             destructive_color=self.destructive_color,
             api_timeout_seconds=self.api_timeout_seconds,
-            groups=self.groups.policy(),
+            group_chat_policy=self.group_chats.policy(),
         )
 
 
@@ -145,7 +137,7 @@ class DiscordSettings(pydantic.BaseModel):
     brand_color: str
     destructive_color: str
     api_timeout_seconds: float
-    groups: GroupSettings = pydantic.Field(default_factory=GroupSettings)
+    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_token_when_enabled(self) -> typing.Self:
@@ -159,7 +151,7 @@ class DiscordSettings(pydantic.BaseModel):
             brand_color=self.brand_color,
             destructive_color=self.destructive_color,
             api_timeout_seconds=self.api_timeout_seconds,
-            groups=self.groups.policy(),
+            group_chat_policy=self.group_chats.policy(),
         )
 
 
@@ -173,8 +165,11 @@ class SurfaceSettings(pydantic.BaseModel):
     def enabled_surfaces(self) -> list[Surface]:
         return [settings.build() for settings in (self.slack, self.line, self.discord) if settings.enabled]
 
-    def groups_enabled(self) -> bool:
-        return any(settings.enabled and settings.groups.enabled for settings in (self.slack, self.line, self.discord))
+    def group_chats_enabled(self) -> bool:
+        return any(
+            settings.enabled and settings.group_chats.policy().enabled
+            for settings in (self.slack, self.line, self.discord)
+        )
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -303,10 +298,10 @@ class AppConfig(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode='after')
-    def _groups_need_shared_identity_specs(self) -> typing.Self:
+    def _group_chats_need_shared_identity_specs(self) -> typing.Self:
         # A group turn holds no one's authorization, so a per-user spec could never run there.
         # Gateway specs are known up front and fail here, other MCP servers are probed when the app starts.
-        if not (self.gateway.enabled and self.surface.groups_enabled()):
+        if not (self.gateway.enabled and self.surface.group_chats_enabled()):
             return self
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
         if per_user:

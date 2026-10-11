@@ -3,7 +3,7 @@ import typing
 import fastapi
 
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy
+from conciergent.group_chat import GroupChatPolicy
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
@@ -19,9 +19,9 @@ class Line(Surface):
         brand_color: str = DEFAULTS.surface.line.brand_color,
         destructive_color: str = DEFAULTS.surface.line.destructive_color,
         api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds,
-        groups: GroupPolicy = GroupPolicy(),
+        group_chat_policy: GroupChatPolicy = GroupChatPolicy(),
     ) -> None:
-        super().__init__(groups=groups)
+        super().__init__(group_chat_policy=group_chat_policy)
         self._channel_secret = channel_secret
         self._channel_access_token = channel_access_token
         self._brand_color = brand_color
@@ -41,7 +41,7 @@ class Line(Surface):
                     api_timeout_seconds=self._api_timeout_seconds,
                     brand_color=self._brand_color,
                     destructive_color=self._destructive_color,
-                    groups=self.groups,
+                    group_chat_policy=self.group_chat_policy,
                 ),
                 message_store=context.message_store,
                 runner=context.runner,

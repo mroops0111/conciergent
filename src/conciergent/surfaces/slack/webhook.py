@@ -12,7 +12,7 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, GroupTurn, without_spans
+from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, without_spans
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
@@ -43,7 +43,7 @@ class SlackWebhookSettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
-    groups: GroupPolicy = GroupPolicy()
+    group_chat_policy: GroupChatPolicy = GroupChatPolicy()
 
 
 def build_router(
@@ -78,7 +78,7 @@ def build_router(
         if _is_direct_user_message(event):
             is_group = False
             user_text = event.get('text', '')
-        elif _is_group_message(event, settings.groups):
+        elif _is_group_message(event, settings.group_chat_policy):
             is_group = True
             user_text = _without_bot_mentions(event.get('text', ''), _bot_user_id(payload))
         else:
@@ -117,7 +117,7 @@ def build_router(
         channel = (payload.get('channel') or {}).get('id', '')
         # Direct-message channel ids start with D, any other channel is a group the bot was let into.
         is_group = not channel.startswith('D')
-        if is_group and not settings.groups.admits(channel):
+        if is_group and not settings.group_chat_policy.enabled:
             return {}
         dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message, is_group=is_group)
         if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
@@ -175,7 +175,7 @@ async def _dispatch_turn(
         if is_group:
             # A channel thread is shared by everyone in it, rather than belonging to one user like a DM thread.
             scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
-            group = GroupTurn(
+            group = GroupChatTurn(
                 conversation=f'{scope}:{thread_ts}' if thread_ts else scope,
                 speaker=user.display_name or user_id,
             )
@@ -249,14 +249,14 @@ def _is_direct_user_message(event: dict[str, typing.Any]) -> bool:
 _GROUP_CHANNEL_TYPES = frozenset({'channel', 'group', 'mpim'})
 
 
-def _is_group_message(event: dict[str, typing.Any], groups: GroupPolicy) -> bool:
-    # With reply_to=mention only app_mention starts a turn. With all, every message does, and app_mention is skipped
-    # because the same message also arrives as a plain message event.
+def _is_group_message(event: dict[str, typing.Any], group_chat_policy: GroupChatPolicy) -> bool:
+    # With reply_trigger=mention only app_mention starts a turn. With every_message every message does,
+    # and app_mention is skipped because the same message also arrives as a plain message event.
     if event.get('bot_id') or event.get('subtype') or not event.get('user'):
         return False
-    if not groups.admits(event.get('channel')):
+    if not group_chat_policy.enabled:
         return False
-    if groups.reply_to == 'mention':
+    if group_chat_policy.reply_trigger == 'mention':
         return event.get('type') == 'app_mention'
     return event.get('type') == 'message' and event.get('channel_type') in _GROUP_CHANNEL_TYPES
 

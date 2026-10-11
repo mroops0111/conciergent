@@ -108,8 +108,8 @@ class StubRunner:
         self.output = output
         self.new_history = new_history
         self.invalidate_history = invalidate_history
-        self.groups_supported = True
-        self.group_checks = 0
+        self.group_chats_supported = True
+        self.group_chat_checks = 0
         self.bootstrap_result = False
         self.bootstrapped: list[str] = []
         self.inputs: list[str] = []
@@ -120,9 +120,9 @@ class StubRunner:
         # Callers only use the methods below, so the stand-in is cast to the concrete runner type.
         return typing.cast(ChatRunner, self)
 
-    async def supports_groups(self) -> bool:
-        self.group_checks += 1
-        return self.groups_supported
+    async def supports_group_chats(self) -> bool:
+        self.group_chat_checks += 1
+        return self.group_chats_supported
 
     async def bootstrap(self, principal: str, *, bridge: typing.Any = None) -> bool:
         self.bootstrapped.append(principal)

@@ -134,9 +134,9 @@ class App:
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
             await self._credential_store.prepare()
-            if any(surface.groups.enabled for surface in self._surfaces):
+            if any(surface.group_chat_policy.enabled for surface in self._surfaces):
                 # Check up front so a server that rules group chats out is logged at startup, not at the first group.
-                await self._runner.supports_groups()
+                await self._runner.supports_group_chats()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
                     # The mounted MCP sub-apps only serve while their session managers run,

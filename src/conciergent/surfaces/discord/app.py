@@ -3,7 +3,7 @@ import typing
 import fastapi
 
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy
+from conciergent.group_chat import GroupChatPolicy
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.discord.gateway import DiscordGateway, DiscordGatewaySettings
 
@@ -18,9 +18,9 @@ class Discord(Surface):
         brand_color: str = DEFAULTS.surface.discord.brand_color,
         destructive_color: str = DEFAULTS.surface.discord.destructive_color,
         api_timeout_seconds: float = DEFAULTS.surface.discord.api_timeout_seconds,
-        groups: GroupPolicy = GroupPolicy(),
+        group_chat_policy: GroupChatPolicy = GroupChatPolicy(),
     ) -> None:
-        super().__init__(groups=groups)
+        super().__init__(group_chat_policy=group_chat_policy)
         self._bot_token = bot_token
         self._brand_color = brand_color
         self._destructive_color = destructive_color
@@ -42,7 +42,7 @@ class Discord(Surface):
                 api_timeout_seconds=self._api_timeout_seconds,
                 brand_color=self._brand_color,
                 destructive_color=self._destructive_color,
-                groups=self.groups,
+                group_chat_policy=self.group_chat_policy,
             ),
             message_store=context.message_store,
             runner=context.runner,

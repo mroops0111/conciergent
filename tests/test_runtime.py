@@ -7,7 +7,7 @@ from conciergent import (
     Section,
     run_turn,
 )
-from conciergent.groups import GroupTurn
+from conciergent.group_chat import GroupChatTurn
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
 
@@ -26,7 +26,7 @@ async def _turn(
     *,
     principal: str = _PRINCIPAL,
     conversation: str | None = None,
-    group: GroupTurn | None = None,
+    group: GroupChatTurn | None = None,
 ) -> RecordingSurface:
     surface = RecordingSurface()
     await run_turn(
@@ -128,8 +128,8 @@ async def test_conversations_scope_history_within_one_principal(message_store: M
 _GROUP = 'line:group:G1'
 _ALICE = 'line:Ua'
 _BOB = 'line:Ub'
-_ALICE_IN_GROUP = GroupTurn(_GROUP, 'Alice')
-_BOB_IN_GROUP = GroupTurn(_GROUP, 'Bob')
+_ALICE_IN_GROUP = GroupChatTurn(_GROUP, 'Alice')
+_BOB_IN_GROUP = GroupChatTurn(_GROUP, 'Bob')
 
 
 async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store: MessageStore):
@@ -165,9 +165,9 @@ async def test_direct_confirm_without_an_approval_still_runs(message_store: Mess
     assert [call['pending_approval'] for call in runner.calls] == [None]
 
 
-async def test_a_group_turn_is_dropped_quietly_while_groups_cannot_be_served(message_store: MessageStore):
+async def test_a_group_turn_is_dropped_quietly_while_group_chats_cannot_be_served(message_store: MessageStore):
     runner = StubRunner('ok')
-    runner.groups_supported = False
+    runner.group_chats_supported = False
 
     surface = await _turn('hello', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
 

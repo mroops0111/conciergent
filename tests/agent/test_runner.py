@@ -12,7 +12,7 @@ from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
-from conciergent.groups import GroupTurn
+from conciergent.group_chat import GroupChatTurn
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
@@ -282,13 +282,13 @@ async def test_surface_formatting_hint_joins_the_instructions():
     assert formatting_hint in instructions
 
 
-async def test_groups_are_supported_without_oauth():
+async def test_group_chats_are_supported_without_oauth():
     agent = _agent(destructive_server([]))
 
-    assert await agent.supports_groups() is True
+    assert await agent.supports_group_chats() is True
 
 
-async def test_groups_follow_the_known_authorization_without_probing(
+async def test_group_chats_follow_the_known_authorization_without_probing(
     credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ):
     async def no_probe(url: str, **_: object) -> bool | None:
@@ -298,11 +298,11 @@ async def test_groups_follow_the_known_authorization_without_probing(
     shared = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: False})
     per_user = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: True})
 
-    assert await shared.supports_groups() is True
-    assert await per_user.supports_groups() is False
+    assert await shared.supports_group_chats() is True
+    assert await per_user.supports_group_chats() is False
 
 
-async def test_an_unreachable_server_pauses_groups_until_a_probe_decides(
+async def test_an_unreachable_server_pauses_group_chats_until_a_probe_decides(
     credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ):
     verdicts: list[bool | None] = [None, False]
@@ -315,15 +315,15 @@ async def test_an_unreachable_server_pauses_groups_until_a_probe_decides(
     monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
     agent = _oauth_agent(credential_store)
 
-    assert await agent.supports_groups() is False
-    assert await agent.supports_groups() is False  # still inside the retry interval, so no second probe yet
-    agent._groups_retry_at = 0.0  # the retry interval has passed
-    assert await agent.supports_groups() is True
-    assert await agent.supports_groups() is True  # a reached verdict is cached
+    assert await agent.supports_group_chats() is False
+    assert await agent.supports_group_chats() is False  # still inside the retry interval, so no second probe yet
+    agent._group_chats_retry_at = 0.0  # the retry interval has passed
+    assert await agent.supports_group_chats() is True
+    assert await agent.supports_group_chats() is True  # a reached verdict is cached
     assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
 
 
-async def test_concurrent_group_checks_share_one_probe_of_each_server(
+async def test_concurrent_group_chat_checks_share_one_probe_of_each_server(
     credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ):
     servers = ['https://a.example/mcp', 'https://b.example/mcp']
@@ -341,7 +341,7 @@ async def test_concurrent_group_checks_share_one_probe_of_each_server(
     monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
     agent = _oauth_agent(credential_store, servers=servers)
 
-    verdicts = await asyncio.gather(*(agent.supports_groups() for _ in range(5)))
+    verdicts = await asyncio.gather(*(agent.supports_group_chats() for _ in range(5)))
 
     assert verdicts == [True] * 5
     assert sorted(probed) == servers
@@ -355,7 +355,9 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
 
     await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
     direct = model.last_model_request_parameters
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, group=GroupTurn('g', 'Amy'))
+    result = await agent.run(
+        'hi', principal=_PRINCIPAL, history=[], pending_approval=None, group=GroupChatTurn('g', 'Amy')
+    )
     group = model.last_model_request_parameters
 
     assert direct is not None and group is not None

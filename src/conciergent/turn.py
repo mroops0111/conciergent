@@ -2,7 +2,7 @@ from conciergent import i18n
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupTurn
+from conciergent.group_chat import GroupChatTurn
 from conciergent.reply import Card, Carousel, ReplySurface
 from conciergent.runtime import OAuthBridge, PendingApproval
 from conciergent.store.message import MessageStore
@@ -20,19 +20,20 @@ async def run_turn(
     compactor: HistorySummarizer | None = None,
     approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
     history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
-    group: GroupTurn | None = None,
+    group: GroupChatTurn | None = None,
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
     The ``principal`` is the user's identity and keys credentials,
     while ``conversation`` scopes history and pending approvals, for example one Slack thread.
     Surfaces without threads leave it unset and the whole dialog with a user is one conversation.
-    A ``group`` makes this a group-chat turn in its shared conversation, served only while the app can serve groups.
+    A ``group`` makes this a group-chat turn in its shared conversation,
+    served only while the app can serve group chats.
     Its members share the history while each one owns the approvals their own turns parked.
     This is side-effect only, the surface sends and the appended history turn.
     """
-    if group is not None and not await runner.supports_groups():
-        # The app cannot serve groups right now, so the message is dropped without a reply.
+    if group is not None and not await runner.supports_group_chats():
+        # The app cannot serve group chats right now, so the message is dropped without a reply.
         await surface.acknowledge_silently()
         return
     conversation = group.conversation if group is not None else conversation or principal

@@ -11,7 +11,7 @@ from websockets.exceptions import ConnectionClosed
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, GroupTurn, ReplyTo, without_spans
+from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, ReplyTrigger, without_spans
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
@@ -33,7 +33,7 @@ _GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json'
 # The one non-privileged intent a direct-message bot needs; DM content is exempt from the message-content intent.
 _INTENT_DIRECT_MESSAGES = 1 << 12
 # Server messages, for group chats. Their content arrives only when the bot is mentioned,
-# unless the privileged message-content intent is on, which reply_to=all needs.
+# unless the privileged message-content intent is on, which reply_trigger=every_message needs.
 _INTENT_GUILD_MESSAGES = 1 << 9
 _INTENT_MESSAGE_CONTENT = 1 << 15
 _DEDUPE_TTL_SECONDS = 86400
@@ -75,14 +75,14 @@ class DiscordGatewaySettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.discord.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
-    groups: GroupPolicy = GroupPolicy()
+    group_chat_policy: GroupChatPolicy = GroupChatPolicy()
 
 
 class DiscordGateway:
     """A hand-rolled Discord gateway client that turns direct messages, group messages, and button clicks into turns.
 
     It owns the WebSocket lifecycle, identify, heartbeat, resume, and reconnect, so the rest of the surface
-    stays a plain REST client. Only direct messages, messages in allowed server channels, and component
+    stays a plain REST client. Only direct messages, server messages while group chats are on, and component
     interactions are acted on; everything else is ignored.
     The dispatch entry point is separated from the socket so it can be driven directly in tests.
     """
@@ -122,10 +122,11 @@ class DiscordGateway:
             except Exception as error:
                 close_code = _received_close_code(error)
                 if close_code == _DISALLOWED_INTENTS and self._intents() & _INTENT_MESSAGE_CONTENT:
-                    # Only reply_to=all asks for the privileged intent, so drop it rather than stop the DMs as well.
+                    # Only reply_trigger=every_message asks for the privileged intent,
+                    # so drop it rather than stop the direct messages as well.
                     logger.error(
                         'Discord refused the Message Content Intent, so group chats answer mentions only. '
-                        'Enable it for the bot in the Discord Developer Portal to use reply_to: all.'
+                        'Enable it for the bot in the Discord Developer Portal to use reply_trigger: every_message.'
                     )
                     self._message_content_denied = True
                     continue
@@ -194,8 +195,8 @@ class DiscordGateway:
             await self._maybe_dispatch_interaction(data)
 
     async def _maybe_dispatch_message(self, data: dict[str, typing.Any]) -> None:
-        # A fresh message from a human starts a turn, in a direct message or an allowed server channel.
-        # Bot echoes and messages in any other server channel are dropped.
+        # A fresh message from a human starts a turn, in a direct message or, with group chats on, a server channel.
+        # Bot echoes are dropped.
         author = data.get('author') or {}
         user_id = author.get('id')
         content = data.get('content') or ''
@@ -204,9 +205,9 @@ class DiscordGateway:
         if author.get('bot') or not user_id or not channel_id:
             return
         if guild_id:
-            if not self._settings.groups.admits(channel_id, guild_id):
+            if not self._settings.group_chat_policy.enabled:
                 return
-            if self._reply_to() == 'mention':
+            if self._reply_trigger() == 'mention':
                 if not self._mentions_bot(data):
                     return
                 content = self._without_bot_mentions(content)
@@ -251,7 +252,7 @@ class DiscordGateway:
         token = data.get('token')
         if not user_id or not channel_id or not interaction_id or not token:
             return
-        if guild_id and not self._settings.groups.admits(channel_id, guild_id):
+        if guild_id and not self._settings.group_chat_policy.enabled:
             return
         if await self._message_store.dedupe(f'discord:interaction:{interaction_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return
@@ -272,7 +273,7 @@ class DiscordGateway:
         user_text: str,
         locale: str | None,
         interaction: Interaction | None = None,
-        group: GroupTurn | None = None,
+        group: GroupChatTurn | None = None,
         reply_to_message_id: str | None = None,
     ) -> None:
         principal = make_principal(ChatSurface.discord, user_id)
@@ -339,15 +340,16 @@ class DiscordGateway:
             },
         }
 
-    def _reply_to(self) -> ReplyTo:
-        # Without the message-content intent only a mention carries text, so reply_to=all degrades to mentions.
-        return 'mention' if self._message_content_denied else self._settings.groups.reply_to
+    def _reply_trigger(self) -> ReplyTrigger:
+        # Without the message-content intent only a mention carries text,
+        # so reply_trigger=every_message degrades to answering mentions.
+        return 'mention' if self._message_content_denied else self._settings.group_chat_policy.reply_trigger
 
     def _intents(self) -> int:
         intents = _INTENT_DIRECT_MESSAGES
-        if self._settings.groups.enabled:
+        if self._settings.group_chat_policy.enabled:
             intents |= _INTENT_GUILD_MESSAGES
-            if self._reply_to() == 'all':
+            if self._reply_trigger() == 'every_message':
                 intents |= _INTENT_MESSAGE_CONTENT
         return intents
 
@@ -365,9 +367,9 @@ def _received_close_code(error: Exception) -> int | None:
     return None
 
 
-def _group_turn(channel_id: str, speaker: str) -> GroupTurn:
+def _group_turn(channel_id: str, speaker: str) -> GroupChatTurn:
     # A direct message is one conversation per user, while a server channel is shared by everyone in it.
-    return GroupTurn(conversation=make_principal(ChatSurface.discord, 'group', channel_id), speaker=speaker)
+    return GroupChatTurn(conversation=make_principal(ChatSurface.discord, 'group', channel_id), speaker=speaker)
 
 
 def _display_name(user: dict[str, typing.Any], member: dict[str, typing.Any] | None) -> str:

@@ -11,7 +11,7 @@ from conciergent import i18n
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.groups import GroupPolicy, GroupTurn, without_spans
+from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, without_spans
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
@@ -43,7 +43,7 @@ class LineWebhookSettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
-    groups: GroupPolicy = GroupPolicy()
+    group_chat_policy: GroupChatPolicy = GroupChatPolicy()
 
 
 def build_router(
@@ -98,19 +98,18 @@ async def _dispatch_event(
     source = event.get('source') or {}
     event_type = event.get('type')
     chat = _group_chat(source)
-    if event_type in ('join', 'leave'):
-        _log_membership(event_type, chat, allowed=chat is not None and settings.groups.admits(chat.chat_id))
-        return
     user_id = source.get('userId')
     if not user_id:
         return
     if chat is None and source.get('type') != 'user':
         return
-    if chat is not None and not settings.groups.admits(chat.chat_id):
+    if chat is not None and not settings.group_chat_policy.enabled:
         return
     # Settle whether the event starts a turn before any API call, so the chatter in a group costs nothing.
     is_follow = event_type == 'follow' and chat is None
-    user_text = _turn_input(event, addressed_only=chat is not None and settings.groups.reply_to == 'mention')
+    user_text = _turn_input(
+        event, addressed_only=chat is not None and settings.group_chat_policy.reply_trigger == 'mention'
+    )
     if not (is_follow or user_text):
         return
     principal = make_principal(ChatSurface.line, user_id)
@@ -153,7 +152,9 @@ async def _dispatch_event(
         group = None
         if chat is not None:
             speaker = await messenger.get_display_name(user_id, chat=chat) or _anonymous_speaker(user_id)
-            group = GroupTurn(conversation=make_principal(ChatSurface.line, chat.kind, chat.chat_id), speaker=speaker)
+            group = GroupChatTurn(
+                conversation=make_principal(ChatSurface.line, chat.kind, chat.chat_id), speaker=speaker
+            )
         try:
             await run_turn(
                 user_text,
@@ -179,20 +180,6 @@ def _group_chat(source: dict[str, typing.Any]) -> GroupChat | None:
     if source.get('type') == 'room' and source.get('roomId'):
         return GroupChat('room', source['roomId'])
     return None
-
-
-def _log_membership(event_type: str, chat: GroupChat | None, *, allowed: bool) -> None:
-    if chat is None:
-        return
-    if event_type == 'leave':
-        logger.info('LINE bot left %s %s', chat.kind, chat.chat_id)
-    elif allowed:
-        logger.info('LINE bot joined allowed %s %s', chat.kind, chat.chat_id)
-    else:
-        # The operator copies this id into the allowlist, so it is logged even while groups are off.
-        logger.info(
-            'LINE bot joined %s %s, add it to surface.line.groups.allowed to answer there', chat.kind, chat.chat_id
-        )
 
 
 def _turn_input(event: dict[str, typing.Any], *, addressed_only: bool) -> str:

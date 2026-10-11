@@ -7,6 +7,7 @@ import yaml
 
 from conciergent.config import GatewaySpec, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
+from conciergent.group_chat import GroupChatPolicy
 
 
 _STORE = {'messages_url': 'redis://localhost:6379/0', 'credentials_url': 'postgresql+asyncpg://localhost/db'}
@@ -126,7 +127,7 @@ def test_scaffolded_manifest_validates(monkeypatch: pytest.MonkeyPatch):
     assert (config.server.host, config.server.port) == (DEFAULTS.server.host, DEFAULTS.server.port)
 
 
-def _groups_config(spec_auth: dict[str, typing.Any] | None) -> dict[str, typing.Any]:
+def _group_chats_config(spec_auth: dict[str, typing.Any] | None) -> dict[str, typing.Any]:
     return {
         **_MINIMAL_CONFIG,
         'surface': {
@@ -134,7 +135,7 @@ def _groups_config(spec_auth: dict[str, typing.Any] | None) -> dict[str, typing.
                 'enabled': True,
                 'channel_secret': 's',
                 'channel_access_token': 't',
-                'groups': {'enabled': True, 'allowed': ['C1']},
+                'group_chats': {'enabled': True},
             }
         },
         'gateway': {
@@ -154,22 +155,21 @@ def _groups_config(spec_auth: dict[str, typing.Any] | None) -> dict[str, typing.
         {'type': 'oauth2', 'flow': 'client_credentials'},
     ],
 )
-def test_groups_accept_specs_with_a_shared_identity(auth: dict[str, typing.Any] | None):
-    config = build_app_config(_groups_config(auth))
+def test_group_chats_accept_specs_with_a_shared_identity(auth: dict[str, typing.Any] | None):
+    config = build_app_config(_group_chats_config(auth))
 
-    assert config.surface.line.groups.policy().admits('C1')
-    assert config.surface.line.groups.reply_to == 'mention'
+    assert config.surface.line.group_chats.policy() == GroupChatPolicy(enabled=True, reply_trigger='mention')
 
 
 @pytest.mark.parametrize('auth', [{'type': 'oauth2'}, {'type': 'oauth2', 'flow': 'authorization_code'}])
-def test_groups_reject_a_per_user_oauth_spec(auth: dict[str, typing.Any]):
+def test_group_chats_reject_a_per_user_oauth_spec(auth: dict[str, typing.Any]):
     with pytest.raises(ValueError, match='per-user oauth2: api'):
-        build_app_config(_groups_config(auth))
+        build_app_config(_group_chats_config(auth))
 
 
-def test_a_per_user_spec_is_fine_while_groups_are_off():
-    config = _groups_config({'type': 'oauth2'})
-    config['surface']['line']['groups']['enabled'] = False
+def test_a_per_user_spec_is_fine_while_group_chats_are_off():
+    config = _group_chats_config({'type': 'oauth2'})
+    config['surface']['line']['group_chats']['enabled'] = False
 
     assert build_app_config(config).gateway.specs[0].needs_user_authorization is True
 
