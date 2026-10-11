@@ -18,8 +18,8 @@ from conciergent import i18n
 from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
 from conciergent.agent.mcp.probe import requires_user_authorization
 from conciergent.agent.mcp.storage import OAuthTokenStorage
+from conciergent.chat_turn import ChatTurn
 from conciergent.defaults import DEFAULTS
-from conciergent.group_chat import GroupChatTurn, speaker_prompt
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
@@ -45,12 +45,6 @@ _REPLY_FORMAT_INSTRUCTIONS = (
     'giving every option a suggestion or link so it can be chosen. '
     'Put a URL in a card link button instead of writing it inline, and offer next steps as suggestions.'
 )
-_GROUP_INSTRUCTIONS = (
-    'This is a group chat shared by several people. '
-    "Each user message starts with its speaker's name in square brackets, such as [Alice]. "
-    'Answer the latest speaker, and tell people apart by those names. '
-    'Never write the bracketed name prefix in your own reply.'
-)
 _CANCEL_DENIAL = 'User pressed Cancel. Acknowledge briefly in their language; do not retry or imply a permission error.'
 _IGNORE_DENIAL = 'User skipped the approval and changed topic. Drop the pending_approval action silently and answer their new message.'
 
@@ -70,8 +64,7 @@ class _AgentDeps:
     surface: ReplySurface | None
     lang: Lang | None
     principal: str
-    # Set on a group-chat turn, None in a direct chat.
-    group: GroupChatTurn | None = None
+    turn: ChatTurn
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -163,18 +156,18 @@ class ChatRunner:
             )
 
         @self._agent.instructions
-        def group_chat(ctx: RunContext[_AgentDeps]) -> str:
-            return _GROUP_INSTRUCTIONS if ctx.deps.group is not None else ''
+        def chat_kind(ctx: RunContext[_AgentDeps]) -> str:
+            # A group chat explains its speaker prefixes, a direct chat adds nothing.
+            return ctx.deps.turn.instructions
 
         if self._oauth_servers:
 
-            async def only_in_direct_chats(
+            async def only_where_sign_out_is_allowed(
                 ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
             ) -> ToolDefinition | None:
-                # A sign-out clears the conversation's history, which in a group belongs to everyone, not the speaker.
-                return None if ctx.deps.group is not None else tool_def
+                return tool_def if ctx.deps.turn.allows_sign_out else None
 
-            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_in_direct_chats)
+            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_where_sign_out_is_allowed)
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
                 """Sign the user out by revoking their authorization for every connected service.
 
@@ -272,21 +265,21 @@ class ChatRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
         surface: ReplySurface | None = None,
-        group: GroupChatTurn | None = None,
+        turn: ChatTurn,
     ) -> TurnResult:
-        """Run one turn for ``principal``, a group-chat turn when ``group`` is set.
+        """Run one turn for ``principal`` in the chat ``turn`` describes.
 
-        A group turn holds no one's authorization, so it reaches every server without a user's token and ignores
-        ``bridge``. Its input is prefixed with the speaker's name so the agent can tell the members apart.
+        A turn that does not use the user's credentials, such as a group chat's, reaches every server without
+        a user's token and ignores ``bridge``.
         """
-        personal = group is None
+        user_credentials = turn.uses_user_credentials
         toolsets = [
             await build_toolset(
                 server,
                 principal=principal,
-                credential_store=self._credential_store if personal else None,
-                oauth_bridge=bridge if personal else None,
-                redirect_uri=self._redirect_uri if personal else None,
+                credential_store=self._credential_store if user_credentials else None,
+                oauth_bridge=bridge if user_credentials else None,
+                redirect_uri=self._redirect_uri if user_credentials else None,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
@@ -294,11 +287,10 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, group=group)
-        speaker = group.speaker if group is not None else None
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, turn=turn)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
-            self._resume(pending_approval, user_input=user_input, history=history, speaker=speaker)
+            self._resume(pending_approval, user_input=user_input, history=history, turn=turn)
             if pending_approval is not None
             else None
         )
@@ -309,7 +301,7 @@ class ChatRunner:
             except pydantic.ValidationError:
                 decoded_history = None
             run_inputs = _RunInputs(
-                prompt=speaker_prompt(speaker, user_input),
+                prompt=turn.prompt(user_input),
                 message_history=decoded_history,
                 deferred_tool_results=None,
                 held_messages=[],
@@ -337,7 +329,7 @@ class ChatRunner:
         *,
         user_input: str,
         history: list[typing.Any],
-        speaker: str | None = None,
+        turn: ChatTurn,
     ) -> _RunInputs | None:
         """Rebuild the deferred run from parked state, or None when the state is unreadable.
 
@@ -363,7 +355,7 @@ class ChatRunner:
         elif user_input == cancel_prompt:
             decision, prompt = ToolDenied(_CANCEL_DENIAL), None
         else:
-            decision, prompt = ToolDenied(_IGNORE_DENIAL), speaker_prompt(speaker, user_input)
+            decision, prompt = ToolDenied(_IGNORE_DENIAL), turn.prompt(user_input)
         deferred = DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, decision))
         return _RunInputs(
             prompt=prompt, message_history=messages, deferred_tool_results=deferred, held_messages=held_messages

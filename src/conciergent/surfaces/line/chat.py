@@ -2,7 +2,8 @@ import abc
 import dataclasses
 import typing
 
-from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, ReplyTrigger, without_spans
+from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
+from conciergent.group_chat import GroupChatPolicy, ReplyTrigger, without_spans
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.surfaces.line import render
 from conciergent.surfaces.line.surface import LineMessenger
@@ -52,8 +53,8 @@ class LineChat(abc.ABC):
         """The quote token a text reply carries to show which message it answers, or None to quote nothing."""
 
     @abc.abstractmethod
-    async def group_chat_turn(self, messenger: LineMessenger) -> GroupChatTurn | None:
-        """The shared group-chat turn this event runs as, or None for a one-on-one turn."""
+    async def turn(self, messenger: LineMessenger) -> ChatTurn:
+        """The chat turn this event runs as, looking up the speaker's name where the chat needs it."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,8 +80,8 @@ class LineDirectChat(LineChat):
         return None
 
     @typing.override
-    async def group_chat_turn(self, messenger: LineMessenger) -> GroupChatTurn | None:
-        return None
+    async def turn(self, messenger: LineMessenger) -> ChatTurn:
+        return DirectChatTurn(conversation=make_principal(ChatSurface.line, self.user_id))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -120,7 +121,7 @@ class LineGroupChat(LineChat):
         return (event.get('message') or {}).get('quoteToken')
 
     @typing.override
-    async def group_chat_turn(self, messenger: LineMessenger) -> GroupChatTurn | None:
+    async def turn(self, messenger: LineMessenger) -> ChatTurn:
         speaker = await messenger.get_member_display_name(self.kind, self.chat_id, self.user_id)
         return GroupChatTurn(
             conversation=make_principal(ChatSurface.line, self.kind, self.chat_id),

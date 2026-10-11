@@ -12,7 +12,7 @@ from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
-from conciergent.group_chat import GroupChatTurn
+from conciergent.chat_turn import DirectChatTurn, GroupChatTurn
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
@@ -26,6 +26,8 @@ _REDIRECT_URI = 'https://example.com/oauth/mcp/callback'
 # With no surface the agent resolves no language, so the confirm/cancel prompts fall back to English.
 _CONFIRM = i18n.t('approval.confirm', None)
 _CANCEL = i18n.t('approval.cancel', None)
+# The chat most turns here run in, one user's direct chat.
+_DIRECT = DirectChatTurn(conversation=_PRINCIPAL)
 
 
 def _agent(*servers: MCPServer | str, model: TestModel | None = None, **options: typing.Any) -> ChatRunner:
@@ -35,7 +37,7 @@ def _agent(*servers: MCPServer | str, model: TestModel | None = None, **options:
 async def test_reply_passes_through_and_serialises_history():
     agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
+    result = await agent.run('hi', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
 
     assert not isinstance(result.output, PendingApproval)
     assert isinstance(result.output, str | Card | Carousel)
@@ -46,7 +48,7 @@ async def test_destructive_tool_defers_before_running():
     calls: list[int] = []
     agent = _agent(destructive_server(calls))
 
-    result = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    result = await agent.run('delete it', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
 
     assert isinstance(result.output, PendingApproval)
     assert len(result.output.state['tool_call_ids']) == 1
@@ -58,10 +60,12 @@ async def test_confirm_runs_the_tool():
     calls: list[int] = []
     agent = _agent(destructive_server(calls))
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('delete it', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
 
-    resumed = await agent.run(_CONFIRM, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CONFIRM, principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert len(calls) == 1  # approval let the tool run
@@ -71,10 +75,12 @@ async def test_cancel_skips_the_tool():
     calls: list[int] = []
     agent = _agent(destructive_server(calls))
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('delete it', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
 
-    resumed = await agent.run(_CANCEL, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CANCEL, principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert calls == []  # cancellation kept the tool from running
@@ -87,13 +93,19 @@ async def test_confirm_matches_the_parked_prompt_after_the_locale_changes():
     agent = _agent(destructive_server(calls))
 
     parked = await agent.run(
-        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=RecordingSurface(None)
+        'delete it',
+        principal=_PRINCIPAL,
+        turn=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(None),
     )
     assert isinstance(parked.output, PendingApproval)
 
     resumed = await agent.run(
         _CONFIRM,
         principal=_PRINCIPAL,
+        turn=_DIRECT,
         history=[],
         pending_approval=parked.output.state,
         surface=RecordingSurface(Lang.ZH_TW),
@@ -119,11 +131,13 @@ async def test_confirm_runs_all_deferred_tools():
 
     agent = _agent(server)
 
-    parked = await agent.run('do both', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('do both', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
     assert len(parked.output.state['tool_call_ids']) == 2
 
-    resumed = await agent.run(_CONFIRM, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CONFIRM, principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert sorted(calls) == ['a', 'b']  # one confirm ran every deferred tool
@@ -146,7 +160,7 @@ async def test_bootstrap_opens_mcp_context_without_running_the_agent():
 async def test_unreadable_pending_state_runs_as_a_fresh_turn():
     agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval={'wrong': 'shape'})
+    result = await agent.run('hi', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval={'wrong': 'shape'})
 
     assert not isinstance(result.output, PendingApproval)
 
@@ -154,7 +168,9 @@ async def test_unreadable_pending_state_runs_as_a_fresh_turn():
 async def test_undecodable_history_is_dropped_instead_of_raising():
     agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[{'not': 'a message'}], pending_approval=None)
+    result = await agent.run(
+        'hi', principal=_PRINCIPAL, turn=_DIRECT, history=[{'not': 'a message'}], pending_approval=None
+    )
 
     assert not isinstance(result.output, PendingApproval)
 
@@ -173,7 +189,14 @@ async def test_respond_language_instruction_names_the_user_language():
     model = TestModel()
     agent = _agent(model=model)
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=RecordingSurface(Lang.ZH_TW))
+    await agent.run(
+        'hi',
+        principal=_PRINCIPAL,
+        turn=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(Lang.ZH_TW),
+    )
 
     params = model.last_model_request_parameters
     assert params is not None and params.instruction_parts is not None
@@ -185,7 +208,9 @@ async def test_respond_language_falls_back_to_mirroring_without_a_language():
     model = TestModel()
     agent = _agent(model=model)
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=RecordingSurface(None))
+    await agent.run(
+        'hi', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None, surface=RecordingSurface(None)
+    )
 
     params = model.last_model_request_parameters
     assert params is not None and params.instruction_parts is not None
@@ -198,7 +223,12 @@ async def test_approval_card_is_localized_to_the_user_language():
     agent = _agent(destructive_server(calls))
 
     result = await agent.run(
-        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=RecordingSurface(Lang.ZH_TW)
+        'delete it',
+        principal=_PRINCIPAL,
+        turn=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(Lang.ZH_TW),
     )
 
     assert isinstance(result.output, PendingApproval)
@@ -211,12 +241,15 @@ async def test_confirm_in_the_user_language_runs_the_tool():
     agent = _agent(destructive_server(calls))
     surface = RecordingSurface(Lang.ZH_TW)
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=surface)
+    parked = await agent.run(
+        'delete it', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None, surface=surface
+    )
     assert isinstance(parked.output, PendingApproval)
 
     resumed = await agent.run(
         i18n.t('approval.confirm', Lang.ZH_TW),
         principal=_PRINCIPAL,
+        turn=_DIRECT,
         history=[],
         pending_approval=parked.output.state,
         surface=surface,
@@ -272,7 +305,9 @@ async def test_surface_formatting_hint_joins_the_instructions():
         def text_formatting_instruction(self) -> str:
             return formatting_hint
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=MarkerSurface())
+    await agent.run(
+        'hi', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None, surface=MarkerSurface()
+    )
 
     params = model.last_model_request_parameters
     assert params is not None
@@ -353,10 +388,10 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
     # Keep the sign-out tool registered but connect to nothing, so the turn needs no live MCP server.
     agent._mcp_servers = []
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
+    await agent.run('hi', principal=_PRINCIPAL, turn=_DIRECT, history=[], pending_approval=None)
     direct = model.last_model_request_parameters
     result = await agent.run(
-        'hi', principal=_PRINCIPAL, history=[], pending_approval=None, group=GroupChatTurn('g', 'Amy')
+        'hi', principal=_PRINCIPAL, history=[], pending_approval=None, turn=GroupChatTurn('g', 'Amy')
     )
     group = model.last_model_request_parameters
 

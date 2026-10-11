@@ -5,6 +5,7 @@ from pydantic_ai.models.test import TestModel
 
 from conciergent import i18n
 from conciergent.agent.runner import ChatRunner
+from conciergent.chat_turn import DirectChatTurn
 from conciergent.group_chat import GroupChatPolicy
 from tests.conftest import destructive_server
 from tests.surfaces.line.conftest import (
@@ -115,7 +116,7 @@ async def test_a_direct_suggestion_tap_runs_the_prompt(group_harness: LineHarnes
     await group_harness.post(postback_event('suggestion:Confirm', source=user_source()))
 
     assert group_harness.agent.inputs == ['Confirm']
-    assert group_harness.agent.calls[0]['group'] is None
+    assert isinstance(group_harness.agent.calls[0]['turn'], DirectChatTurn)
 
 
 async def test_the_push_fallback_targets_the_group(group_harness: LineHarness) -> None:

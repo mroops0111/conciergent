@@ -136,6 +136,7 @@ async def _dispatch_event(
             await run_turn(
                 user_text,
                 principal=principal,
+                turn=await chat.turn(messenger),
                 runner=runner,
                 surface=surface,
                 message_store=message_store,
@@ -143,7 +144,6 @@ async def _dispatch_event(
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                group=await chat.group_chat_turn(messenger),
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.

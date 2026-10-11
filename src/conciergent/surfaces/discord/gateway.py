@@ -264,6 +264,7 @@ class DiscordGateway:
                 await run_turn(
                     user_text,
                     principal=principal,
+                    turn=chat.turn(),
                     runner=self._runner,
                     surface=surface,
                     message_store=self._message_store,
@@ -271,7 +272,6 @@ class DiscordGateway:
                     compactor=self._compactor,
                     approval_ttl_seconds=self._settings.approval_ttl_seconds,
                     history_ttl_seconds=self._settings.history_ttl_seconds,
-                    group=chat.group_chat_turn(),
                 )
             except Exception as error:
                 # An unfinished authorization is an expected ending, anything else is a real failure.

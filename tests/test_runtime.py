@@ -7,7 +7,7 @@ from conciergent import (
     Section,
     run_turn,
 )
-from conciergent.group_chat import GroupChatTurn
+from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
 
@@ -25,18 +25,16 @@ async def _turn(
     message_store: MessageStore,
     *,
     principal: str = _PRINCIPAL,
-    conversation: str | None = None,
-    group: GroupChatTurn | None = None,
+    turn: ChatTurn | None = None,
 ) -> RecordingSurface:
     surface = RecordingSurface()
     await run_turn(
         user_input,
         principal=principal,
+        turn=turn or DirectChatTurn(conversation=principal),
         runner=runner.as_runner(),
         surface=surface,
         message_store=message_store,
-        conversation=conversation,
-        group=group,
     )
     return surface
 
@@ -117,7 +115,7 @@ async def test_conversations_scope_history_within_one_principal(message_store: M
         StubRunner('ok', new_history=turn_history),
         message_store,
         principal=principal,
-        conversation=conversation,
+        turn=DirectChatTurn(conversation=conversation),
     )
 
     assert await message_store.load_history(conversation) == turn_history
@@ -135,12 +133,12 @@ _BOB_IN_GROUP = GroupChatTurn(_GROUP, 'Bob')
 async def test_group_approval_is_owned_by_the_member_who_parked_it(message_store: MessageStore):
     state = {'resume': 'alice'}
     runner = StubRunner(PendingApproval(card=Card(header='?', sections=[Section(text='b')]), state=state))
-    await _turn('delete it', runner, message_store, principal=_ALICE, group=_ALICE_IN_GROUP)
+    await _turn('delete it', runner, message_store, principal=_ALICE, turn=_ALICE_IN_GROUP)
     runner.output = 'ok'
 
     # Bob's own message runs as a fresh turn and leaves Alice's approval parked.
-    await _turn('what time is it', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
-    await _turn('Confirm', runner, message_store, principal=_ALICE, group=_ALICE_IN_GROUP)
+    await _turn('what time is it', runner, message_store, principal=_BOB, turn=_BOB_IN_GROUP)
+    await _turn('Confirm', runner, message_store, principal=_ALICE, turn=_ALICE_IN_GROUP)
 
     assert [call['pending_approval'] for call in runner.calls] == [None, None, state]
 
@@ -150,7 +148,7 @@ async def test_group_confirm_without_an_own_approval_is_dropped_quietly(message_
     await message_store.park_approval(_GROUP, state, ttl_seconds=60, owner=_ALICE)
     runner = StubRunner('ok')
 
-    surface = await _turn('Confirm', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
+    surface = await _turn('Confirm', runner, message_store, principal=_BOB, turn=_BOB_IN_GROUP)
 
     assert [call['pending_approval'] for call in runner.calls] == []
     assert surface.calls == [('acknowledged', None)]
@@ -169,7 +167,7 @@ async def test_a_group_turn_is_dropped_quietly_while_group_chats_cannot_be_serve
     runner = StubRunner('ok')
     runner.group_chats_supported = False
 
-    surface = await _turn('hello', runner, message_store, principal=_BOB, group=_BOB_IN_GROUP)
+    surface = await _turn('hello', runner, message_store, principal=_BOB, turn=_BOB_IN_GROUP)
 
     assert [call['pending_approval'] for call in runner.calls] == []
     assert surface.calls == [('acknowledged', None)]

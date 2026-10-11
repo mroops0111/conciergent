@@ -3,7 +3,8 @@ import dataclasses
 import re
 import typing
 
-from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, ReplyTrigger, without_spans
+from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
+from conciergent.group_chat import GroupChatPolicy, ReplyTrigger, without_spans
 from conciergent.identity import ChatSurface, make_principal
 
 
@@ -47,8 +48,8 @@ class SlackChat(abc.ABC):
         """The dedupe key for a pick that consumes a whole message, such as a confirmation."""
 
     @abc.abstractmethod
-    def group_chat_turn(self, display_name: str | None) -> GroupChatTurn | None:
-        """The shared group-chat turn this message runs as, or None for a direct turn."""
+    def turn(self, display_name: str | None) -> ChatTurn:
+        """The chat turn this message runs as, given the sender's Slack display name."""
 
     @abc.abstractmethod
     def reply_addressee(self, *, typed: bool) -> str | None:
@@ -77,8 +78,8 @@ class SlackDirectChat(SlackChat):
         return f'slack:interaction:{self.channel}:{message_ts}'
 
     @typing.override
-    def group_chat_turn(self, display_name: str | None) -> GroupChatTurn | None:
-        return None
+    def turn(self, display_name: str | None) -> ChatTurn:
+        return DirectChatTurn(conversation=self.conversation)
 
     @typing.override
     def reply_addressee(self, *, typed: bool) -> str | None:
@@ -120,7 +121,7 @@ class SlackChannelChat(SlackChat):
         return f'slack:interaction:{self.channel}:{message_ts}:{self.user_id}'
 
     @typing.override
-    def group_chat_turn(self, display_name: str | None) -> GroupChatTurn | None:
+    def turn(self, display_name: str | None) -> ChatTurn:
         return GroupChatTurn(conversation=self.conversation, speaker=display_name or self.user_id)
 
     @typing.override
