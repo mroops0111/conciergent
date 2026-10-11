@@ -19,7 +19,7 @@ _API_BASE_URL = 'https://api.line.me'
 _LOADING_SECONDS = 60
 
 
-class GroupChat(typing.NamedTuple):
+class LineGroupChat(typing.NamedTuple):
     """A LINE group or legacy multi-person room, keyed the way the Messaging API paths name them."""
 
     kind: typing.Literal['group', 'room']
@@ -61,13 +61,15 @@ class LineMessenger:
         )
         response.raise_for_status()
 
-    async def get_display_name(self, user_id: str, *, chat: GroupChat | None = None) -> str | None:
+    async def get_display_name(self, user_id: str, *, group_chat: LineGroupChat | None = None) -> str | None:
         """Resolve a user's display name, through the group or room member profile when inside one.
 
         A member profile works for anyone in the chat, while the plain profile only works for a user who added the bot.
         """
         path = (
-            f'/v2/bot/{chat.kind}/{chat.chat_id}/member/{user_id}' if chat is not None else f'/v2/bot/profile/{user_id}'
+            f'/v2/bot/{group_chat.kind}/{group_chat.chat_id}/member/{user_id}'
+            if group_chat is not None
+            else f'/v2/bot/profile/{user_id}'
         )
         try:
             response = await self._client.get(path)

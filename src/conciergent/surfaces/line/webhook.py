@@ -18,7 +18,7 @@ from conciergent.runtime import is_handoff_expiry
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import render
 from conciergent.surfaces.line.surface import (
-    GroupChat,
+    LineGroupChat,
     LineMessenger,
     LineOAuthBridge,
     LineReplySurface,
@@ -97,18 +97,18 @@ async def _dispatch_event(
 ) -> None:
     source = event.get('source') or {}
     event_type = event.get('type')
-    chat = _group_chat(source)
+    group_chat = _group_chat_from_source(source)
     user_id = source.get('userId')
     if not user_id:
         return
-    if chat is None and source.get('type') != 'user':
+    if group_chat is None and source.get('type') != 'user':
         return
-    if chat is not None and not settings.group_chat_policy.enabled:
+    if group_chat is not None and not settings.group_chat_policy.enabled:
         return
     # Settle whether the event starts a turn before any API call, so the chatter in a group costs nothing.
-    is_follow = event_type == 'follow' and chat is None
+    is_follow = event_type == 'follow' and group_chat is None
     user_text = _turn_input(
-        event, addressed_only=chat is not None and settings.group_chat_policy.reply_trigger == 'mention'
+        event, addressed_only=group_chat is not None and settings.group_chat_policy.reply_trigger == 'mention'
     )
     if not (is_follow or user_text):
         return
@@ -116,9 +116,9 @@ async def _dispatch_event(
     async with LineMessenger(settings.channel_access_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         slot = ReplyTokenSlot(
             messenger,
-            to=chat.chat_id if chat is not None else user_id,
+            to=group_chat.chat_id if group_chat is not None else user_id,
             reply_token=event.get('replyToken'),
-            show_loading=chat is None,
+            show_loading=group_chat is None,
         )
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(user_id)
@@ -140,7 +140,7 @@ async def _dispatch_event(
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
             # A typed group message gets its text reply quoting it, a postback tap carries no message to quote.
-            quote_token=(event.get('message') or {}).get('quoteToken') if chat is not None else None,
+            quote_token=(event.get('message') or {}).get('quoteToken') if group_chat is not None else None,
         )
         bridge = LineOAuthBridge(
             message_store,
@@ -150,10 +150,10 @@ async def _dispatch_event(
             brand_color=settings.brand_color,
         )
         group = None
-        if chat is not None:
-            speaker = await messenger.get_display_name(user_id, chat=chat) or _anonymous_speaker(user_id)
+        if group_chat is not None:
+            speaker = await messenger.get_display_name(user_id, group_chat=group_chat) or _anonymous_speaker(user_id)
             group = GroupChatTurn(
-                conversation=make_principal(ChatSurface.line, chat.kind, chat.chat_id), speaker=speaker
+                conversation=make_principal(ChatSurface.line, group_chat.kind, group_chat.chat_id), speaker=speaker
             )
         try:
             await run_turn(
@@ -174,11 +174,12 @@ async def _dispatch_event(
                 logger.exception('LINE turn failed for %s', principal)
 
 
-def _group_chat(source: dict[str, typing.Any]) -> GroupChat | None:
+def _group_chat_from_source(source: dict[str, typing.Any]) -> LineGroupChat | None:
+    """The group or legacy room an event came from, or None when it came from a one-on-one chat."""
     if source.get('type') == 'group' and source.get('groupId'):
-        return GroupChat('group', source['groupId'])
+        return LineGroupChat('group', source['groupId'])
     if source.get('type') == 'room' and source.get('roomId'):
-        return GroupChat('room', source['roomId'])
+        return LineGroupChat('room', source['roomId'])
     return None
 
 
