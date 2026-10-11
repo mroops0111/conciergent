@@ -223,7 +223,7 @@ class DiscordGateway:
             channel_id=channel_id,
             user_text=content,
             locale=None,
-            group=_group_turn(channel_id, _display_name(author, data.get('member'))) if guild_id else None,
+            group=_group_chat_turn(channel_id, _display_name(author, data.get('member'))) if guild_id else None,
             reply_to_message_id=message_id if guild_id else None,
         )
 
@@ -262,7 +262,7 @@ class DiscordGateway:
             user_text=parsed[1],
             locale=data.get('locale'),
             interaction=Interaction(interaction_id=interaction_id, token=token),
-            group=_group_turn(channel_id, _display_name(user, member)) if guild_id else None,
+            group=_group_chat_turn(channel_id, _display_name(user, member)) if guild_id else None,
         )
 
     async def _dispatch_turn(
@@ -367,7 +367,7 @@ def _received_close_code(error: Exception) -> int | None:
     return None
 
 
-def _group_turn(channel_id: str, speaker: str) -> GroupChatTurn:
+def _group_chat_turn(channel_id: str, speaker: str) -> GroupChatTurn:
     # A direct message is one conversation per user, while a server channel is shared by everyone in it.
     return GroupChatTurn(conversation=make_principal(ChatSurface.discord, 'group', channel_id), speaker=speaker)
 
