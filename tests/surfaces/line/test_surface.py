@@ -1,6 +1,7 @@
 import typing
 
 import httpx
+from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent import Card, Section, Suggestion
 from conciergent.store.message import MessageStore
@@ -114,10 +115,9 @@ async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
     bridge = LineOAuthBridge(message_store, _slot(messenger))
     await message_store.deliver_oauth_code(state, 'code-1')
 
-    code, returned_state = await bridge.request_authorization(authorize_url)
+    result = await bridge.request_authorization(authorize_url)
 
-    assert code == 'code-1'
-    assert returned_state == state
+    assert result == AuthorizationCodeResult(code='code-1', state=state)
     rendered = messenger.replies[0]
     assert rendered['type'] == 'flex'
     button = rendered['contents']['footer']['contents'][0]

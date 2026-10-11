@@ -5,7 +5,7 @@ import typing
 import pytest
 import yaml
 
-from conciergent.config import build_app_config, yaml_layer
+from conciergent.config import GatewaySpec, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 
 
@@ -172,3 +172,27 @@ def test_a_per_user_spec_is_fine_while_groups_are_off():
     config['surface']['line']['groups']['enabled'] = False
 
     assert build_app_config(config).gateway.specs[0].needs_user_authorization is True
+
+
+def test_gateway_spec_exposure_shorthand_and_server_config():
+    shorthand = GatewaySpec.model_validate(
+        {'name': 'api', 'spec': 'https://example.com/openapi.json', 'exposure': 'dynamic'}
+    )
+    assert shorthand.exposure == {'style': 'dynamic'}
+
+    full = GatewaySpec.model_validate(
+        {
+            'name': 'api',
+            'spec': 'https://example.com/openapi.json',
+            'auth': {'type': 'bearer', 'token': 't'},
+            'operations': {'listPets': {'name': 'list_pets'}},
+            'instructions': 'Pets.',
+        }
+    )
+    assert full.server_config() == {
+        'name': 'api',
+        'spec': 'https://example.com/openapi.json',
+        'auth': {'type': 'bearer', 'token': 't'},
+        'operations': {'listPets': {'name': 'list_pets'}},
+        'instructions': 'Pets.',
+    }

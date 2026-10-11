@@ -2,9 +2,8 @@ import collections.abc
 import json
 import typing
 
-import httpx
+import httpx2
 import pytest
-from mcp.types import LATEST_PROTOCOL_VERSION
 
 from conciergent.agent.mcp import probe
 from conciergent.agent.mcp.probe import requires_user_authorization
@@ -12,29 +11,30 @@ from conciergent.agent.mcp.probe import requires_user_authorization
 
 _URL = 'https://mcp.example/mcp'
 
-Handler = collections.abc.Callable[[httpx.Request], httpx.Response]
+Handler = collections.abc.Callable[[httpx2.Request], httpx2.Response]
 
 
 def _serve(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
     # Swap in a client that answers from the handler, keeping whatever options the probe asks for.
-    client_class = httpx.AsyncClient
+    client_class = httpx2.AsyncClient
 
-    def client_factory(**kwargs: typing.Any) -> httpx.AsyncClient:
-        return client_class(transport=httpx.MockTransport(handler), **kwargs)
+    def client_factory(**kwargs: typing.Any) -> httpx2.AsyncClient:
+        return client_class(transport=httpx2.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr(probe.httpx, 'AsyncClient', client_factory)
+    monkeypatch.setattr(probe.httpx2, 'AsyncClient', client_factory)
 
 
-def _public_server(request: httpx.Request) -> httpx.Response:
+def _public_server(request: httpx2.Request) -> httpx2.Response:
     message = json.loads(request.content) if request.content else {}
     if message.get('method') != 'initialize':
-        return httpx.Response(202)
+        return httpx2.Response(202)
+    # A real server answers in the protocol version the client asked for.
     result = {
-        'protocolVersion': LATEST_PROTOCOL_VERSION,
+        'protocolVersion': message['params']['protocolVersion'],
         'capabilities': {},
         'serverInfo': {'name': 'public', 'version': '1'},
     }
-    return httpx.Response(200, json={'jsonrpc': '2.0', 'id': message['id'], 'result': result})
+    return httpx2.Response(200, json={'jsonrpc': '2.0', 'id': message['id'], 'result': result})
 
 
 async def test_a_completed_handshake_needs_no_user(monkeypatch: pytest.MonkeyPatch):
@@ -45,17 +45,17 @@ async def test_a_completed_handshake_needs_no_user(monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.parametrize('status', [401, 403])
 async def test_a_rejected_handshake_needs_a_user(monkeypatch: pytest.MonkeyPatch, status: int):
-    _serve(monkeypatch, lambda request: httpx.Response(status))
+    _serve(monkeypatch, lambda request: httpx2.Response(status))
 
     assert await requires_user_authorization(_URL) is True
 
 
 async def test_the_handshake_carries_no_credentials(monkeypatch: pytest.MonkeyPatch):
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx.Response(401)
+        return httpx2.Response(401)
 
     _serve(monkeypatch, handler)
 
@@ -67,14 +67,14 @@ async def test_the_handshake_carries_no_credentials(monkeypatch: pytest.MonkeyPa
 
 @pytest.mark.parametrize('status', [500, 400])
 async def test_another_error_status_has_no_verdict(monkeypatch: pytest.MonkeyPatch, status: int):
-    _serve(monkeypatch, lambda request: httpx.Response(status))
+    _serve(monkeypatch, lambda request: httpx2.Response(status))
 
     assert await requires_user_authorization(_URL) is None
 
 
 async def test_an_unreachable_server_has_no_verdict(monkeypatch: pytest.MonkeyPatch):
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError('refused', request=request)
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError('refused', request=request)
 
     _serve(monkeypatch, handler)
 

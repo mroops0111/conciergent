@@ -1,7 +1,7 @@
 import logging
 
 import anyio
-import httpx
+import httpx2
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import Implementation
@@ -24,31 +24,24 @@ async def requires_user_authorization(
     it needs a user's token, and a completed handshake means anyone may call it.
     Returns None when the server cannot be reached or fails otherwise, so the caller can ask again later.
     """
+    statuses: list[int] = []
+
+    async def record_status(response: httpx2.Response) -> None:
+        statuses.append(response.status_code)
+
     client_info = Implementation(name=client_name, version='0')
     try:
         with anyio.fail_after(timeout_seconds):
             async with (
-                httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as http_client,
-                streamable_http_client(url, http_client=http_client) as (read_stream, write_stream, _),
+                # The SDK turns a rejected request into a generic JSON-RPC error, so the client records each status.
+                httpx2.AsyncClient(timeout=timeout_seconds, event_hooks={'response': [record_status]}) as http_client,
+                streamable_http_client(url, http_client=http_client) as (read_stream, write_stream),
                 ClientSession(read_stream, write_stream, client_info=client_info) as session,
             ):
                 await session.initialize()
     except Exception as error:
-        status = _http_status(error)
-        if status in (401, 403):
+        if any(status in (401, 403) for status in statuses):
             return True
         logger.warning('MCP authorization probe could not check %s: %r', url, error)
         return None
     return False
-
-
-def _http_status(error: BaseException) -> int | None:
-    # The SDK raises the transport's HTTP error from inside its task group, so it arrives wrapped in a group.
-    if isinstance(error, httpx.HTTPStatusError):
-        return error.response.status_code
-    if isinstance(error, BaseExceptionGroup):
-        for inner in error.exceptions:
-            status = _http_status(inner)
-            if status is not None:
-                return status
-    return None

@@ -2,7 +2,7 @@ import typing
 
 import pytest
 import redis.asyncio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
@@ -83,11 +83,11 @@ class RecordingSurface(ReplySurface):
         self.calls.append(('acknowledged', None))
 
 
-def destructive_server(calls: list[int]) -> FastMCP:
+def destructive_server(calls: list[int]) -> MCPServer:
     """An in-process MCP server whose one tool is marked destructive, so calling it parks an approval first."""
-    server = FastMCP('test')
+    server = MCPServer('test')
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_it(x: int) -> str:
         calls.append(x)
         return 'deleted'

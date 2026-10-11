@@ -2,7 +2,7 @@ import asyncio
 import typing
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
 from pydantic_ai.messages import ModelMessagesTypeAdapter
@@ -28,7 +28,7 @@ _CONFIRM = i18n.t('approval.confirm', None)
 _CANCEL = i18n.t('approval.cancel', None)
 
 
-def _agent(*servers: FastMCP | str, model: TestModel | None = None, **options: typing.Any) -> ChatRunner:
+def _agent(*servers: MCPServer | str, model: TestModel | None = None, **options: typing.Any) -> ChatRunner:
     return ChatRunner(model=model or TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=list(servers), **options)
 
 
@@ -105,14 +105,14 @@ async def test_confirm_matches_the_parked_prompt_after_the_locale_changes():
 
 async def test_confirm_runs_all_deferred_tools():
     calls: list[str] = []
-    server = FastMCP('test')
+    server = MCPServer('test')
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_a(x: int) -> str:
         calls.append('a')
         return 'a'
 
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True))
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
     def delete_b(x: int) -> str:
         calls.append('b')
         return 'b'

@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent.runtime import OAuthHandoffExpiredError, StatefulOAuthBridge, is_handoff_expiry
 from conciergent.store.message import MessageStore
@@ -25,11 +26,10 @@ async def test_code_round_trips_through_the_store(message_store: MessageStore):
         await message_store.deliver_oauth_code(state, 'the-code')
 
     task = asyncio.create_task(user_authorizes())
-    code, returned_state = await bridge.request_authorization(authorize_url)
+    result = await bridge.request_authorization(authorize_url)
     await task
 
-    assert code == 'the-code'
-    assert returned_state == state
+    assert result == AuthorizationCodeResult(code='the-code', state=state)
     assert bridge.rendered == [authorize_url]
 
 
