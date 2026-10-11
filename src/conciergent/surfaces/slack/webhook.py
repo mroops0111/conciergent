@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import json
 import logging
-import re
 import time
 import typing
 import urllib.parse
@@ -12,12 +11,13 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, without_spans
-from conciergent.identity import ChatSurface, make_principal
+from conciergent.group_chat import GroupChatPolicy
+from conciergent.identity import ChatSurface
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import render
+from conciergent.surfaces.slack.chat import SlackChat, slack_chat_from_event, slack_chat_from_interaction
 from conciergent.surfaces.slack.surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
 from conciergent.turn import run_turn
 
@@ -75,13 +75,8 @@ def build_router(
         if payload.get('type') != 'event_callback':
             return {}
         event = payload.get('event') or {}
-        if _is_direct_user_message(event):
-            is_group = False
-            user_text = event.get('text', '')
-        elif _is_group_message(event, settings.group_chat_policy):
-            is_group = True
-            user_text = _without_bot_mentions(event.get('text', ''), _bot_user_id(payload))
-        else:
+        chat = slack_chat_from_event(payload.get('team_id', ''), event, settings.group_chat_policy)
+        if chat is None or not chat.answers(event):
             return {}
         if await message_store.dedupe(f'slack:event:{payload.get("event_id")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
@@ -92,12 +87,8 @@ def build_router(
             credential_store=credential_store,
             runner=runner,
             compactor=compactor,
-            team_id=payload.get('team_id', ''),
-            user_id=event['user'],
-            channel=event['channel'],
-            thread_ts=event.get('thread_ts') or event.get('ts'),
-            user_text=user_text,
-            is_group=is_group,
+            chat=chat,
+            user_text=chat.turn_input(event, bot_user_id=_bot_user_id(payload)),
         )
         return {}
 
@@ -113,14 +104,13 @@ def build_router(
         scope = render.parse_suggestion_scope(action.get('action_id', ''))
         if scope is None:
             return {}
-        message = payload.get('message') or {}
-        channel = (payload.get('channel') or {}).get('id', '')
-        # Direct-message channel ids start with D, any other channel is a group the bot was let into.
-        is_group = not channel.startswith('D')
-        if is_group and not settings.group_chat_policy.enabled:
+        chat = slack_chat_from_interaction(payload, settings.group_chat_policy)
+        if chat is None:
             return {}
-        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message, is_group=is_group)
-        if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
+        message = payload.get('message') or {}
+        if await message_store.dedupe(
+            _interaction_dedupe_key(payload, scope=scope, chat=chat, message=message), ttl_seconds=_DEDUPE_TTL_SECONDS
+        ):
             return {}
         background.add_task(
             _dispatch_turn,
@@ -129,15 +119,11 @@ def build_router(
             credential_store=credential_store,
             runner=runner,
             compactor=compactor,
-            team_id=(payload.get('team') or {}).get('id', ''),
-            user_id=(payload.get('user') or {}).get('id', ''),
-            channel=channel,
-            thread_ts=message.get('thread_ts') or message.get('ts'),
+            chat=chat,
             user_text=action.get('value', ''),
             response_url=payload.get('response_url'),
             interacted_message=message,
             button_label=(action.get('text') or {}).get('text') or action.get('value', ''),
-            is_group=is_group,
         )
         return {}
 
@@ -151,52 +137,37 @@ async def _dispatch_turn(
     credential_store: CredentialStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None,
-    team_id: str,
-    user_id: str,
-    channel: str,
-    thread_ts: str | None,
+    chat: SlackChat,
     user_text: str,
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
     button_label: str = '',
-    is_group: bool = False,
 ) -> None:
-    bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
+    bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, chat.team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
-    principal = make_principal(ChatSurface.slack, team_id, user_id)
-    # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
-    conversation = f'{principal}:{thread_ts}' if thread_ts else principal
+    principal = chat.principal
     async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
-        user = await messenger.get_user(user_id)
+        user = await messenger.get_user(chat.user_id)
         lang = user.lang
-        group = None
-        if is_group:
-            # A channel thread is shared by everyone in it, rather than belonging to one user like a DM thread.
-            scope = make_principal(ChatSurface.slack, team_id, 'group', channel)
-            group = GroupChatTurn(
-                conversation=f'{scope}:{thread_ts}' if thread_ts else scope,
-                speaker=user.display_name or user_id,
-            )
         surface = SlackReplySurface(
             messenger,
-            channel=channel,
-            thread_ts=thread_ts,
+            channel=chat.channel,
+            thread_ts=chat.thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
             button_label=button_label,
             lang=lang,
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
-            # A typed group message gets its text reply addressed to the sender, a button tap has no message to answer.
-            reply_to_user=user_id if is_group and interacted_message is None else None,
+            reply_to_user=chat.reply_addressee(typed=interacted_message is None),
         )
         bridge = SlackOAuthBridge(
             message_store,
             messenger,
-            channel=channel,
-            thread_ts=thread_ts,
+            channel=chat.channel,
+            thread_ts=chat.thread_ts,
             lang=lang,
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
             brand_color=settings.brand_color,
@@ -208,12 +179,12 @@ async def _dispatch_turn(
                 runner=runner,
                 surface=surface,
                 message_store=message_store,
-                conversation=conversation,
+                conversation=chat.conversation,
                 bridge=bridge,
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
                 history_ttl_seconds=settings.history_ttl_seconds,
-                group=group,
+                group=chat.group_chat_turn(user.display_name),
             )
         except Exception as error:
             # An unfinished authorization is an expected ending, anything else is a real failure.
@@ -234,65 +205,21 @@ def _signature_is_valid(secret: str, body: bytes, *, timestamp: str | None, sign
     return hmac.compare_digest(f'v0={digest}', signature)
 
 
-def _is_direct_user_message(event: dict[str, typing.Any]) -> bool:
-    # Only fresh direct messages from humans start a turn, bot echoes and edits are dropped.
-    return (
-        event.get('type') == 'message'
-        and event.get('channel_type') == 'im'
-        and not event.get('bot_id')
-        and not event.get('subtype')
-        and bool(event.get('user'))
-    )
-
-
-# The channel types a group message arrives from: a public channel, a private one, and a multi-person DM.
-_GROUP_CHANNEL_TYPES = frozenset({'channel', 'group', 'mpim'})
-
-
-def _is_group_message(event: dict[str, typing.Any], group_chat_policy: GroupChatPolicy) -> bool:
-    # With reply_trigger=mention only app_mention starts a turn. With every_message every message does,
-    # and app_mention is skipped because the same message also arrives as a plain message event.
-    if event.get('bot_id') or event.get('subtype') or not event.get('user'):
-        return False
-    if not group_chat_policy.enabled:
-        return False
-    if group_chat_policy.reply_trigger == 'mention':
-        return event.get('type') == 'app_mention'
-    return event.get('type') == 'message' and event.get('channel_type') in _GROUP_CHANNEL_TYPES
-
-
 def _bot_user_id(payload: dict[str, typing.Any]) -> str | None:
     # Every event callback names the installation it was delivered to, whose user_id is the bot's own.
     authorizations = payload.get('authorizations') or [{}]
     return authorizations[0].get('user_id')
 
 
-def _without_bot_mentions(text: str, bot_user_id: str | None) -> str:
-    if not bot_user_id:
-        return text
-    mentions = re.finditer(rf'<@{re.escape(bot_user_id)}(?:\|[^>]*)?>', text)
-    return without_spans(text, (match.span() for match in mentions))
-
-
 def _interaction_dedupe_key(
-    payload: dict[str, typing.Any],
-    *,
-    scope: render.Scope,
-    channel: str,
-    message: dict[str, typing.Any],
-    is_group: bool = False,
+    payload: dict[str, typing.Any], *, scope: render.Scope, chat: SlackChat, message: dict[str, typing.Any]
 ) -> str:
     message_ts = message.get('ts')
     if not message_ts:
         return f'slack:interaction:{payload.get("trigger_id")}'
     if scope == 'exclusive':
-        # An exclusive pick consumes the whole message, so every button shares one key.
-        # In a group each member picks for themselves, so one member's tap never swallows another's,
-        # such as a passer-by tapping the confirmation another member is waiting on.
-        if is_group:
-            user = (payload.get('user') or {}).get('id', '')
-            return f'slack:interaction:{channel}:{message_ts}:{user}'
-        return f'slack:interaction:{channel}:{message_ts}'
+        # An exclusive pick consumes the whole message, and the chat decides whose pick that is.
+        return chat.exclusive_pick_key(message_ts)
     # An open button is dedup'd per action_id, so each distinct button dispatches at most once.
     action = (payload.get('actions') or [{}])[0]
-    return f'slack:interaction:{channel}:{message_ts}:{action.get("action_id", "")}'
+    return f'slack:interaction:{chat.channel}:{message_ts}:{action.get("action_id", "")}'

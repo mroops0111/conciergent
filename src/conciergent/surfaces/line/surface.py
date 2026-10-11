@@ -19,13 +19,6 @@ _API_BASE_URL = 'https://api.line.me'
 _LOADING_SECONDS = 60
 
 
-class LineGroupChat(typing.NamedTuple):
-    """A LINE group or legacy multi-person room, keyed the way the Messaging API paths name them."""
-
-    kind: typing.Literal['group', 'room']
-    chat_id: str
-
-
 class LineMessenger:
     """A thin async client for the handful of LINE Messaging API calls the surface needs."""
 
@@ -61,18 +54,12 @@ class LineMessenger:
         )
         response.raise_for_status()
 
-    async def get_display_name(self, user_id: str, *, group_chat: LineGroupChat | None = None) -> str | None:
-        """Resolve a user's display name, through the group or room member profile when inside one.
-
-        A member profile works for anyone in the chat, while the plain profile only works for a user who added the bot.
-        """
-        path = (
-            f'/v2/bot/{group_chat.kind}/{group_chat.chat_id}/member/{user_id}'
-            if group_chat is not None
-            else f'/v2/bot/profile/{user_id}'
-        )
+    async def get_member_display_name(
+        self, kind: typing.Literal['group', 'room'], chat_id: str, user_id: str
+    ) -> str | None:
+        """Resolve a group or room member's display name, which works for any member, friend of the bot or not."""
         try:
-            response = await self._client.get(path)
+            response = await self._client.get(f'/v2/bot/{kind}/{chat_id}/member/{user_id}')
             response.raise_for_status()
             name = response.json().get('displayName')
         except httpx.HTTPError:

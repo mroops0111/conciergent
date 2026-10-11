@@ -157,4 +157,4 @@ async def test_a_refused_message_content_intent_falls_back_to_mentions(
 
     assert requested[0] & _INTENT_MESSAGE_CONTENT
     assert requested[1] == _INTENT_DIRECT_MESSAGES | _INTENT_GUILD_MESSAGES
-    assert harness.gateway._reply_trigger() == 'mention'
+    assert harness.gateway._group_chat_policy().reply_trigger == 'mention'

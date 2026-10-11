@@ -2,7 +2,6 @@ import asyncio
 import enum
 import json
 import logging
-import re
 import typing
 
 from websockets.asyncio.client import ClientConnection, connect
@@ -11,13 +10,13 @@ from websockets.exceptions import ConnectionClosed
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.group_chat import GroupChatPolicy, GroupChatTurn, ReplyTrigger, without_spans
+from conciergent.group_chat import GroupChatPolicy
 from conciergent.i18n.lang import Lang
-from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.discord import render
+from conciergent.surfaces.discord.chat import DiscordChat, discord_chat_from_interaction, discord_chat_from_message
 from conciergent.surfaces.discord.surface import (
     DiscordMessenger,
     DiscordOAuthBridge,
@@ -195,23 +194,11 @@ class DiscordGateway:
             await self._maybe_dispatch_interaction(data)
 
     async def _maybe_dispatch_message(self, data: dict[str, typing.Any]) -> None:
-        # A fresh message from a human starts a turn, in a direct message or, with group chats on, a server channel.
-        # Bot echoes are dropped.
-        author = data.get('author') or {}
-        user_id = author.get('id')
-        content = data.get('content') or ''
-        channel_id = data.get('channel_id')
-        guild_id = data.get('guild_id')
-        if author.get('bot') or not user_id or not channel_id:
+        chat = discord_chat_from_message(data, self._group_chat_policy())
+        if chat is None:
             return
-        if guild_id:
-            if not self._settings.group_chat_policy.enabled:
-                return
-            if self._reply_trigger() == 'mention':
-                if not self._mentions_bot(data):
-                    return
-                content = self._without_bot_mentions(content)
-        if not content:
+        user_text = chat.turn_input(data, bot_user_id=self._bot_user_id)
+        if not user_text:
             return
         message_id = data.get('id')
         if message_id and await self._message_store.dedupe(
@@ -219,23 +206,8 @@ class DiscordGateway:
         ):
             return
         await self._dispatch_turn(
-            user_id=user_id,
-            channel_id=channel_id,
-            user_text=content,
-            locale=None,
-            group=_group_chat_turn(channel_id, _display_name(author, data.get('member'))) if guild_id else None,
-            reply_to_message_id=message_id if guild_id else None,
+            chat=chat, user_text=user_text, locale=None, reply_to_message_id=chat.reply_reference(message_id)
         )
-
-    def _mentions_bot(self, data: dict[str, typing.Any]) -> bool:
-        bot_user_id = self._bot_user_id
-        return bot_user_id is not None and any(user.get('id') == bot_user_id for user in data.get('mentions') or [])
-
-    def _without_bot_mentions(self, content: str) -> str:
-        if self._bot_user_id is None:
-            return content
-        mentions = re.finditer(rf'<@!?{re.escape(self._bot_user_id)}>', content)
-        return without_spans(content, (match.span() for match in mentions))
 
     async def _maybe_dispatch_interaction(self, data: dict[str, typing.Any]) -> None:
         if data.get('type') != _MESSAGE_COMPONENT:
@@ -243,47 +215,37 @@ class DiscordGateway:
         parsed = render.parse_suggestion((data.get('data') or {}).get('custom_id', ''))
         if parsed is None:
             return
-        member = data.get('member')
-        user = data.get('user') or (member or {}).get('user') or {}
-        user_id = user.get('id')
-        channel_id = data.get('channel_id')
-        guild_id = data.get('guild_id')
+        chat = discord_chat_from_interaction(data, self._group_chat_policy())
         interaction_id = data.get('id')
         token = data.get('token')
-        if not user_id or not channel_id or not interaction_id or not token:
-            return
-        if guild_id and not self._settings.group_chat_policy.enabled:
+        if chat is None or not interaction_id or not token:
             return
         if await self._message_store.dedupe(f'discord:interaction:{interaction_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return
         await self._dispatch_turn(
-            user_id=user_id,
-            channel_id=channel_id,
+            chat=chat,
             user_text=parsed[1],
             locale=data.get('locale'),
             interaction=Interaction(interaction_id=interaction_id, token=token),
-            group=_group_chat_turn(channel_id, _display_name(user, member)) if guild_id else None,
         )
 
     async def _dispatch_turn(
         self,
         *,
-        user_id: str,
-        channel_id: str,
+        chat: DiscordChat,
         user_text: str,
         locale: str | None,
         interaction: Interaction | None = None,
-        group: GroupChatTurn | None = None,
         reply_to_message_id: str | None = None,
     ) -> None:
-        principal = make_principal(ChatSurface.discord, user_id)
+        principal = chat.principal
         lang = await self._resolve_lang(principal, locale)
         async with DiscordMessenger(
             self._settings.bot_token, timeout_seconds=self._settings.api_timeout_seconds
         ) as messenger:
             surface = DiscordReplySurface(
                 messenger,
-                channel_id=channel_id,
+                channel_id=chat.channel_id,
                 interaction=interaction,
                 lang=lang,
                 brand_color=self._settings.brand_color,
@@ -293,7 +255,7 @@ class DiscordGateway:
             bridge = DiscordOAuthBridge(
                 self._message_store,
                 messenger,
-                channel_id=channel_id,
+                channel_id=chat.channel_id,
                 lang=lang,
                 wait_timeout_seconds=self._settings.oauth_wait_timeout_seconds,
                 brand_color=self._settings.brand_color,
@@ -309,7 +271,7 @@ class DiscordGateway:
                     compactor=self._compactor,
                     approval_ttl_seconds=self._settings.approval_ttl_seconds,
                     history_ttl_seconds=self._settings.history_ttl_seconds,
-                    group=group,
+                    group=chat.group_chat_turn(),
                 )
             except Exception as error:
                 # An unfinished authorization is an expected ending, anything else is a real failure.
@@ -340,16 +302,18 @@ class DiscordGateway:
             },
         }
 
-    def _reply_trigger(self) -> ReplyTrigger:
+    def _group_chat_policy(self) -> GroupChatPolicy:
         # Without the message-content intent only a mention carries text,
         # so reply_trigger=every_message degrades to answering mentions.
-        return 'mention' if self._message_content_denied else self._settings.group_chat_policy.reply_trigger
+        policy = self._settings.group_chat_policy
+        return policy._replace(reply_trigger='mention') if self._message_content_denied else policy
 
     def _intents(self) -> int:
         intents = _INTENT_DIRECT_MESSAGES
-        if self._settings.group_chat_policy.enabled:
+        policy = self._group_chat_policy()
+        if policy.enabled:
             intents |= _INTENT_GUILD_MESSAGES
-            if self._reply_trigger() == 'every_message':
+            if policy.reply_trigger == 'every_message':
                 intents |= _INTENT_MESSAGE_CONTENT
         return intents
 
@@ -365,16 +329,6 @@ def _received_close_code(error: Exception) -> int | None:
     if isinstance(error, ConnectionClosed) and error.rcvd is not None:
         return error.rcvd.code
     return None
-
-
-def _group_chat_turn(channel_id: str, speaker: str) -> GroupChatTurn:
-    # A direct message is one conversation per user, while a server channel is shared by everyone in it.
-    return GroupChatTurn(conversation=make_principal(ChatSurface.discord, 'group', channel_id), speaker=speaker)
-
-
-def _display_name(user: dict[str, typing.Any], member: dict[str, typing.Any] | None) -> str:
-    # The name the speaker shows in this server, their server nickname before their global display name.
-    return (member or {}).get('nick') or user.get('global_name') or user.get('username') or user.get('id', '')
 
 
 def _parse_lang(locale: str | None) -> Lang | None:

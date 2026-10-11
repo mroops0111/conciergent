@@ -80,7 +80,7 @@ async def line_app(monkeypatch: pytest.MonkeyPatch, message_store: MessageStore)
                 async def start_loading(self, user_id: str) -> None:
                     loadings.append(user_id)
 
-                async def get_display_name(self, user_id: str, *, group_chat: typing.Any = None) -> str | None:
+                async def get_member_display_name(self, kind: str, chat_id: str, user_id: str) -> str | None:
                     return display_names.get(user_id)
 
                 async def get_lang(self, user_id: str) -> None:
