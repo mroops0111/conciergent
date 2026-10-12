@@ -3,7 +3,7 @@ import dataclasses
 import re
 import typing
 
-from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
+from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger, without_spans
 from conciergent.identity import ChatSurface, make_principal
 
@@ -32,8 +32,8 @@ class DiscordChat(abc.ABC):
         """The message a text reply answers as a native reply, or None to post a plain message."""
 
     @abc.abstractmethod
-    def turn(self) -> ChatTurn:
-        """The chat turn this message or click runs as."""
+    def resolve_chat_context(self) -> ChatContext:
+        """The chat context this message or click runs in."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -49,9 +49,9 @@ class DiscordDirectChat(DiscordChat):
         return None
 
     @typing.override
-    def turn(self) -> ChatTurn:
+    def resolve_chat_context(self) -> ChatContext:
         # A direct message has no threads, so the whole dialog with a user is one conversation.
-        return DirectChatTurn(conversation=self.principal)
+        return DirectChatContext(conversation=self.principal)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -78,8 +78,8 @@ class DiscordServerChannel(DiscordChat):
         return message_id
 
     @typing.override
-    def turn(self) -> ChatTurn:
-        return GroupChatTurn(
+    def resolve_chat_context(self) -> ChatContext:
+        return GroupChatContext(
             conversation=make_principal(ChatSurface.discord, 'group', self.channel_id), speaker=self.speaker
         )
 

@@ -3,7 +3,7 @@ import dataclasses
 import re
 import typing
 
-from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
+from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger, without_spans
 from conciergent.identity import ChatSurface, make_principal
 
@@ -48,8 +48,8 @@ class SlackChat(abc.ABC):
         """The dedupe key for a pick that consumes a whole message, such as a confirmation."""
 
     @abc.abstractmethod
-    def turn(self, display_name: str | None) -> ChatTurn:
-        """The chat turn this message runs as, given the sender's Slack display name."""
+    def resolve_chat_context(self, display_name: str | None) -> ChatContext:
+        """The chat context this message runs in, given the sender's Slack display name."""
 
     @abc.abstractmethod
     def reply_addressee(self, *, typed: bool) -> str | None:
@@ -78,8 +78,8 @@ class SlackDirectChat(SlackChat):
         return f'slack:interaction:{self.channel}:{message_ts}'
 
     @typing.override
-    def turn(self, display_name: str | None) -> ChatTurn:
-        return DirectChatTurn(conversation=self.conversation)
+    def resolve_chat_context(self, display_name: str | None) -> ChatContext:
+        return DirectChatContext(conversation=self.conversation)
 
     @typing.override
     def reply_addressee(self, *, typed: bool) -> str | None:
@@ -121,8 +121,8 @@ class SlackChannelChat(SlackChat):
         return f'slack:interaction:{self.channel}:{message_ts}:{self.user_id}'
 
     @typing.override
-    def turn(self, display_name: str | None) -> ChatTurn:
-        return GroupChatTurn(conversation=self.conversation, speaker=display_name or self.user_id)
+    def resolve_chat_context(self, display_name: str | None) -> ChatContext:
+        return GroupChatContext(conversation=self.conversation, speaker=display_name or self.user_id)
 
     @typing.override
     def reply_addressee(self, *, typed: bool) -> str | None:

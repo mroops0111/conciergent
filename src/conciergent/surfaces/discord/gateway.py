@@ -264,7 +264,7 @@ class DiscordGateway:
                 await run_turn(
                     user_text,
                     principal=principal,
-                    turn=chat.turn(),
+                    chat_context=chat.resolve_chat_context(),
                     runner=self._runner,
                     surface=surface,
                     message_store=self._message_store,

@@ -2,7 +2,7 @@ import abc
 import dataclasses
 import typing
 
-from conciergent.chat_turn import ChatTurn, DirectChatTurn, GroupChatTurn
+from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger, without_spans
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.surfaces.line import render
@@ -53,8 +53,8 @@ class LineChat(abc.ABC):
         """The quote token a text reply carries to show which message it answers, or None to quote nothing."""
 
     @abc.abstractmethod
-    async def turn(self, messenger: LineMessenger) -> ChatTurn:
-        """The chat turn this event runs as, looking up the speaker's name where the chat needs it."""
+    async def resolve_chat_context(self, messenger: LineMessenger) -> ChatContext:
+        """The chat context this event runs in, looking up the speaker's name where the chat needs it."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -80,8 +80,8 @@ class LineDirectChat(LineChat):
         return None
 
     @typing.override
-    async def turn(self, messenger: LineMessenger) -> ChatTurn:
-        return DirectChatTurn(conversation=make_principal(ChatSurface.line, self.user_id))
+    async def resolve_chat_context(self, messenger: LineMessenger) -> ChatContext:
+        return DirectChatContext(conversation=make_principal(ChatSurface.line, self.user_id))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -121,9 +121,9 @@ class LineGroupChat(LineChat):
         return (event.get('message') or {}).get('quoteToken')
 
     @typing.override
-    async def turn(self, messenger: LineMessenger) -> ChatTurn:
+    async def resolve_chat_context(self, messenger: LineMessenger) -> ChatContext:
         speaker = await messenger.get_member_display_name(self.kind, self.chat_id, self.user_id)
-        return GroupChatTurn(
+        return GroupChatContext(
             conversation=make_principal(ChatSurface.line, self.kind, self.chat_id),
             # A member whose profile cannot be read still needs a stable label, so members stay distinct.
             speaker=speaker or f'user-{self.user_id[-4:]}',

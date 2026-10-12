@@ -9,7 +9,7 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from conciergent.agent.runner import ChatRunner
-from conciergent.chat_turn import ChatTurn, GroupChatTurn
+from conciergent.chat_context import ChatContext, GroupChatContext
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, ReplySurface
 from conciergent.runtime import TurnResult
@@ -138,15 +138,15 @@ class StubRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: typing.Any = None,
         surface: typing.Any = None,
-        turn: ChatTurn,
+        chat_context: ChatContext,
     ) -> TurnResult:
         self.inputs.append(user_input)
         self.calls.append(
             {
                 'principal': principal,
                 'bridge': bridge,
-                'turn': turn,
-                'speaker': turn.speaker if isinstance(turn, GroupChatTurn) else None,
+                'chat_context': chat_context,
+                'speaker': chat_context.speaker if isinstance(chat_context, GroupChatContext) else None,
                 'pending_approval': pending_approval,
                 'history': history,
             }

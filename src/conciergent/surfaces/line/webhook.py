@@ -136,7 +136,7 @@ async def _dispatch_event(
             await run_turn(
                 user_text,
                 principal=principal,
-                turn=await chat.turn(messenger),
+                chat_context=await chat.resolve_chat_context(messenger),
                 runner=runner,
                 surface=surface,
                 message_store=message_store,

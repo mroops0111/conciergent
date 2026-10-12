@@ -1,6 +1,6 @@
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.chat_turn import ChatTurn
+from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Carousel, ReplySurface
 from conciergent.runtime import OAuthBridge, PendingApproval
@@ -11,7 +11,7 @@ async def run_turn(
     user_input: str,
     *,
     principal: str,
-    turn: ChatTurn,
+    chat_context: ChatContext,
     runner: ChatRunner,
     surface: ReplySurface,
     message_store: MessageStore,
@@ -22,24 +22,25 @@ async def run_turn(
 ) -> None:
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
-    The ``principal`` is the user's identity and keys credentials, while ``turn`` names the chat the turn runs in,
-    a direct chat or a group chat, with the conversation that scopes history and pending approvals.
+    The ``principal`` is the user's identity and keys credentials,
+    while ``chat_context`` names the chat the turn runs in, a direct chat or a group chat,
+    with the conversation that scopes history and pending approvals.
     This is side-effect only, the surface sends and the appended history turn.
     """
-    if not await turn.can_run(runner):
+    if not await chat_context.can_run(runner):
         # The app cannot serve this chat right now, so the message is dropped without a reply.
         await surface.acknowledge_silently()
         return
-    conversation = turn.conversation
+    conversation = chat_context.conversation
     history = await message_store.load_history(conversation)
     if compactor is not None and history:
         compacted = await compactor.compact_if_needed(history)
         if compacted is not None:
             await message_store.replace_history(conversation, compacted, ttl_seconds=history_ttl_seconds)
             history = compacted
-    owner = turn.approval_owner(principal)
+    owner = chat_context.approval_owner(principal)
     pending_approval = await message_store.take_approval(conversation, owner=owner)
-    if pending_approval is None and turn.drops_unowned_decision(user_input):
+    if pending_approval is None and chat_context.drops_unowned_decision(user_input):
         # Not every surface can tell one member privately, so the tap is dropped quietly on all of them.
         await surface.acknowledge_silently()
         return
@@ -52,7 +53,7 @@ async def run_turn(
         pending_approval=pending_approval,
         bridge=bridge,
         surface=surface,
-        turn=turn,
+        chat_context=chat_context,
     )
 
     output = result.output

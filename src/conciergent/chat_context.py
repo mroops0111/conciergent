@@ -18,7 +18,7 @@ _GROUP_CHAT_INSTRUCTIONS = (
 
 
 @dataclasses.dataclass(frozen=True)
-class ChatTurn(abc.ABC):
+class ChatContext(abc.ABC):
     """The chat one turn runs in, a direct chat with one user or a group chat shared by several.
 
     The two differ in whose history and approvals the turn uses, whose credentials reach the MCP servers,
@@ -61,8 +61,8 @@ class ChatTurn(abc.ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class DirectChatTurn(ChatTurn):
-    """A turn in a direct chat, where one user owns the history, the approvals, and the credentials."""
+class DirectChatContext(ChatContext):
+    """A direct chat, where one user owns the history, the approvals, and the credentials."""
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
@@ -97,8 +97,8 @@ class DirectChatTurn(ChatTurn):
 
 
 @dataclasses.dataclass(frozen=True)
-class GroupChatTurn(ChatTurn):
-    """A turn in a group chat, whose members share the history while each one owns their approvals.
+class GroupChatContext(ChatContext):
+    """A group chat, whose members share the history while each one owns their approvals.
 
     It holds no one's authorization, so it runs only while every MCP server works without a user's token,
     and it names its speaker so the agent can tell the members apart.

@@ -176,7 +176,7 @@ async def _dispatch_turn(
             await run_turn(
                 user_text,
                 principal=principal,
-                turn=chat.turn(user.display_name),
+                chat_context=chat.resolve_chat_context(user.display_name),
                 runner=runner,
                 surface=surface,
                 message_store=message_store,
