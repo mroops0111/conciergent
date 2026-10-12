@@ -11,11 +11,13 @@ from conciergent import i18n
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
+from conciergent.group_chat import GroupChatPolicy
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface, make_principal
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import render
+from conciergent.surfaces.line.chat import line_chat_from_source
 from conciergent.surfaces.line.surface import LineMessenger, LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 from conciergent.turn import run_turn
 
@@ -36,6 +38,7 @@ class LineWebhookSettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.line.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
+    group_chat_policy: GroupChatPolicy = GroupChatPolicy()
 
 
 def build_router(
@@ -87,16 +90,23 @@ async def _dispatch_event(
     compactor: HistorySummarizer | None,
     event: dict[str, typing.Any],
 ) -> None:
-    source = event.get('source') or {}
-    user_id = source.get('userId')
-    if source.get('type') != 'user' or not user_id:
+    chat = line_chat_from_source(event.get('source') or {}, settings.group_chat_policy)
+    if chat is None:
         return
-    principal = make_principal(ChatSurface.line, user_id)
+    # Settle whether the event starts a turn before any API call, so the chatter in a group costs nothing.
+    # LINE sends a follow event only from a one-on-one chat.
+    is_follow = event.get('type') == 'follow'
+    user_text = '' if is_follow else chat.turn_input(event)
+    if not (is_follow or user_text):
+        return
+    principal = make_principal(ChatSurface.line, chat.user_id)
     async with LineMessenger(settings.channel_access_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
-        slot = ReplyTokenSlot(messenger, user_id=user_id, reply_token=event.get('replyToken'))
+        slot = ReplyTokenSlot(
+            messenger, to=chat.push_target, reply_token=event.get('replyToken'), show_loading=chat.shows_loading
+        )
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
-        lang = await messenger.get_lang(user_id)
-        if event.get('type') == 'follow':
+        lang = await messenger.get_lang(chat.user_id)
+        if is_follow:
             # The add-time prompt shows the welcome-flavored body; only a follow event reaches here.
             follow_bridge = LineOAuthBridge(
                 message_store,
@@ -108,10 +118,13 @@ async def _dispatch_event(
             )
             await _greet_follower(runner=runner, principal=principal, bridge=follow_bridge, slot=slot, lang=lang)
             return
-        message = event.get('message') or {}
-        user_text = message.get('text', '')
-        if event.get('type') != 'message' or message.get('type') != 'text' or not user_text:
-            return
+        surface = LineReplySurface(
+            slot,
+            lang=lang,
+            brand_color=settings.brand_color,
+            destructive_color=settings.destructive_color,
+            quote_token=chat.quote_token(event),
+        )
         bridge = LineOAuthBridge(
             message_store,
             slot,
@@ -119,16 +132,11 @@ async def _dispatch_event(
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
             brand_color=settings.brand_color,
         )
-        surface = LineReplySurface(
-            slot,
-            lang=lang,
-            brand_color=settings.brand_color,
-            destructive_color=settings.destructive_color,
-        )
         try:
             await run_turn(
                 user_text,
                 principal=principal,
+                chat_context=await chat.resolve_chat_context(messenger),
                 runner=runner,
                 surface=surface,
                 message_store=message_store,

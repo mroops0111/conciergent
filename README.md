@@ -76,7 +76,7 @@ A spec entry takes openapi-mcp-gateway's per-server options, such as `exposure: 
 
 ### 3. Connect Your Chat App
 
-Conciergent replies in direct messages, and the in-chat OAuth happens there too. Register the app once and set its request URLs, where `{your-public-url}` is your public host.
+Conciergent replies in direct messages, and the in-chat OAuth happens there too. Group chats are opt-in, see [Group Chats](#group-chats). Register the app once and set its request URLs, where `{your-public-url}` is your public host.
 
 <details>
 <summary><b>Slack</b></summary>
@@ -168,6 +168,8 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
 | `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
 | `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
+| `agent.mcp_probe_timeout_seconds` | `10` | Group chats only. How long the no-credential probe of an MCP server waits. |
+| `agent.mcp_probe_retry_seconds` | `60` | Group chats only. When an unreachable MCP server is probed again. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
 | `surface.slack.enabled` | `false` | Turn the Slack surface on. |
 | `surface.slack.signing_secret` | *(required if enabled)* | Verifies inbound Slack signatures. |
@@ -178,6 +180,8 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `surface.line.channel_secret` · `channel_access_token` | *(required if enabled)* | LINE Messaging API credentials. |
 | `surface.discord.enabled` | `false` | Turn the Discord surface on. |
 | `surface.discord.bot_token` | *(required if enabled)* | Discord bot token. The bot connects over the gateway, so no webhook URL is needed. |
+| `surface.<name>.group_chats.enabled` | `false` | Answer in group chats as well as direct messages. See [Group Chats](#group-chats). |
+| `surface.<name>.group_chats.reply_trigger` | `mention` | `mention` answers only messages that mention the bot. `every_message` answers every message in a group chat. |
 | `store.messages_url` | *(required)* | Redis URL. Holds message state that expires (history, approvals, dedupe, OAuth handoff). |
 | `store.credentials_url` | *(required)* | Postgres URL (any SQLAlchemy async engine). Holds credentials that survive a restart (MCP and bot tokens). |
 | `store.max_turns` | `10` | Recent turns kept in history. |
@@ -194,6 +198,71 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 ### Localizing Text
 
 Button labels, prompts, and greetings are not config. They live in a locale catalog, picked from each user's Slack, LINE, or Discord language. Set `locales_dir` to a directory of `{lang}.yml` files to rebrand or translate. [`examples/locales/en.yml`](examples/locales/en.yml) is the full English catalog to start from.
+
+## Group Chats
+
+Each surface can also answer in group chats, a LINE group, a Slack channel, or a Discord server channel. It is off by default, and once on the bot answers in any group chat it is added to, the same openness as its direct messages.
+
+### Requirement
+
+A group is shared by several people, so it never runs a per-user OAuth. Group chats are served only when every MCP tool works without a user's token.
+
+- **Embedded Gateway Specs**: a spec with no `auth`, a static `bearer` or `api_key`, or an `oauth2` spec with `flow: client_credentials` works in group chats. Any other `oauth2` spec fails config validation while group chats are on.
+- **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses group chats, and is probed again after `agent.mcp_probe_retry_seconds`.
+
+### Configuration
+
+Turn group chats on per surface.
+
+```yaml
+surface:
+  line:
+    enabled: true
+    channel_secret: ${LINE_CHANNEL_SECRET}
+    channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
+    group_chats:
+      enabled: true
+      reply_trigger: mention # or every_message, to answer every message in the group chat
+```
+
+### Behavior
+
+A group shares one conversation while every member keeps their own identity.
+
+- **Shared History**: everyone in the group, or in the Slack thread, shares one history. Each message reaches the agent prefixed with its speaker's name, so it can tell the members apart.
+- **Mentions**: with `reply_trigger: mention` a typed message starts a turn only when it mentions the bot, and the mention is removed before the agent sees it. Tapping a suggestion or a Confirm / Cancel button never needs a mention.
+- **Approvals**: a confirmation belongs to the member whose request parked it. Only they can confirm or cancel it, and other members' messages leave it waiting. Another member's tap on it is ignored on every surface.
+- **Addressed Replies**: a text reply to a typed message shows who it answers, as a quote on LINE, a native reply on Discord, and a mention on Slack. Cards and replies to a button tap are not marked, since LINE cannot quote from a card and a tap has no message to answer.
+- **No Authorization**: a group turn never shows an authorize link and hides the sign-out tool, since a sign-out would clear the whole group's history.
+
+### Surface Setup
+
+Each platform needs a little more setup before the bot can read a group.
+
+<details>
+<summary><b>LINE</b></summary>
+
+- **Joining Groups**: turn on **Allow bot to join group chats** in the LINE Official Account Manager or the channel's Messaging API settings, then invite the bot.
+- **Push Quota**: a reply past the free reply token is a push message, and a push to a group counts once per member against the monthly message quota.
+
+</details>
+
+<details>
+<summary><b>Slack</b></summary>
+
+- **Mention Mode**: subscribe to the `app_mention` bot event and add the `app_mentions:read` scope.
+- **Every-Message Mode**: subscribe to `message.channels`, `message.groups`, and `message.mpim`, and add `channels:history`, `groups:history`, and `mpim:history`.
+- **Threads**: the bot replies in a thread, and each thread is its own conversation. Invite the bot to the channel, and reinstall the app after adding scopes. The multi-workspace install flow requests these scopes for you.
+
+</details>
+
+<details>
+<summary><b>Discord</b></summary>
+
+- **Mention Mode**: needs no extra setup. Discord delivers a server message's content to a bot it mentions, even without the message-content intent.
+- **Every-Message Mode**: enable the privileged **Message Content Intent** on the bot in the Developer Portal. If Discord refuses it, the bot logs an error and answers mentions only, while direct messages keep working.
+
+</details>
 
 ## The Reply Model
 

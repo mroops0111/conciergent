@@ -19,6 +19,8 @@ class ServerDefaults(_Lenient):
 
 class AgentDefaults(_Lenient):
     mcp_read_timeout_seconds: float
+    mcp_probe_timeout_seconds: float
+    mcp_probe_retry_seconds: float
     client_name: str
 
 

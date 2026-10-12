@@ -1,6 +1,9 @@
+import asyncio
 import collections.abc
 import contextlib
 import dataclasses
+import logging
+import time
 import typing
 
 import pydantic
@@ -9,17 +12,21 @@ from pydantic_ai.mcp import MCPToolsetClient
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
 from pydantic_ai.models import Model
 from pydantic_ai.output import OutputSpec
-from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDenied
+from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDefinition, ToolDenied
 
 from conciergent import i18n
 from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
+from conciergent.agent.mcp.probe import requires_user_authorization
 from conciergent.agent.mcp.storage import OAuthTokenStorage
+from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
 from conciergent.store.credential import CredentialStore
 
+
+logger = logging.getLogger(__name__)
 
 _BASELINE_INSTRUCTIONS = (
     'Your available tools are the source of truth for what you can do. '
@@ -57,6 +64,7 @@ class _AgentDeps:
     surface: ReplySurface | None
     lang: Lang | None
     principal: str
+    chat_context: ChatContext
     # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
     invalidate_history: bool = False
 
@@ -89,6 +97,9 @@ class ChatRunner:
         approval_predicate: ApprovalPredicate = needs_approval,
         client_name: str = DEFAULTS.agent.client_name,
         mcp_read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
+        known_user_authorization: collections.abc.Mapping[str, bool] | None = None,
+        mcp_probe_timeout_seconds: float = DEFAULTS.agent.mcp_probe_timeout_seconds,
+        mcp_probe_retry_seconds: float = DEFAULTS.agent.mcp_probe_retry_seconds,
     ) -> None:
         # The credential store only holds MCP OAuth tokens, which redirect_uri enables; a public server needs neither.
         if mcp_servers and redirect_uri is not None and credential_store is None:
@@ -103,6 +114,16 @@ class ChatRunner:
         self._approval_predicate = approval_predicate
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
+        # Whether a server URL needs a per-user authorization, when the config already says so, as for a gateway spec.
+        # Any other URL is probed, see supports_group_chats.
+        self._known_user_authorization = dict(known_user_authorization or {})
+        self._probe_timeout_seconds = mcp_probe_timeout_seconds
+        self._probe_retry_seconds = mcp_probe_retry_seconds
+        # Set once the probes reach a verdict. An unreachable server leaves it unset until the retry time passes.
+        self._group_chats_supported: bool | None = None
+        self._group_chats_retry_at = 0.0
+        # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
+        self._group_chats_lock = asyncio.Lock()
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
@@ -134,9 +155,19 @@ class ChatRunner:
                 f"When that message alone leaves the language unclear, default to the user's platform language, {lang.display_name}."
             )
 
+        @self._agent.instructions
+        def chat_kind(ctx: RunContext[_AgentDeps]) -> str:
+            # A group chat explains its speaker prefixes, a direct chat adds nothing.
+            return ctx.deps.chat_context.instructions
+
         if self._oauth_servers:
 
-            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True)
+            async def only_where_sign_out_is_allowed(
+                ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
+            ) -> ToolDefinition | None:
+                return tool_def if ctx.deps.chat_context.allows_sign_out else None
+
+            @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_where_sign_out_is_allowed)
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
                 """Sign the user out by revoking their authorization for every connected service.
 
@@ -154,6 +185,48 @@ class ChatRunner:
             return
         for server in self._oauth_servers:
             await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
+
+    async def supports_group_chats(self) -> bool:
+        """Report whether group chats may be served, which needs every MCP server to work without a user's token.
+
+        A group is shared by several people, so it never runs a per-user authorization.
+        Any server that needs one rules group chats out for the whole app, rather than leaving some tools half-working.
+        The verdict is cached once reached. An unreachable server pauses group chats until the retry interval passes.
+        """
+        async with self._group_chats_lock:
+            if self._group_chats_supported is not None:
+                return self._group_chats_supported
+            if time.monotonic() < self._group_chats_retry_at:
+                return False
+            needs_user = await asyncio.gather(*(self._needs_user_authorization(s) for s in self._oauth_servers))
+            per_user = [server for server, verdict in zip(self._oauth_servers, needs_user, strict=True) if verdict]
+            undecided = [
+                server for server, verdict in zip(self._oauth_servers, needs_user, strict=True) if verdict is None
+            ]
+            if per_user:
+                logger.error(
+                    'Group chats are disabled because these MCP servers need a per-user authorization: %s',
+                    ', '.join(per_user),
+                )
+                self._group_chats_supported = False
+            elif undecided:
+                logger.warning(
+                    'Group chats are paused until these MCP servers can be checked: %s', ', '.join(undecided)
+                )
+                self._group_chats_retry_at = time.monotonic() + self._probe_retry_seconds
+                return False
+            else:
+                self._group_chats_supported = True
+            return self._group_chats_supported
+
+    async def _needs_user_authorization(self, server: str) -> bool | None:
+        # Without OAuth configured _oauth_servers is empty, so no server is ever reached with a user's token.
+        known = self._known_user_authorization.get(server)
+        if known is not None:
+            return known
+        return await requires_user_authorization(
+            server, client_name=self._client_name, timeout_seconds=self._probe_timeout_seconds
+        )
 
     @property
     def mcp_servers(self) -> tuple[MCPToolsetClient, ...]:
@@ -192,14 +265,21 @@ class ChatRunner:
         pending_approval: dict[str, typing.Any] | None,
         bridge: OAuthBridge | None = None,
         surface: ReplySurface | None = None,
+        chat_context: ChatContext,
     ) -> TurnResult:
+        """Run one turn for ``principal`` in the chat ``chat_context`` describes.
+
+        A turn that does not use the user's credentials, such as a group chat's, reaches every server without
+        a user's token and ignores ``bridge``.
+        """
+        user_credentials = chat_context.uses_user_credentials
         toolsets = [
             await build_toolset(
                 server,
                 principal=principal,
-                credential_store=self._credential_store,
-                oauth_bridge=bridge,
-                redirect_uri=self._redirect_uri,
+                credential_store=self._credential_store if user_credentials else None,
+                oauth_bridge=bridge if user_credentials else None,
+                redirect_uri=self._redirect_uri if user_credentials else None,
                 approval_predicate=self._approval_predicate,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
@@ -207,10 +287,10 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal)
+        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, chat_context=chat_context)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
-            self._resume(pending_approval, user_input=user_input, history=history)
+            self._resume(pending_approval, user_input=user_input, history=history, chat_context=chat_context)
             if pending_approval is not None
             else None
         )
@@ -221,7 +301,10 @@ class ChatRunner:
             except pydantic.ValidationError:
                 decoded_history = None
             run_inputs = _RunInputs(
-                prompt=user_input, message_history=decoded_history, deferred_tool_results=None, held_messages=[]
+                prompt=chat_context.prompt(user_input),
+                message_history=decoded_history,
+                deferred_tool_results=None,
+                held_messages=[],
             )
         result = await self._agent.run(
             run_inputs.prompt,
@@ -241,7 +324,12 @@ class ChatRunner:
         return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
 
     def _resume(
-        self, pending_approval: dict[str, typing.Any], *, user_input: str, history: list[typing.Any]
+        self,
+        pending_approval: dict[str, typing.Any],
+        *,
+        user_input: str,
+        history: list[typing.Any],
+        chat_context: ChatContext,
     ) -> _RunInputs | None:
         """Rebuild the deferred run from parked state, or None when the state is unreadable.
 
@@ -267,7 +355,7 @@ class ChatRunner:
         elif user_input == cancel_prompt:
             decision, prompt = ToolDenied(_CANCEL_DENIAL), None
         else:
-            decision, prompt = ToolDenied(_IGNORE_DENIAL), user_input
+            decision, prompt = ToolDenied(_IGNORE_DENIAL), chat_context.prompt(user_input)
         deferred = DeferredToolResults(approvals=dict.fromkeys(tool_call_ids, decision))
         return _RunInputs(
             prompt=prompt, message_history=messages, deferred_tool_results=deferred, held_messages=held_messages

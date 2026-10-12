@@ -23,6 +23,9 @@ FOOTNOTE_COLOR = '#888888'
 # The card header is reused as the push-notification alt text, capped to keep the preview compact.
 ALT_TEXT_MAX_LENGTH = 40
 
+# The postback data prefix tagging a suggestion tap, so the webhook routes it back to the agent as the prompt.
+SUGGESTION_POSTBACK_PREFIX = 'suggestion:'
+
 # Where a card's suggestions land in the final LINE message.
 # * 'chip': quick-reply chips at message-envelope level (default for a normal reply card)
 # * 'button': inline buttons in the bubble footer, link style (carousel options)
@@ -76,10 +79,28 @@ def build_carousel(
 
 def build_quick_reply(suggestions: list[Suggestion]) -> list[dict[str, typing.Any]]:
     """Render suggestions as quick-reply chip actions for the message envelope."""
-    return [
-        {'type': 'action', 'action': {'type': 'message', 'label': suggestion.label, 'text': suggestion.prompt}}
-        for suggestion in suggestions
-    ]
+    return [{'type': 'action', 'action': suggestion_action(suggestion)} for suggestion in suggestions]
+
+
+def suggestion_action(suggestion: Suggestion) -> dict[str, typing.Any]:
+    """Render a suggestion as a postback action, which reaches the webhook as a tap rather than a typed message.
+
+    A tap needs no mention to reach the bot in a group, and its ``displayText`` still posts the prompt to the chat,
+    so everyone sees who chose what.
+    """
+    return {
+        'type': 'postback',
+        'label': suggestion.label,
+        'data': f'{SUGGESTION_POSTBACK_PREFIX}{suggestion.prompt}',
+        'displayText': suggestion.prompt,
+    }
+
+
+def parse_suggestion_postback(data: str) -> str | None:
+    """Return the prompt a suggestion postback carries, or None for any other postback."""
+    if not data.startswith(SUGGESTION_POSTBACK_PREFIX):
+        return None
+    return data[len(SUGGESTION_POSTBACK_PREFIX) :] or None
 
 
 def alt_text(card: Card) -> str:
@@ -168,7 +189,7 @@ def _build_footer(
         button = {
             'type': 'button',
             'height': 'sm',
-            'action': {'type': 'message', 'label': suggestion.label, 'text': suggestion.prompt},
+            'action': suggestion_action(suggestion),
         }
         if suggestions_destructive:
             button['style'] = 'primary' if index == 0 else 'secondary'

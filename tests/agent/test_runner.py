@@ -1,14 +1,21 @@
+import asyncio
+import typing
+
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai.models.test import TestModel
 
-from conciergent import Card, Carousel, PendingApproval, ReplySurface, i18n
+from conciergent import Card, Carousel, PendingApproval, i18n
+from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
+from conciergent.chat_context import DirectChatContext, GroupChatContext
 from conciergent.i18n.lang import Lang
 from conciergent.store.credential import CredentialStore
+from tests.conftest import RecordingSurface, destructive_server
 
 
 _PRINCIPAL = 'p'
@@ -19,54 +26,18 @@ _REDIRECT_URI = 'https://example.com/oauth/mcp/callback'
 # With no surface the agent resolves no language, so the confirm/cancel prompts fall back to English.
 _CONFIRM = i18n.t('approval.confirm', None)
 _CANCEL = i18n.t('approval.cancel', None)
+# The chat most turns here run in, one user's direct chat.
+_DIRECT = DirectChatContext(conversation=_PRINCIPAL)
 
 
-class RecordingSurfaceBase(ReplySurface):
-    async def send_text(self, text: str) -> None:
-        return None
-
-    async def send_card(self, card: Card, *, destructive: bool = False) -> None:
-        return None
-
-    async def send_carousel(self, cards: list[Card]) -> None:
-        return None
-
-    async def show_processing(self) -> None:
-        return None
-
-
-class LangSurface(RecordingSurfaceBase):
-    def __init__(self, lang: Lang | None) -> None:
-        self._lang = lang
-
-    @property
-    def lang(self) -> Lang | None:
-        return self._lang
-
-
-def _destructive_server(calls: list[int]) -> MCPServer:
-    server = MCPServer('test')
-
-    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
-    def delete_it(x: int) -> str:
-        calls.append(x)
-        return 'deleted'
-
-    return server
-
-
-def _agent(server: MCPServer) -> ChatRunner:
-    return ChatRunner(
-        model=TestModel(),
-        system_prompt=_SYSTEM_PROMPT,
-        mcp_servers=[server],
-    )
+def _agent(*servers: MCPServer | str, model: TestModel | None = None, **options: typing.Any) -> ChatRunner:
+    return ChatRunner(model=model or TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=list(servers), **options)
 
 
 async def test_reply_passes_through_and_serialises_history():
-    agent = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT)
+    agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None)
+    result = await agent.run('hi', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
 
     assert not isinstance(result.output, PendingApproval)
     assert isinstance(result.output, str | Card | Carousel)
@@ -75,9 +46,9 @@ async def test_reply_passes_through_and_serialises_history():
 
 async def test_destructive_tool_defers_before_running():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
-    result = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    result = await agent.run('delete it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
 
     assert isinstance(result.output, PendingApproval)
     assert len(result.output.state['tool_call_ids']) == 1
@@ -87,12 +58,14 @@ async def test_destructive_tool_defers_before_running():
 
 async def test_confirm_runs_the_tool():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('delete it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
 
-    resumed = await agent.run(_CONFIRM, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CONFIRM, principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert len(calls) == 1  # approval let the tool run
@@ -100,12 +73,14 @@ async def test_confirm_runs_the_tool():
 
 async def test_cancel_skips_the_tool():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('delete it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
 
-    resumed = await agent.run(_CANCEL, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CANCEL, principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert calls == []  # cancellation kept the tool from running
@@ -115,19 +90,25 @@ async def test_confirm_matches_the_parked_prompt_after_the_locale_changes():
     # A card parked with no locale offers English buttons, but the tap arrives on an interaction with a locale.
     # Matching must follow the parked prompt, not one re-derived from this turn's language, so the confirm lands.
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
     parked = await agent.run(
-        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=LangSurface(None)
+        'delete it',
+        principal=_PRINCIPAL,
+        chat_context=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(None),
     )
     assert isinstance(parked.output, PendingApproval)
 
     resumed = await agent.run(
         _CONFIRM,
         principal=_PRINCIPAL,
+        chat_context=_DIRECT,
         history=[],
         pending_approval=parked.output.state,
-        surface=LangSurface(Lang.ZH_TW),
+        surface=RecordingSurface(Lang.ZH_TW),
     )
 
     assert not isinstance(resumed.output, PendingApproval)
@@ -150,66 +131,74 @@ async def test_confirm_runs_all_deferred_tools():
 
     agent = _agent(server)
 
-    parked = await agent.run('do both', principal=_PRINCIPAL, history=[], pending_approval=None)
+    parked = await agent.run('do both', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
     assert isinstance(parked.output, PendingApproval)
     assert len(parked.output.state['tool_call_ids']) == 2
 
-    resumed = await agent.run(_CONFIRM, principal=_PRINCIPAL, history=[], pending_approval=parked.output.state)
+    resumed = await agent.run(
+        _CONFIRM, principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=parked.output.state
+    )
 
     assert not isinstance(resumed.output, PendingApproval)
     assert sorted(calls) == ['a', 'b']  # one confirm ran every deferred tool
 
 
 async def test_bootstrap_without_servers_reports_no_authorization():
-    agent = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT)
+    agent = _agent()
 
     assert await agent.bootstrap(_PRINCIPAL) is False
 
 
 async def test_bootstrap_opens_mcp_context_without_running_the_agent():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
     assert await agent.bootstrap(_PRINCIPAL) is False
     assert calls == []
 
 
 async def test_unreadable_pending_state_runs_as_a_fresh_turn():
-    agent = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT)
+    agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval={'wrong': 'shape'})
+    result = await agent.run(
+        'hi', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval={'wrong': 'shape'}
+    )
 
     assert not isinstance(result.output, PendingApproval)
 
 
 async def test_undecodable_history_is_dropped_instead_of_raising():
-    agent = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT)
+    agent = _agent()
 
-    result = await agent.run('hi', principal=_PRINCIPAL, history=[{'not': 'a message'}], pending_approval=None)
+    result = await agent.run(
+        'hi', principal=_PRINCIPAL, chat_context=_DIRECT, history=[{'not': 'a message'}], pending_approval=None
+    )
 
     assert not isinstance(result.output, PendingApproval)
 
 
 def test_public_mcp_server_needs_no_store():
     # No redirect_uri means no OAuth, so a public MCP server needs no credential store.
-    ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=[_destructive_server([])])
+    _agent(destructive_server([]))
 
 
 def test_oauth_mcp_server_requires_a_store():
     with pytest.raises(ValueError, match='store is required'):
-        ChatRunner(
-            model=TestModel(),
-            system_prompt=_SYSTEM_PROMPT,
-            mcp_servers=[_destructive_server([])],
-            redirect_uri='https://example.com/oauth/mcp/callback',
-        )
+        _agent(destructive_server([]), redirect_uri=_REDIRECT_URI)
 
 
 async def test_respond_language_instruction_names_the_user_language():
     model = TestModel()
-    agent = ChatRunner(model=model, system_prompt=_SYSTEM_PROMPT)
+    agent = _agent(model=model)
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=LangSurface(Lang.ZH_TW))
+    await agent.run(
+        'hi',
+        principal=_PRINCIPAL,
+        chat_context=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(Lang.ZH_TW),
+    )
 
     params = model.last_model_request_parameters
     assert params is not None and params.instruction_parts is not None
@@ -219,9 +208,16 @@ async def test_respond_language_instruction_names_the_user_language():
 
 async def test_respond_language_falls_back_to_mirroring_without_a_language():
     model = TestModel()
-    agent = ChatRunner(model=model, system_prompt=_SYSTEM_PROMPT)
+    agent = _agent(model=model)
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=LangSurface(None))
+    await agent.run(
+        'hi',
+        principal=_PRINCIPAL,
+        chat_context=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(None),
+    )
 
     params = model.last_model_request_parameters
     assert params is not None and params.instruction_parts is not None
@@ -231,10 +227,15 @@ async def test_respond_language_falls_back_to_mirroring_without_a_language():
 
 async def test_approval_card_is_localized_to_the_user_language():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
+    agent = _agent(destructive_server(calls))
 
     result = await agent.run(
-        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=LangSurface(Lang.ZH_TW)
+        'delete it',
+        principal=_PRINCIPAL,
+        chat_context=_DIRECT,
+        history=[],
+        pending_approval=None,
+        surface=RecordingSurface(Lang.ZH_TW),
     )
 
     assert isinstance(result.output, PendingApproval)
@@ -244,15 +245,18 @@ async def test_approval_card_is_localized_to_the_user_language():
 
 async def test_confirm_in_the_user_language_runs_the_tool():
     calls: list[int] = []
-    agent = _agent(_destructive_server(calls))
-    surface = LangSurface(Lang.ZH_TW)
+    agent = _agent(destructive_server(calls))
+    surface = RecordingSurface(Lang.ZH_TW)
 
-    parked = await agent.run('delete it', principal=_PRINCIPAL, history=[], pending_approval=None, surface=surface)
+    parked = await agent.run(
+        'delete it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None, surface=surface
+    )
     assert isinstance(parked.output, PendingApproval)
 
     resumed = await agent.run(
         i18n.t('approval.confirm', Lang.ZH_TW),
         principal=_PRINCIPAL,
+        chat_context=_DIRECT,
         history=[],
         pending_approval=parked.output.state,
         surface=surface,
@@ -262,13 +266,14 @@ async def test_confirm_in_the_user_language_runs_the_tool():
     assert len(calls) == 1  # the localized confirm matched and ran the tool
 
 
-def _oauth_agent(credential_store: CredentialStore, *, servers: list[str] | None = None) -> ChatRunner:
-    return ChatRunner(
-        model=TestModel(),
-        system_prompt=_SYSTEM_PROMPT,
-        mcp_servers=servers if servers is not None else [_OAUTH_SERVER],
+def _oauth_agent(
+    credential_store: CredentialStore, *, servers: list[str] | None = None, **options: typing.Any
+) -> ChatRunner:
+    return _agent(
+        *(servers if servers is not None else [_OAUTH_SERVER]),
         credential_store=credential_store,
         redirect_uri=_REDIRECT_URI,
+        **options,
     )
 
 
@@ -277,7 +282,7 @@ def test_revoke_tool_is_registered_and_gated_only_when_oauth_is_configured(crede
     revoke_tool = with_oauth._agent._function_toolset.tools[REVOKE_TOOL_NAME]
     assert revoke_tool.requires_approval is True  # the sign-out only runs after the user confirms
 
-    public = ChatRunner(model=TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=[_destructive_server([])])
+    public = _agent(destructive_server([]))
     assert REVOKE_TOOL_NAME not in public._agent._function_toolset.tools
 
 
@@ -299,15 +304,17 @@ async def test_revoke_deletes_tokens_for_every_oauth_server(credential_store: Cr
 
 async def test_surface_formatting_hint_joins_the_instructions():
     model = TestModel()
-    agent = ChatRunner(model=model, system_prompt=_SYSTEM_PROMPT)
+    agent = _agent(model=model)
     formatting_hint = 'MARKER-DIALECT-HINT'
 
-    class MarkerSurface(RecordingSurfaceBase):
+    class MarkerSurface(RecordingSurface):
         @property
         def text_formatting_instruction(self) -> str:
             return formatting_hint
 
-    await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, surface=MarkerSurface())
+    await agent.run(
+        'hi', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None, surface=MarkerSurface()
+    )
 
     params = model.last_model_request_parameters
     assert params is not None
@@ -315,3 +322,90 @@ async def test_surface_formatting_hint_joins_the_instructions():
     instructions = ' '.join(part.content for part in params.instruction_parts)
     assert _SYSTEM_PROMPT in instructions
     assert formatting_hint in instructions
+
+
+async def test_group_chats_are_supported_without_oauth():
+    agent = _agent(destructive_server([]))
+
+    assert await agent.supports_group_chats() is True
+
+
+async def test_group_chats_follow_the_known_authorization_without_probing(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    async def no_probe(url: str, **_: object) -> bool | None:
+        raise AssertionError('a server with a known verdict is never probed')
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', no_probe)
+    shared = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: False})
+    per_user = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: True})
+
+    assert await shared.supports_group_chats() is True
+    assert await per_user.supports_group_chats() is False
+
+
+async def test_an_unreachable_server_pauses_group_chats_until_a_probe_decides(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    verdicts: list[bool | None] = [None, False]
+    probed: list[str] = []
+
+    async def probe(url: str, **_: object) -> bool | None:
+        probed.append(url)
+        return verdicts.pop(0)
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
+    agent = _oauth_agent(credential_store)
+
+    assert await agent.supports_group_chats() is False
+    assert await agent.supports_group_chats() is False  # still inside the retry interval, so no second probe yet
+    agent._group_chats_retry_at = 0.0  # the retry interval has passed
+    assert await agent.supports_group_chats() is True
+    assert await agent.supports_group_chats() is True  # a reached verdict is cached
+    assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
+
+
+async def test_concurrent_group_chat_checks_share_one_probe_of_each_server(
+    credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
+):
+    servers = ['https://a.example/mcp', 'https://b.example/mcp']
+    probed: list[str] = []
+    both_started = asyncio.Event()
+
+    async def probe(url: str, **_: object) -> bool | None:
+        probed.append(url)
+        if len(probed) == len(servers):
+            both_started.set()
+        # The servers are probed side by side, so neither finishes before both have started.
+        await both_started.wait()
+        return False
+
+    monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
+    agent = _oauth_agent(credential_store, servers=servers)
+
+    verdicts = await asyncio.gather(*(agent.supports_group_chats() for _ in range(5)))
+
+    assert verdicts == [True] * 5
+    assert sorted(probed) == servers
+
+
+async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_store: CredentialStore):
+    model = TestModel(call_tools=[])
+    agent = _oauth_agent(credential_store, model=model)
+    # Keep the sign-out tool registered but connect to nothing, so the turn needs no live MCP server.
+    agent._mcp_servers = []
+
+    await agent.run('hi', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+    direct = model.last_model_request_parameters
+    result = await agent.run(
+        'hi', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=GroupChatContext('g', 'Amy')
+    )
+    group = model.last_model_request_parameters
+
+    assert direct is not None and group is not None
+    assert REVOKE_TOOL_NAME in {tool.name for tool in direct.function_tools}
+    assert REVOKE_TOOL_NAME not in {tool.name for tool in group.function_tools}
+    instructions = ' '.join(part.content for part in group.instruction_parts or [])
+    assert 'group chat' in instructions
+    first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
+    assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)

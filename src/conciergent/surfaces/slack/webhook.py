@@ -11,11 +11,13 @@ import fastapi
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
-from conciergent.identity import ChatSurface, make_principal
+from conciergent.group_chat import GroupChatPolicy
+from conciergent.identity import ChatSurface
 from conciergent.runtime import is_handoff_expiry
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.slack import render
+from conciergent.surfaces.slack.chat import SlackChat, slack_chat_from_event, slack_chat_from_interaction
 from conciergent.surfaces.slack.surface import SlackMessenger, SlackOAuthBridge, SlackReplySurface
 from conciergent.turn import run_turn
 
@@ -41,6 +43,7 @@ class SlackWebhookSettings(typing.NamedTuple):
     api_timeout_seconds: float = DEFAULTS.surface.slack.api_timeout_seconds
     brand_color: str = render.BRAND_COLOR
     destructive_color: str = render.DESTRUCTIVE_COLOR
+    group_chat_policy: GroupChatPolicy = GroupChatPolicy()
 
 
 def build_router(
@@ -72,7 +75,8 @@ def build_router(
         if payload.get('type') != 'event_callback':
             return {}
         event = payload.get('event') or {}
-        if not _is_direct_user_message(event):
+        chat = slack_chat_from_event(payload.get('team_id', ''), event, settings.group_chat_policy)
+        if chat is None or not chat.answers(event):
             return {}
         if await message_store.dedupe(f'slack:event:{payload.get("event_id")}', ttl_seconds=_DEDUPE_TTL_SECONDS):
             return {}
@@ -83,11 +87,8 @@ def build_router(
             credential_store=credential_store,
             runner=runner,
             compactor=compactor,
-            team_id=payload.get('team_id', ''),
-            user_id=event['user'],
-            channel=event['channel'],
-            thread_ts=event.get('thread_ts') or event.get('ts'),
-            user_text=event.get('text', ''),
+            chat=chat,
+            user_text=chat.turn_input(event, bot_user_id=_bot_user_id(payload)),
         )
         return {}
 
@@ -103,10 +104,13 @@ def build_router(
         scope = render.parse_suggestion_scope(action.get('action_id', ''))
         if scope is None:
             return {}
+        chat = slack_chat_from_interaction(payload, settings.group_chat_policy)
+        if chat is None:
+            return {}
         message = payload.get('message') or {}
-        channel = (payload.get('channel') or {}).get('id', '')
-        dedupe_key = _interaction_dedupe_key(payload, scope=scope, channel=channel, message=message)
-        if await message_store.dedupe(dedupe_key, ttl_seconds=_DEDUPE_TTL_SECONDS):
+        if await message_store.dedupe(
+            _interaction_dedupe_key(payload, scope=scope, chat=chat, message=message), ttl_seconds=_DEDUPE_TTL_SECONDS
+        ):
             return {}
         background.add_task(
             _dispatch_turn,
@@ -115,10 +119,7 @@ def build_router(
             credential_store=credential_store,
             runner=runner,
             compactor=compactor,
-            team_id=(payload.get('team') or {}).get('id', ''),
-            user_id=(payload.get('user') or {}).get('id', ''),
-            channel=channel,
-            thread_ts=message.get('thread_ts') or message.get('ts'),
+            chat=chat,
             user_text=action.get('value', ''),
             response_url=payload.get('response_url'),
             interacted_message=message,
@@ -136,40 +137,37 @@ async def _dispatch_turn(
     credential_store: CredentialStore,
     runner: ChatRunner,
     compactor: HistorySummarizer | None,
-    team_id: str,
-    user_id: str,
-    channel: str,
-    thread_ts: str | None,
+    chat: SlackChat,
     user_text: str,
     response_url: str | None = None,
     interacted_message: dict[str, typing.Any] | None = None,
     button_label: str = '',
 ) -> None:
-    bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, team_id) or settings.fallback_bot_token
+    bot_token = await credential_store.resolve_bot_token(ChatSurface.slack, chat.team_id) or settings.fallback_bot_token
     if not bot_token or not user_text:
         return
-    principal = make_principal(ChatSurface.slack, team_id, user_id)
-    # One Slack thread is one conversation, the surface replies in-thread so follow-ups stay scoped.
-    conversation = f'{principal}:{thread_ts}' if thread_ts else principal
+    principal = chat.principal
     async with SlackMessenger(bot_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         # Resolve the user's language once so the reply, the approval card, and any OAuth prompt all match it.
-        lang = await messenger.get_lang(user_id)
+        user = await messenger.get_user(chat.user_id)
+        lang = user.lang
         surface = SlackReplySurface(
             messenger,
-            channel=channel,
-            thread_ts=thread_ts,
+            channel=chat.channel,
+            thread_ts=chat.thread_ts,
             response_url=response_url,
             interacted_message=interacted_message,
             button_label=button_label,
             lang=lang,
             brand_color=settings.brand_color,
             destructive_color=settings.destructive_color,
+            reply_to_user=chat.reply_addressee(typed=interacted_message is None),
         )
         bridge = SlackOAuthBridge(
             message_store,
             messenger,
-            channel=channel,
-            thread_ts=thread_ts,
+            channel=chat.channel,
+            thread_ts=chat.thread_ts,
             lang=lang,
             wait_timeout_seconds=settings.oauth_wait_timeout_seconds,
             brand_color=settings.brand_color,
@@ -178,10 +176,10 @@ async def _dispatch_turn(
             await run_turn(
                 user_text,
                 principal=principal,
+                chat_context=chat.resolve_chat_context(user.display_name),
                 runner=runner,
                 surface=surface,
                 message_store=message_store,
-                conversation=conversation,
                 bridge=bridge,
                 compactor=compactor,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
@@ -206,26 +204,21 @@ def _signature_is_valid(secret: str, body: bytes, *, timestamp: str | None, sign
     return hmac.compare_digest(f'v0={digest}', signature)
 
 
-def _is_direct_user_message(event: dict[str, typing.Any]) -> bool:
-    # Only fresh direct messages from humans start a turn, bot echoes and edits are dropped.
-    return (
-        event.get('type') == 'message'
-        and event.get('channel_type') == 'im'
-        and not event.get('bot_id')
-        and not event.get('subtype')
-        and bool(event.get('user'))
-    )
+def _bot_user_id(payload: dict[str, typing.Any]) -> str | None:
+    # Every event callback names the installation it was delivered to, whose user_id is the bot's own.
+    authorizations = payload.get('authorizations') or [{}]
+    return authorizations[0].get('user_id')
 
 
 def _interaction_dedupe_key(
-    payload: dict[str, typing.Any], *, scope: render.Scope, channel: str, message: dict[str, typing.Any]
+    payload: dict[str, typing.Any], *, scope: render.Scope, chat: SlackChat, message: dict[str, typing.Any]
 ) -> str:
     message_ts = message.get('ts')
     if not message_ts:
         return f'slack:interaction:{payload.get("trigger_id")}'
     if scope == 'exclusive':
-        # An exclusive pick consumes the whole message, so every button shares one key.
-        return f'slack:interaction:{channel}:{message_ts}'
+        # An exclusive pick consumes the whole message, and the chat decides whose pick that is.
+        return chat.exclusive_pick_key(message_ts)
     # An open button is dedup'd per action_id, so each distinct button dispatches at most once.
     action = (payload.get('actions') or [{}])[0]
-    return f'slack:interaction:{channel}:{message_ts}:{action.get("action_id", "")}'
+    return f'slack:interaction:{chat.channel}:{message_ts}:{action.get("action_id", "")}'

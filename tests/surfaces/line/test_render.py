@@ -59,7 +59,12 @@ def test_chip_placement_keeps_suggestions_out_of_the_footer():
     assert 'More' not in labels
 
     quick_reply = render.build_quick_reply(_card().suggestions)
-    assert quick_reply[0]['action'] == {'type': 'message', 'label': 'More', 'text': 'List more tasks'}
+    assert quick_reply[0]['action'] == {
+        'type': 'postback',
+        'label': 'More',
+        'data': 'suggestion:List more tasks',
+        'displayText': 'List more tasks',
+    }
 
 
 def test_destructive_placement_emphasizes_the_first_suggestion():
@@ -86,7 +91,7 @@ def test_carousel_renders_bubbles_with_button_suggestions():
 
     assert carousel['type'] == 'carousel'
     first = carousel['contents'][0]
-    assert first['footer']['contents'][0]['action']['text'] == 'Pick A'
+    assert first['footer']['contents'][0]['action']['data'] == 'suggestion:Pick A'
 
 
 def test_hero_image_renders_above_the_bubble():

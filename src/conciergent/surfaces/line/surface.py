@@ -43,8 +43,9 @@ class LineMessenger:
         )
         response.raise_for_status()
 
-    async def push(self, user_id: str, message: dict[str, typing.Any]) -> None:
-        response = await self._client.post('/v2/bot/message/push', json={'to': user_id, 'messages': [message]})
+    async def push(self, to: str, message: dict[str, typing.Any]) -> None:
+        """Push a message to a user, group, or room id."""
+        response = await self._client.post('/v2/bot/message/push', json={'to': to, 'messages': [message]})
         response.raise_for_status()
 
     async def start_loading(self, user_id: str) -> None:
@@ -52,6 +53,18 @@ class LineMessenger:
             '/v2/bot/chat/loading/start', json={'chatId': user_id, 'loadingSeconds': _LOADING_SECONDS}
         )
         response.raise_for_status()
+
+    async def get_member_display_name(
+        self, kind: typing.Literal['group', 'room'], chat_id: str, user_id: str
+    ) -> str | None:
+        """Resolve a group or room member's display name, which works for any member, friend of the bot or not."""
+        try:
+            response = await self._client.get(f'/v2/bot/{kind}/{chat_id}/member/{user_id}')
+            response.raise_for_status()
+            name = response.json().get('displayName')
+        except httpx.HTTPError:
+            return None
+        return name or None
 
     async def get_lang(self, user_id: str) -> Lang | None:
         """Resolve the user's UI language from their LINE profile language, or None when unavailable."""
@@ -73,12 +86,17 @@ class ReplyTokenSlot:
     A turn may emit several messages, an OAuth prompt and then the agent reply,
     but the reply token is single-use and expires within a minute.
     A failed reply attempt also falls through to push, so a message is never lost to a stale token.
+    The push goes to ``to``, the user id in a direct chat and the group or room id in a group.
     """
 
-    def __init__(self, messenger: LineMessenger, *, user_id: str, reply_token: str | None) -> None:
+    def __init__(
+        self, messenger: LineMessenger, *, to: str, reply_token: str | None, show_loading: bool = True
+    ) -> None:
         self._messenger = messenger
-        self._user_id = user_id
+        self._to = to
         self._reply_token = reply_token
+        # LINE's loading animation exists only in one-on-one chats, so a group skips the call.
+        self._show_loading = show_loading
 
     async def send(self, message: dict[str, typing.Any]) -> None:
         token, self._reply_token = self._reply_token, None
@@ -88,12 +106,14 @@ class ReplyTokenSlot:
                 return
             except httpx.HTTPStatusError:
                 logger.warning('LINE reply token failed, falling back to push')
-        await self._messenger.push(self._user_id, message)
+        await self._messenger.push(self._to, message)
 
     async def start_loading(self) -> None:
+        if not self._show_loading:
+            return
         # The loading indicator is cosmetic, so a failed ping is logged at debug and never aborts the turn.
         try:
-            await self._messenger.start_loading(self._user_id)
+            await self._messenger.start_loading(self._to)
         except Exception:
             logger.debug('LINE loading indicator failed', exc_info=True)
 
@@ -108,9 +128,12 @@ class LineReplySurface(ReplySurface):
         lang: Lang | None = None,
         brand_color: str = render.BRAND_COLOR,
         destructive_color: str = render.DESTRUCTIVE_COLOR,
+        quote_token: str | None = None,
     ) -> None:
         self._slot = slot
         self._lang = lang
+        # The quote token of the group message a text reply answers. LINE cannot quote from a Flex card.
+        self._quote_token = quote_token
         self._brand_color = brand_color
         self._destructive_color = destructive_color
 
@@ -126,7 +149,10 @@ class LineReplySurface(ReplySurface):
 
     @typing.override
     async def send_text(self, text: str) -> None:
-        await self._slot.send({'type': 'text', 'text': text})
+        message: dict[str, typing.Any] = {'type': 'text', 'text': text}
+        if self._quote_token is not None:
+            message['quoteToken'] = self._quote_token
+        await self._slot.send(message)
 
     @typing.override
     async def send_card(self, card: Card, *, destructive: bool = False) -> None:

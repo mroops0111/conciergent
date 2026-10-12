@@ -59,8 +59,12 @@ def build_carousel_message(cards: list[Card], *, brand_color: str = BRAND_COLOR)
     return _message(embeds, buttons)
 
 
-def build_text_message(text: str) -> dict[str, typing.Any]:
-    return {'content': text}
+def build_text_message(text: str, *, reply_to_message_id: str | None = None) -> dict[str, typing.Any]:
+    message: dict[str, typing.Any] = {'content': text}
+    if reply_to_message_id is not None:
+        # A native reply quotes the member's message, and still posts if that message was deleted meanwhile.
+        message['message_reference'] = {'message_id': reply_to_message_id, 'fail_if_not_exists': False}
+    return message
 
 
 def strip_components() -> dict[str, typing.Any]:

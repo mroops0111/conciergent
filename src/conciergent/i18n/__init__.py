@@ -80,3 +80,8 @@ def t(key: str, lang: Lang | None, *, default: str | None = None, **kwargs: obje
         return default.format(**kwargs) if kwargs else default
     text = (entry.get(lang) if lang is not None else None) or entry[FALLBACK_LANG]
     return text.format(**kwargs) if kwargs else text
+
+
+def variants(key: str) -> set[str]:
+    """Every language's text for ``key``, for recognizing a fixed prompt whichever language it was sent in."""
+    return set(CATALOG.get(key, {}).values())

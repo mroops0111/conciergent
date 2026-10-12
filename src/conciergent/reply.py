@@ -198,6 +198,13 @@ class ReplySurface(abc.ABC):
     @abc.abstractmethod
     async def send_carousel(self, cards: list[Card]) -> None: ...
 
+    async def acknowledge_silently(self) -> None:
+        """Settle the event behind a turn that is dropped without a reply, showing nothing to anyone.
+
+        Most platforms need nothing, while one that requires every button click to be answered overrides this.
+        """
+        return None
+
     @abc.abstractmethod
     async def show_processing(self) -> None:
         """Signal to the user that work is in progress, for example a typing or loading indicator."""
