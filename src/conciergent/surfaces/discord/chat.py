@@ -12,8 +12,9 @@ from conciergent.identity import ChatSurface, make_principal
 class DiscordChat(abc.ABC):
     """The Discord chat a message or click came from, which decides how the bot reads it and replies there.
 
-    A direct message and a server channel differ in what counts as talking to the bot, how a reply points
-    at the message it answers, and whether the turn is shared, so each kind answers those questions itself.
+    A direct message and a server channel differ in what counts as talking to the bot,
+    how a reply points at the message it answers, and whether the turn is shared,
+    so each kind answers those questions itself.
     """
 
     user_id: str

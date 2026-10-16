@@ -123,6 +123,9 @@ force-single-line = false
 lines-after-imports = 2
 split-on-trailing-comma = true
 
+[tool.subedit]
+line-width = 120
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

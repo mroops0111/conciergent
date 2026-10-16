@@ -1,7 +1,8 @@
 """End-to-end MCP OAuth against a real embedded gateway: authorize, reuse the stored token, then refresh it.
 
-An upstream app plays both the OAuth provider and the protected API. The gateway runs ``authorization_code``,
-so it is the authorization server the MCP client talks to, and it returns an RFC 9207 ``iss`` on the redirect.
+An upstream app plays both the OAuth provider and the protected API.
+The gateway runs ``authorization_code``, so it is the authorization server the MCP client talks to,
+and it returns an RFC 9207 ``iss`` on the redirect.
 A bridge plays the user by following the authorize URL's redirects until they reach the client's redirect URI.
 """
 
@@ -152,7 +153,8 @@ async def test_authorize_reuse_and_refresh_through_the_gateway(gateway_mcp_url: 
 
     assert 'mochi' in await _run_turn(gateway_mcp_url, credential_store, bridge)
     assert bridge.calls == 1
-    # Gateway 0.8 advertises RFC 9207, so the SDK rejects a redirect without iss; it must reach the bridge result.
+    # Gateway 0.8 advertises RFC 9207, so the SDK rejects a redirect without iss.
+    # The iss must therefore reach the bridge result.
     assert bridge.received is not None and bridge.received.iss
     first = await storage.get_tokens()
     assert first is not None

@@ -136,7 +136,8 @@ def _message(embeds: list[dict[str, typing.Any]], buttons: list[dict[str, typing
 
 
 def _rows(buttons: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
-    # Discord allows at most five buttons per action row and five rows per message; extra buttons are dropped.
+    # Discord allows at most five buttons per action row and five rows per message.
+    # Extra buttons are dropped.
     rows: list[dict[str, typing.Any]] = []
     for start in range(0, len(buttons), _BUTTONS_PER_ROW):
         if len(rows) == _MAX_ROWS:

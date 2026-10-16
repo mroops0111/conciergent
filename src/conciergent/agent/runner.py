@@ -101,14 +101,16 @@ class ChatRunner:
         mcp_probe_timeout_seconds: float = DEFAULTS.agent.mcp_probe_timeout_seconds,
         mcp_probe_retry_seconds: float = DEFAULTS.agent.mcp_probe_retry_seconds,
     ) -> None:
-        # The credential store only holds MCP OAuth tokens, which redirect_uri enables; a public server needs neither.
+        # The credential store only holds MCP OAuth tokens, which redirect_uri enables.
+        # A public server needs neither.
         if mcp_servers and redirect_uri is not None and credential_store is None:
             raise ValueError('a credential store is required to persist the MCP OAuth tokens that redirect_uri enables')
         self._mcp_servers = list(mcp_servers)
         self._credential_store = credential_store
         self._redirect_uri = redirect_uri
         # OAuth tokens exist only for URL servers reached with a redirect_uri and a store,
-        # so those are the ones a sign-out clears. With none configured, the revoke tool is not registered.
+        # so those are the ones a sign-out clears.
+        # With none configured, the revoke tool is not registered.
         oauth_configured = redirect_uri is not None and credential_store is not None
         self._oauth_servers = [s for s in self._mcp_servers if isinstance(s, str)] if oauth_configured else []
         self._approval_predicate = approval_predicate
@@ -119,7 +121,8 @@ class ChatRunner:
         self._known_user_authorization = dict(known_user_authorization or {})
         self._probe_timeout_seconds = mcp_probe_timeout_seconds
         self._probe_retry_seconds = mcp_probe_retry_seconds
-        # Set once the probes reach a verdict. An unreachable server leaves it unset until the retry time passes.
+        # Set once the probes reach a verdict.
+        # An unreachable server leaves it unset until the retry time passes.
         self._group_chats_supported: bool | None = None
         self._group_chats_retry_at = 0.0
         # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
@@ -146,7 +149,8 @@ class ChatRunner:
 
         @self._agent.instructions
         def responding_language(ctx: RunContext[_AgentDeps]) -> str:
-            # Follow the user's own message; the resolved platform language only fills in when the message is unclear.
+            # Follow the user's own message.
+            # The resolved platform language only fills in when the message is unclear.
             lang = ctx.deps.lang
             if lang is None:
                 return 'Respond in the same language as the most recent user message.'
@@ -171,8 +175,8 @@ class ChatRunner:
             async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
                 """Sign the user out by revoking their authorization for every connected service.
 
-                Call this only when the user asks to sign out, log out, disconnect, switch accounts,
-                or revoke access. It deletes the stored OAuth tokens, so the next action re-authorizes.
+                Call this only when the user asks to sign out, log out, disconnect, switch accounts, or revoke access.
+                It deletes the stored OAuth tokens, so the next action re-authorizes.
                 """
                 await self._revoke_authorization(ctx.deps.principal)
                 # Earlier turns assumed the now-removed authorization, so this turn clears the history.
@@ -191,7 +195,8 @@ class ChatRunner:
 
         A group is shared by several people, so it never runs a per-user authorization.
         Any server that needs one rules group chats out for the whole app, rather than leaving some tools half-working.
-        The verdict is cached once reached. An unreachable server pauses group chats until the retry interval passes.
+        The verdict is cached once reached.
+        An unreachable server pauses group chats until the retry interval passes.
         """
         async with self._group_chats_lock:
             if self._group_chats_supported is not None:
@@ -269,8 +274,8 @@ class ChatRunner:
     ) -> TurnResult:
         """Run one turn for ``principal`` in the chat ``chat_context`` describes.
 
-        A turn that does not use the user's credentials, such as a group chat's, reaches every server without
-        a user's token and ignores ``bridge``.
+        A turn that does not use the user's credentials, such as a group chat's,
+        reaches every server without a user's token and ignores ``bridge``.
         """
         user_credentials = chat_context.uses_user_credentials
         toolsets = [

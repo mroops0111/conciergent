@@ -77,7 +77,7 @@ async def test_open_interaction_dedupes_per_action_id(harness: SlackHarness) -> 
     for action_id in ('suggestion:open:0:0', 'suggestion:open:0:0', 'suggestion:open:0:1'):
         await harness.post_interaction(interaction(action_id, value='refresh'))
 
-    # An open button dedupes on re-click; a different button on the same message still dispatches.
+    # An open button dedupes on re-click, but a different button on the same message still dispatches.
     assert harness.agent.inputs == ['refresh', 'refresh']
 
 

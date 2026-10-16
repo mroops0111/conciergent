@@ -51,7 +51,7 @@ class OAuthBridge(abc.ABC):
 
     @abc.abstractmethod
     async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
-        """Show the user the authorize URL and return the redirect's code, state, and iss once they complete the flow."""
+        """Show the user the authorize URL and return the redirect's code, state and iss once they finish."""
         ...
 
 

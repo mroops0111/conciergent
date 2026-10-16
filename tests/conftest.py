@@ -17,7 +17,8 @@ from conciergent.store.credential import Base, CredentialStore
 from conciergent.store.message import MessageStore
 
 
-# One container per session; per-test isolation is a flush (Redis) or a fresh schema (Postgres).
+# One container serves the whole session.
+# Each test is isolated by a flush in Redis or a fresh schema in Postgres.
 
 
 @pytest.fixture(scope='session')

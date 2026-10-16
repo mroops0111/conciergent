@@ -18,7 +18,7 @@ FALLBACK_LANG = Lang.EN
 
 
 def _flatten(data: dict[str, typing.Any], prefix: str = '') -> dict[str, str]:
-    """Turn a nested locale mapping into flat dotted keys, so ``approval: {header: ...}`` becomes ``approval.header``."""
+    """Flatten a nested locale mapping to dotted keys, so ``approval: {header: ...}`` becomes ``approval.header``."""
     flat: dict[str, str] = {}
     for key, value in data.items():
         full_key = f'{prefix}.{key}' if prefix else key

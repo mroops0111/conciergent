@@ -20,8 +20,9 @@ async def requires_user_authorization(
 ) -> bool | None:
     """Ask an MCP server, without credentials, whether it needs a per-user authorization.
 
-    MCP authorization happens at the transport, so an ``initialize`` the server rejects with 401 or 403 means
-    it needs a user's token, and a completed handshake means anyone may call it.
+    MCP authorization happens at the transport,
+    so an ``initialize`` the server rejects with 401 or 403 means it needs a user's token,
+    and a completed handshake means anyone may call it.
     Returns None when the server cannot be reached or fails otherwise, so the caller can ask again later.
     """
     statuses: list[int] = []

@@ -61,7 +61,7 @@ def build_install_router(
         code: str = '', state: str = '', error: str = '', accept_language: str = fastapi.Header(default='')
     ) -> fastapi.responses.HTMLResponse:
         lang = parse_accept_language(accept_language)
-        # Slack sends ``error`` when the user declines the install; treat it like any other failed return.
+        # Slack sends ``error`` when the user declines the install, which is handled like any other failed return.
         if error or not code or not state:
             return _callback_page(lang, 'slack.install.failed', status_code=400)
         if await message_store.take_approval(f'{_STATE_KEY_PREFIX}:{state}') is None:

@@ -20,7 +20,7 @@ from tests.conftest import StubRunner
 
 @pytest.fixture
 def stores(messages_url: str, credentials_url: str) -> dict[str, typing.Any]:
-    # The store objects the App needs; the containers back real Redis and Postgres.
+    # The store objects the App needs, backed by real Redis and Postgres containers.
     return {
         'message_store': MessageStore.from_url(messages_url),
         'credential_store': CredentialStore.from_url(credentials_url),

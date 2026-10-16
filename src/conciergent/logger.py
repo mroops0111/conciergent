@@ -100,8 +100,8 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
     """Attach one JSON or text handler to the root logger for the whole process.
 
     Clears existing root handlers on each call, so it is safe to call once at startup.
-    Managed loggers (``conciergent`` / the embedded gateway / ``uvicorn`` / ``mcp``) have their own
-    handlers stripped so their records flow through this configuration instead of a duplicate format.
+    The managed loggers are ``conciergent``, the embedded gateway, ``uvicorn`` and ``mcp``.
+    Their own handlers are stripped, so their records flow through this configuration instead of a duplicate format.
     stderr uses color only when it is a TTY and ``NO_COLOR`` is unset.
     """
     is_json = format == 'json'

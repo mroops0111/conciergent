@@ -26,8 +26,8 @@ _COMPACTION_TRIGGER_RATIO = 0.80
 _COMPACTION_TARGET_RATIO = 0.20
 _SUMMARY_MIN_TARGET_CHARS = 200
 
-# Used when the metadata has no window for the model, low enough to sit under the smallest bundled
-# provider window so compaction still fires and never lets history overrun the real limit.
+# Used when the metadata has no window for the model.
+# It sits under the smallest bundled provider window, so compaction still fires before history overruns the real limit.
 _FALLBACK_INPUT_TOKEN_LIMIT = 128000
 
 _COMPACTION_SUMMARY_STUB = '(Earlier conversation summary)'
@@ -88,8 +88,9 @@ class HistorySummarizer:
 def resolve_input_token_limit(model: Model | str) -> int:
     """Return the model's context window in tokens, read from the bundled genai-prices metadata.
 
-    The model is a ``provider:model`` reference, for example ``openai:gpt-4o-mini``. An unknown model
-    falls back to a conservative window so compaction still runs, and an explicit config value overrides this.
+    The model is a ``provider:model`` reference, for example ``openai:gpt-4o-mini``.
+    An unknown model falls back to a conservative window so compaction still runs,
+    and an explicit config value overrides this.
     """
     reference = model if isinstance(model, str) else model.model_name
     provider_id, separator, model_ref = reference.partition(':')
@@ -119,8 +120,8 @@ def _split_before_last_exchange(messages: list[ModelMessage]) -> tuple[list[Mode
     """Split so the latest user exchange stays verbatim and everything earlier gets compacted.
 
     A resumed approval turn packs tool returns and the new user prompt into one request.
-    Splitting there would orphan the returns from their summarized-away calls and the provider
-    would reject the history, so only a request with no tool returns is a safe boundary.
+    Splitting there would orphan the returns from their summarized-away calls and the provider would reject the history,
+    so only a request with no tool returns is a safe boundary.
     """
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]

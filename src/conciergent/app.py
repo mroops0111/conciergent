@@ -93,7 +93,7 @@ class App:
             client_name=config.agent.client_name,
             known_user_authorization=known_user_authorization,
         )
-        # Compaction is always on; the limit is auto-detected from the model unless the config overrides it.
+        # Compaction is always on, and the limit is auto-detected from the model unless the config overrides it.
         compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
         surfaces = config.surface.enabled_surfaces()
         if not surfaces:
@@ -143,8 +143,9 @@ class App:
                     # which the gateway enters in its own app factory only.
                     for handle in gateway._servers:
                         await stack.enter_async_context(handle.mcp.session_manager.run())
-                # A connection surface (Discord's gateway) holds its socket for the app's lifetime. A webhook
-                # surface's run_connection returns at once. Every task is cancelled cleanly at shutdown.
+                # A connection surface (Discord's gateway) holds its socket for the app's lifetime.
+                # A webhook surface's run_connection returns at once.
+                # Every task is cancelled cleanly at shutdown.
                 connections = [asyncio.create_task(surface.run_connection(context)) for surface in self._surfaces]
                 try:
                     yield

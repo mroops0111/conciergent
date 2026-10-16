@@ -19,8 +19,9 @@ _PREFIX = 'conciergent'
 class MessageStore:
     """Redis-backed store for a conversation's expiring, message-bearing state.
 
-    Holds everything that carries user content and ages out on its own: history, parked approvals,
-    dedupe keys, and the in-chat OAuth handoff. Durable credentials live in ``CredentialStore``.
+    Holds everything that carries user content and ages out on its own,
+    such as history, parked approvals, dedupe keys and the in-chat OAuth handoff.
+    Durable credentials live in ``CredentialStore``.
 
     History keeps one key per turn with its own expiry plus an index list,
     so old turns age out without a read-time cutoff.
@@ -34,8 +35,9 @@ class MessageStore:
 
     @classmethod
     def from_url(cls, url: str, *, max_turns: int = DEFAULT_MAX_TURNS) -> 'MessageStore':
-        # redis-py 8 defaults socket_timeout to five seconds, which fires on the socket read before a long BLPOP
-        # returns, so the OAuth handoff wait dies early. socket_timeout=None lets the BLPOP's own timeout own the wait.
+        # redis-py 8 defaults socket_timeout to five seconds,
+        # which fires on the socket read before a long BLPOP returns, so the OAuth handoff wait dies early.
+        # socket_timeout=None lets the BLPOP's own timeout own the wait.
         return cls(redis.asyncio.Redis.from_url(url, socket_timeout=None), max_turns=max_turns)
 
     async def ping(self) -> None:
@@ -105,8 +107,8 @@ class MessageStore:
 
     async def deliver_oauth_code(self, state: str, code: str, iss: str | None = None) -> None:
         # The payload carries the state alongside the code so the waiter returns the state the callback received,
-        # which the MCP SDK checks against the one it put in the authorize URL. It also carries the RFC 9207 iss,
-        # which the SDK requires when the authorization server advertises it.
+        # which the MCP SDK checks against the one it put in the authorize URL.
+        # It also carries the RFC 9207 iss, which the SDK requires when the authorization server advertises it.
         payload = json.dumps({'code': code, 'state': state, 'iss': iss})
         pipeline = self._redis.pipeline(transaction=True)
         pipeline.rpush(f'{_PREFIX}:oauth-code:{state}', payload)

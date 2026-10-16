@@ -45,8 +45,9 @@ class UserLocale(Base):
 class CredentialStore:
     """SQL-backed store for long-lived credentials, any SQLAlchemy async engine works.
 
-    Holds what must survive restarts, MCP OAuth tokens and clients, per-tenant bot tokens, and each user's
-    last-seen UI locale. A conversation's expiring, message-bearing state lives in ``MessageStore`` instead.
+    Holds what must survive restarts.
+    That is MCP OAuth tokens and clients, per-tenant bot tokens, and each user's last-seen UI locale.
+    A conversation's expiring, message-bearing state lives in ``MessageStore`` instead.
     """
 
     def __init__(self, engine: AsyncEngine) -> None:

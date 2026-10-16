@@ -80,7 +80,8 @@ class DiscordReplySurface(ReplySurface):
         self._messenger = messenger
         self._channel_id = channel_id
         self._interaction = interaction
-        # The group message a text reply answers, as a native reply. Cards are left unmarked.
+        # The group message a text reply answers, as a native reply.
+        # Cards are left unmarked.
         self._reply_to_message_id = reply_to_message_id
         self._lang = lang
         self._brand_color = brand_color
@@ -129,8 +130,9 @@ class DiscordReplySurface(ReplySurface):
     async def show_processing(self) -> None:
         """Acknowledge a button click by disabling its message's buttons, or show a typing hint on a plain message.
 
-        Discord returns only a component's custom_id on click, not its label, so no per-button status line is shown;
-        the reply itself, posted as a new message, is the confirmation. Both signals are cosmetic and never abort.
+        Discord returns only a component's custom_id on click, not its label, so no per-button status line is shown.
+        The reply itself, posted as a new message, is the confirmation.
+        Both signals are cosmetic and never abort.
         """
         try:
             if self._interaction is not None:

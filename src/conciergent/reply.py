@@ -176,7 +176,8 @@ class ReplySurface(abc.ABC):
     def text_formatting_instruction(self) -> str:
         """Return surface-specific formatting guidance to inject into the agent's system prompt.
 
-        For example, the markdown dialect the surface understands; empty by default.
+        For example, the markdown dialect the surface understands.
+        It is empty by default.
         """
         return ''
 

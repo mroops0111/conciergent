@@ -10,9 +10,9 @@ ReplyTrigger = typing.Literal['mention', 'every_message']
 class GroupChatPolicy(typing.NamedTuple):
     """The operator's choice of whether a surface answers in group chats, and which of their messages it answers.
 
-    This is separate from whether the app can serve group chats at all, which ``ChatRunner.supports_group_chats``
-    decides from the MCP servers. Once enabled, the bot answers in any group chat it is added to, the same openness
-    as its direct messages.
+    This is separate from whether the app can serve group chats at all,
+    which ``ChatRunner.supports_group_chats`` decides from the MCP servers.
+    Once enabled, the bot answers in any group chat it is added to, the same openness as its direct messages.
     """
 
     enabled: bool = False

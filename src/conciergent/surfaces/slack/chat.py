@@ -100,8 +100,9 @@ class SlackChannelChat(SlackChat):
 
     @typing.override
     def answers(self, event: dict[str, typing.Any]) -> bool:
-        # With mention only app_mention counts. With every_message every message does, and app_mention is skipped
-        # because the same message also arrives as a plain message event.
+        # With mention only app_mention counts.
+        # With every_message every message does,
+        # and app_mention is skipped because the same message also arrives as a plain message event.
         if self.reply_trigger == 'mention':
             return event.get('type') == 'app_mention'
         return event.get('type') == 'message'
