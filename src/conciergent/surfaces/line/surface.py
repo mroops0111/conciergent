@@ -132,7 +132,8 @@ class LineReplySurface(ReplySurface):
     ) -> None:
         self._slot = slot
         self._lang = lang
-        # The quote token of the group message a text reply answers. LINE cannot quote from a Flex card.
+        # The quote token of the group message a text reply answers.
+        # LINE cannot quote from a Flex card.
         self._quote_token = quote_token
         self._brand_color = brand_color
         self._destructive_color = destructive_color
@@ -167,7 +168,7 @@ class LineReplySurface(ReplySurface):
                 destructive_color=self._destructive_color,
             ),
         }
-        # Suggestions live either as envelope chips or as bubble-footer buttons, never both; pick by placement.
+        # Suggestions live either as envelope chips or as bubble-footer buttons, never both, picked by placement.
         if placement == 'chip':
             chips = render.build_quick_reply(card.suggestions)
             if chips:
@@ -210,12 +211,14 @@ class LineOAuthBridge(StatefulOAuthBridge):
         self._slot = slot
         self._lang = lang
         self._brand_color = brand_color
-        # Which body copy the auth card shows; the follow greeting swaps in the welcome-flavored variant.
+        # Which body copy the auth card shows.
+        # The follow greeting swaps in the welcome-flavored variant.
         self._body_key = body_key
 
     @typing.override
     async def _render_authorization_ui(self, authorize_url: str) -> None:
-        # OAuth providers reject LINE's in-app webview. openExternalBrowser=1 sends the link to the system browser.
+        # OAuth providers reject LINE's in-app webview.
+        # openExternalBrowser=1 sends the link to the system browser.
         separator = '&' if '?' in authorize_url else '?'
         external_url = f'{authorize_url}{separator}openExternalBrowser=1'
         card = Card(

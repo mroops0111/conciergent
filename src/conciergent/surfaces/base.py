@@ -27,12 +27,13 @@ class SurfaceContext(typing.NamedTuple):
 class Surface(abc.ABC):
     """One chat platform's contribution to the application.
 
-    The application stays ignorant of concrete platforms, adding one means implementing this
-    and passing an instance to ``App``, never editing the assembly.
+    The application stays ignorant of concrete platforms,
+    adding one means implementing this and passing an instance to ``App``, never editing the assembly.
     """
 
     def __init__(self, *, group_chat_policy: GroupChatPolicy = GroupChatPolicy()) -> None:
-        # Which group chats this platform answers in, beyond direct messages. None unless configured.
+        # Which group chats this platform answers in, beyond direct messages.
+        # None unless configured.
         self.group_chat_policy = group_chat_policy
 
     @abc.abstractmethod

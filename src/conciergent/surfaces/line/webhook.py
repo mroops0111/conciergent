@@ -65,8 +65,8 @@ def build_router(
         payload = json.loads(body)
         for event in payload.get('events') or []:
             event_id = event.get('webhookEventId')
-            # Without an id there is nothing to deduplicate on, and a shared placeholder key
-            # would swallow every later id-less event for a day.
+            # Without an id there is nothing to deduplicate on,
+            # and a shared placeholder key would swallow every later id-less event for a day.
             if event_id and await message_store.dedupe(f'line:event:{event_id}', ttl_seconds=_DEDUPE_TTL_SECONDS):
                 continue
             background.add_task(
@@ -107,7 +107,7 @@ async def _dispatch_event(
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(chat.user_id)
         if is_follow:
-            # The add-time prompt shows the welcome-flavored body; only a follow event reaches here.
+            # The add-time prompt shows the welcome-flavored body, and only a follow event reaches here.
             follow_bridge = LineOAuthBridge(
                 message_store,
                 slot,

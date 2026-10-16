@@ -89,7 +89,8 @@ class SlackReplySurface(ReplySurface):
         reply_to_user: str | None = None,
     ) -> None:
         self._messenger = messenger
-        # The group member whose message a text reply answers, mentioned at its start. Cards are left unmarked.
+        # The group member whose message a text reply answers, mentioned at its start.
+        # Cards are left unmarked.
         self._reply_to_user = reply_to_user
         self._channel = channel
         self._thread_ts = thread_ts
@@ -99,7 +100,8 @@ class SlackReplySurface(ReplySurface):
         self._lang = lang
         self._brand_color = brand_color
         self._destructive_color = destructive_color
-        # Set once show_processing patches the clicked message; the next send finalizes it to "selected".
+        # Set once show_processing patches the clicked message.
+        # The next send finalizes it to "selected".
         self._processing_active = False
 
     @property

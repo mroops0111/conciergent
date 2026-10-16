@@ -38,8 +38,8 @@ def build_card_blocks(
 ) -> list[dict[str, typing.Any]]:
     """Render one card to Block Kit blocks.
 
-    The header is normally carried as the message's top-level text, which Slack shows as a bold
-    preamble, so it is only emitted as a block when ``include_header`` asks for it (carousel cards).
+    The header is normally carried as the message's top-level text, which Slack shows as a bold preamble,
+    so it is only emitted as a block when ``include_header`` asks for it (carousel cards).
     """
     blocks: list[dict[str, typing.Any]] = []
     if include_header:
@@ -88,7 +88,8 @@ def build_processing_patch(message: dict[str, typing.Any], status_text: str) -> 
     """Patch an interacted message in place, disabling every button and appending a status line.
 
     When the message used attachments the status line lands inside the last attachment,
-    so the color stripe keeps covering it; otherwise it appends to the top-level blocks.
+    so the color stripe keeps covering it.
+    Otherwise it appends to the top-level blocks.
     Exactly one of ``blocks`` or ``attachments`` is set, mirroring the shape of the original message.
     """
     status = _build_markdown_section(f'*{status_text}*')

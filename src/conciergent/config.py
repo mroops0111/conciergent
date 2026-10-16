@@ -44,15 +44,16 @@ class AgentSettings(pydantic.BaseModel):
     @pydantic.field_validator('mcp_servers', mode='before')
     @classmethod
     def _empty_when_null(cls, value: typing.Any) -> typing.Any:
-        # A bare `mcp_servers:` in YAML parses to None; treat that as no servers rather than an error.
+        # A bare `mcp_servers:` in YAML parses to None, which means no servers rather than an error.
         return [] if value is None else value
 
 
 class GroupChatSettings(pydantic.BaseModel):
     """Opt-in group chats for one surface, off by default.
 
-    A group turn runs with no per-user authorization, so group chats are served only when every MCP server
-    works without a user's token, a public server or a gateway spec with a static ``bearer`` or ``api_key``.
+    A group turn runs with no per-user authorization,
+    so group chats are served only when every MCP server works without a user's token,
+    a public server or a gateway spec with a static ``bearer`` or ``api_key``.
     """
 
     enabled: bool = False
@@ -175,9 +176,10 @@ class SurfaceSettings(pydantic.BaseModel):
 class StoreSettings(pydantic.BaseModel):
     """Where state lives, split by sensitivity across two backends.
 
-    Message-bearing state (history, approvals, dedupe, OAuth handoff) goes to the Redis ``messages_url``
-    and ages out on its own, while long-lived credentials (MCP tokens and clients, bot tokens) go to the
-    SQL ``credentials_url`` and survive restarts.
+    Message-bearing state, such as history, approvals and the OAuth handoff, goes to the Redis ``messages_url``,
+    where it ages out on its own.
+    Long-lived credentials, the MCP tokens and clients and the bot tokens, go to the SQL ``credentials_url``,
+    where they survive restarts.
     """
 
     messages_url: typing.Annotated[str, pydantic.Field(min_length=1)]
@@ -200,7 +202,8 @@ class GatewaySpec(pydantic.BaseModel):
     auth: dict[str, typing.Any] | None = None
     policy: dict[str, typing.Any] | None = None
     timeout: float = 90
-    # ``{style: static | dynamic, promote_resources: bool}``. A bare ``static`` or ``dynamic`` is shorthand for the style.
+    # ``{style: static | dynamic, promote_resources: bool}``.
+    # A bare ``static`` or ``dynamic`` is shorthand for the style.
     exposure: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     # Per-operation shaping keyed by operationId, for example renaming a tool or fixing a parameter.
     operations: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
@@ -224,9 +227,9 @@ class GatewaySpec(pydantic.BaseModel):
     def needs_user_authorization(self) -> bool:
         """Whether each user must authorize their own account, so the spec's tools cannot serve a group chat.
 
-        No auth, a static ``bearer`` or ``api_key``, and an ``oauth2`` client-credentials service token all call
-        the API as one shared identity. Any other ``oauth2`` flow, including an unset one the gateway detects from
-        the spec, is treated as per-user.
+        A spec with no auth or a static ``bearer`` or ``api_key`` calls the API as one shared identity.
+        So does one with an ``oauth2`` client-credentials service token.
+        Any other ``oauth2`` flow, including an unset one the gateway detects from the spec, is treated as per-user.
         """
         auth = self.auth or {}
         auth_type = auth.get('type', 'none')
@@ -245,7 +248,7 @@ class GatewaySettings(pydantic.BaseModel):
     @pydantic.field_validator('specs', mode='before')
     @classmethod
     def _empty_when_null(cls, value: typing.Any) -> typing.Any:
-        # A bare `specs:` in YAML parses to None; treat that as no specs rather than an error.
+        # A bare `specs:` in YAML parses to None, which means no specs rather than an error.
         return [] if value is None else value
 
     @pydantic.model_validator(mode='after')

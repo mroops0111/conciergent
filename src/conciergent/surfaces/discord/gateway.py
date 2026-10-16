@@ -29,10 +29,12 @@ from conciergent.turn import run_turn
 logger = logging.getLogger(__name__)
 
 _GATEWAY_URL = 'wss://gateway.discord.gg/?v=10&encoding=json'
-# The one non-privileged intent a direct-message bot needs; DM content is exempt from the message-content intent.
+# The one non-privileged intent a direct-message bot needs.
+# DM content is exempt from the message-content intent.
 _INTENT_DIRECT_MESSAGES = 1 << 12
-# Server messages, for group chats. Their content arrives only when the bot is mentioned,
-# unless the privileged message-content intent is on, which reply_trigger=every_message needs.
+# Server messages, for group chats.
+# Their content arrives only when the bot is mentioned, unless the privileged message-content intent is on,
+# which reply_trigger=every_message needs.
 _INTENT_GUILD_MESSAGES = 1 << 9
 _INTENT_MESSAGE_CONTENT = 1 << 15
 _DEDUPE_TTL_SECONDS = 86400
@@ -80,9 +82,10 @@ class DiscordGatewaySettings(typing.NamedTuple):
 class DiscordGateway:
     """A hand-rolled Discord gateway client that turns direct messages, group messages, and button clicks into turns.
 
-    It owns the WebSocket lifecycle, identify, heartbeat, resume, and reconnect, so the rest of the surface
-    stays a plain REST client. Only direct messages, server messages while group chats are on, and component
-    interactions are acted on; everything else is ignored.
+    It owns the WebSocket lifecycle, identify, heartbeat, resume, and reconnect,
+    so the rest of the surface stays a plain REST client.
+    The gateway acts on direct messages, component interactions and, while group chats are on, server messages.
+    Everything else is ignored.
     The dispatch entry point is separated from the socket so it can be driven directly in tests.
     """
 
@@ -155,7 +158,8 @@ class DiscordGateway:
                 heartbeat.cancel()
 
     async def _heartbeat_loop(self, socket: ClientConnection, interval_seconds: float) -> None:
-        # Beat once per interval; an unanswered previous beat means a dead link, so close and let run() reconnect.
+        # Beat once per interval.
+        # An unanswered previous beat means a dead link, so close and let run() reconnect.
         while True:
             await asyncio.sleep(interval_seconds)
             if not self._heartbeat_acked:
@@ -174,7 +178,7 @@ class DiscordGateway:
         elif op == _Op.HEARTBEAT_ACK:
             self._heartbeat_acked = True
         elif op == _Op.RECONNECT:
-            # A resumable disconnect; close and let run() reconnect against the resume URL.
+            # A resumable disconnect, so close and let run() reconnect against the resume URL.
             await socket.close(code=4000)
         elif op == _Op.INVALID_SESSION:
             if not message.get('d'):

@@ -7,8 +7,9 @@ import yaml
 
 
 class _Lenient(pydantic.BaseModel):
-    # The defaults file doubles as the merge base, so it carries fields, like secrets and enabled flags,
-    # that this view does not model; ignore them and expose only the tunable values downstream falls back on.
+    # The defaults file doubles as the merge base, so it carries fields this view does not model,
+    # such as secrets and enabled flags.
+    # Those are ignored, leaving only the tunable values that downstream code falls back on.
     model_config = pydantic.ConfigDict(extra='ignore')
 
 

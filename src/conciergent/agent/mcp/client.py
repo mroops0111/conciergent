@@ -73,8 +73,9 @@ async def build_toolset(
                 redirect_uri=redirect_uri,
                 client_name=client_name,
             )
-            # During OAuth the connect blocks in the callback until the user authorizes, so the init timeout is
-            # disabled with 0, the SDK's explicit off switch, leaving the bridge's own wait as the only limit.
+            # During OAuth the connect blocks in the callback until the user authorizes,
+            # so the init timeout is disabled with 0, the SDK's explicit off switch,
+            # leaving the bridge's own wait as the only limit.
             toolset = MCPToolset(server, auth=auth, read_timeout=read_timeout_seconds, init_timeout=0)
         else:
             toolset = MCPToolset(server, read_timeout=read_timeout_seconds)

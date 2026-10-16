@@ -33,7 +33,7 @@ def _compactor(input_token_limit: int = 1000) -> HistorySummarizer:
 
 
 def test_resolve_input_token_limit_reads_a_known_model():
-    # The window comes from the bundled genai-prices metadata; gpt-4o-mini is 128k.
+    # The window comes from the bundled genai-prices metadata, which gives gpt-4o-mini 128k.
     assert resolve_input_token_limit('openai:gpt-4o-mini') >= 100000
 
 

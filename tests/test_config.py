@@ -116,7 +116,8 @@ def test_non_text_knobs_parse_and_default_to_the_shipped_values():
 
 
 def test_scaffolded_manifest_validates(monkeypatch: pytest.MonkeyPatch):
-    # The manifest that `conciergent init` scaffolds must stay loadable and show the shipped defaults, guarding against config drift.
+    # The manifest that `conciergent init` scaffolds must stay loadable and show the shipped defaults,
+    # guarding against config drift.
     monkeypatch.setenv('SLACK_SIGNING_SECRET', 'dummy')
     manifest = pathlib.Path(__file__).parents[1] / 'src' / 'conciergent' / 'templates' / 'manifest.yml'
 

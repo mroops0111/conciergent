@@ -14,8 +14,7 @@ _EXPIRES_AT_KEY = '_expires_at'
 class OAuthTokenStorage(TokenStorage):
     """Persist MCP OAuth client info and per-user tokens behind a ``CredentialStore``.
 
-    Client info is registered once per server and shared across users,
-    tokens are keyed by both server and principal.
+    Client info is registered once per server and shared across users, tokens are keyed by both server and principal.
     """
 
     def __init__(self, credential_store: CredentialStore, *, server: str, principal: str) -> None:

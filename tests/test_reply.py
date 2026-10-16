@@ -20,8 +20,8 @@ def test_card_defaults():
 
 
 def test_field_descriptions_survive_for_llm_schema():
-    # The field descriptions are the agent's structured-output instructions;
-    # if they vanish the agent loses its guidance, so guard them here.
+    # The field descriptions are the agent's structured-output instructions.
+    # This guards them, because without them the agent loses its guidance.
     schema = Card.model_json_schema()
 
     assert schema['properties']['header']['description']
