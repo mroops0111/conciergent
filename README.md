@@ -139,6 +139,18 @@ cp examples/openapi-chat.yml manifest.yml     # or use your own
 docker compose up
 ```
 
+Every release also publishes a multi-arch image (linux/amd64 and linux/arm64) to `ghcr.io/mroops0111/conciergent`, tagged with the version and `latest`. It includes the `gateway` extra, runs as a non-root user, and reads its config from `/home/app/manifest.yml`, so you can use it in your own compose file without a Dockerfile:
+
+```yaml
+services:
+  conciergent:
+    image: ghcr.io/mroops0111/conciergent:0.3.1
+    volumes:
+      - ./manifest.yml:/home/app/manifest.yml:ro
+    ports:
+      - "8000:8000"
+```
+
 Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, Discord, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
 ## Configuration
