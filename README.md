@@ -141,6 +141,8 @@ docker compose up
 
 Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, Discord, and provider credentials through `${...}`, so nothing sensitive is committed. The app serves on port 8000, so put your tunnel in front of it and set `server.url` to the tunnel URL.
 
+Each release also publishes the app image to `ghcr.io/mroops0111/conciergent` for linux/amd64 and linux/arm64, tagged with the version and `latest`, with the `gateway` extra included. To use it from your own compose file, replace `build: .` in the `app` service with `image: ghcr.io/mroops0111/conciergent:<version>`, and keep `manifest.yml` mounted at `/home/app/manifest.yml`.
+
 ## Configuration
 
 Conciergent reads one `manifest.yml`, merged over the shipped defaults, so you set only what you change. `${VAR}` / `${VAR:-default}` resolve in any string field.
