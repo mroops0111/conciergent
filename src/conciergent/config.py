@@ -2,7 +2,9 @@ import os
 import pathlib
 import re
 import typing
+import zoneinfo
 
+import croniter
 import pydantic
 import yaml
 
@@ -11,6 +13,7 @@ from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.surfaces.base import Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
+from conciergent.surfaces.line.chat import line_push_conversation
 from conciergent.surfaces.slack.app import Slack
 
 
@@ -268,6 +271,62 @@ class ConversationSettings(pydantic.BaseModel):
     oauth_wait_timeout_seconds: float
 
 
+class ScheduleTarget(pydantic.BaseModel):
+    """Where a schedule's reply goes, a surface and the user or chat id it pushes to.
+
+    Only LINE can push for now.
+    """
+
+    surface: typing.Literal['line']
+    # A LINE user, group, or room id, such as the C-prefixed id of a group.
+    to: typing.Annotated[str, pydantic.Field(min_length=1)]
+
+    @pydantic.model_validator(mode='after')
+    def _to_names_a_chat(self) -> typing.Self:
+        line_push_conversation(self.to)
+        return self
+
+
+class ScheduleSettings(pydantic.BaseModel):
+    """A prompt the agent runs on a cron schedule, pushing its reply into a chat nobody spoke in.
+
+    The turn joins the target chat's history, so a follow-up question there has the reply as context.
+    """
+
+    name: typing.Annotated[str, pydantic.Field(min_length=1)]
+    cron: str
+    # An IANA zone name the cron expression is read in, such as Asia/Taipei.
+    timezone: str = 'UTC'
+    prompt: typing.Annotated[str, pydantic.Field(min_length=1)]
+    target: ScheduleTarget
+    # Whose stored credentials reach the MCP servers, such as line:U123.
+    # Without one the turn runs with no one's authorization, like a group chat.
+    principal: str | None = None
+    # Whether the agent may end the turn with skip_reply and send nothing, when the prompt finds nothing to say.
+    allow_skip: bool = False
+    # Run destructive tools without a confirmation nobody is present to give.
+    # Unsafe, so off by default, which leaves those tools out of the turn.
+    allow_destructive: bool = False
+    # Text pushed as-is when the turn fails, such as when an MCP server is down, so a failure is not silent.
+    failure_message: str | None = None
+
+    @pydantic.field_validator('cron')
+    @classmethod
+    def _cron_parses(cls, value: str) -> str:
+        if not croniter.croniter.is_valid(value):
+            raise ValueError(f'not a valid cron expression: {value!r}')
+        return value
+
+    @pydantic.field_validator('timezone')
+    @classmethod
+    def _timezone_exists(cls, value: str) -> str:
+        try:
+            zoneinfo.ZoneInfo(value)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError(f'not a known IANA timezone: {value!r}') from error
+        return value
+
+
 class LoggerSettings(pydantic.BaseModel):
     """How the process logs, applied once at startup by ``conciergent.logger.setup``."""
 
@@ -286,8 +345,15 @@ class AppConfig(pydantic.BaseModel):
     gateway: GatewaySettings
     conversation: ConversationSettings
     logger: LoggerSettings
+    schedules: list[ScheduleSettings] = pydantic.Field(default_factory=list)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
+
+    @pydantic.field_validator('schedules', mode='before')
+    @classmethod
+    def _no_schedules_when_null(cls, value: typing.Any) -> typing.Any:
+        # A bare `schedules:` in YAML parses to None, which means no schedules rather than an error.
+        return [] if value is None else value
 
     @pydantic.model_validator(mode='after')
     def _mcp_read_timeout_outlasts_oauth_wait(self) -> typing.Self:
@@ -311,6 +377,26 @@ class AppConfig(pydantic.BaseModel):
             raise ValueError(
                 'group chats need every tool to work without a per-user authorization, '
                 f'but these gateway specs use per-user oauth2: {", ".join(per_user)}'
+            )
+        return self
+
+    @pydantic.model_validator(mode='after')
+    def _schedules_fit_the_app(self) -> typing.Self:
+        names = [schedule.name for schedule in self.schedules]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f'schedule names must be unique, repeated: {", ".join(duplicates)}')
+        for schedule in self.schedules:
+            surface = getattr(self.surface, schedule.target.surface)
+            if not surface.enabled:
+                raise ValueError(f'schedule {schedule.name} targets {schedule.target.surface}, which is not enabled')
+        # A schedule with no principal holds no one's authorization, the same requirement group chats have.
+        unattended = [schedule.name for schedule in self.schedules if schedule.principal is None]
+        per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
+        if unattended and self.gateway.enabled and per_user:
+            raise ValueError(
+                f'schedules without a principal ({", ".join(unattended)}) need every tool to work without a per-user '
+                f'authorization, but these gateway specs use per-user oauth2: {", ".join(per_user)}'
             )
         return self
 

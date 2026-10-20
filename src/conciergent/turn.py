@@ -1,10 +1,15 @@
+import logging
+
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Carousel, ReplySurface
-from conciergent.runtime import OAuthBridge, PendingApproval
+from conciergent.runtime import OAuthBridge, PendingApproval, SkippedReply
 from conciergent.store.message import MessageStore
+
+
+logger = logging.getLogger(__name__)
 
 
 async def run_turn(
@@ -64,6 +69,11 @@ async def run_turn(
         # or orphan the tool-call turn from its later result.
         await message_store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds, owner=owner)
         await surface.send_card(output.card, destructive=True)
+        return
+
+    if isinstance(output, SkippedReply):
+        # Nothing reached the chat, so nothing joins the history the members see.
+        logger.info('Turn in %s ended without a reply: %s', conversation, output.reason)
         return
 
     if isinstance(output, Carousel):

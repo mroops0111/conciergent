@@ -1,5 +1,6 @@
 import abc
 import dataclasses
+import datetime
 import typing
 
 from conciergent import i18n
@@ -15,6 +16,18 @@ _GROUP_CHAT_INSTRUCTIONS = (
     'Answer the latest speaker, and tell people apart by those names. '
     'Never write the bracketed name prefix in your own reply.'
 )
+_SCHEDULED_INSTRUCTIONS = (
+    'This turn was started by a schedule, not by a person, and its message starts with the schedule name and time. '
+    'Nobody can answer a question or confirm an action before your reply is sent, so write the finished message the prompt asks for. '
+    'Never write the bracketed schedule prefix in your own reply.'
+)
+# Spelled out here rather than with strftime, whose day names follow the process locale.
+_WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
+_SKIP_INSTRUCTIONS = 'When the prompt finds nothing worth sending, end the turn with skip_reply instead of a reply.'
+
+# How a turn treats a tool its MCP server marks destructive.
+# Confirm asks in the chat first, hide leaves it out of the turn, and run calls it without asking.
+DestructiveToolPolicy = typing.Literal['confirm', 'hide', 'run']
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,6 +65,16 @@ class ChatContext(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def allows_skip(self) -> bool:
+        """Whether the turn may end with no reply at all, which only an unattended turn needs."""
+
+    @property
+    @abc.abstractmethod
+    def destructive_tools(self) -> DestructiveToolPolicy:
+        """How the turn treats a destructive tool, which a chat with nobody to confirm it cannot ask about."""
+
+    @property
+    @abc.abstractmethod
     def instructions(self) -> str:
         """Extra system instructions this kind of chat needs, empty when none."""
 
@@ -85,6 +108,16 @@ class DirectChatContext(ChatContext):
     @typing.override
     def allows_sign_out(self) -> bool:
         return True
+
+    @property
+    @typing.override
+    def allows_skip(self) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def destructive_tools(self) -> DestructiveToolPolicy:
+        return 'confirm'
 
     @property
     @typing.override
@@ -134,9 +167,82 @@ class GroupChatContext(ChatContext):
 
     @property
     @typing.override
+    def allows_skip(self) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def destructive_tools(self) -> DestructiveToolPolicy:
+        return 'confirm'
+
+    @property
+    @typing.override
     def instructions(self) -> str:
         return _GROUP_CHAT_INSTRUCTIONS
 
     @typing.override
     def prompt(self, user_input: str) -> str:
         return f'[{self.speaker}] {user_input}'
+
+
+@dataclasses.dataclass(frozen=True)
+class ScheduledChatContext(ChatContext):
+    """An unattended turn a schedule starts, whose reply is pushed into a chat's conversation.
+
+    Nobody is present to authorize, confirm, or sign out,
+    so the turn uses a user's stored credentials only when the schedule names a ``principal``,
+    and it never asks about a destructive tool.
+    """
+
+    # The schedule's name and the time it fired, which head the prompt so the agent knows what started it and when.
+    schedule: str
+    fired_at: datetime.datetime
+    # Whether the schedule names a principal, whose stored credentials then reach the MCP servers.
+    has_principal: bool = False
+    skip_allowed: bool = False
+    destructive_tool_policy: DestructiveToolPolicy = 'hide'
+
+    @typing.override
+    async def can_run(self, runner: 'ChatRunner') -> bool:
+        # Without a principal the turn holds no one's authorization, the same requirement as a group chat.
+        return self.has_principal or await runner.supports_group_chats()
+
+    @typing.override
+    def approval_owner(self, principal: str) -> str | None:
+        return None
+
+    @typing.override
+    def drops_unowned_decision(self, user_input: str) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def uses_user_credentials(self) -> bool:
+        return self.has_principal
+
+    @property
+    @typing.override
+    def allows_sign_out(self) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def allows_skip(self) -> bool:
+        return self.skip_allowed
+
+    @property
+    @typing.override
+    def destructive_tools(self) -> DestructiveToolPolicy:
+        return self.destructive_tool_policy
+
+    @property
+    @typing.override
+    def instructions(self) -> str:
+        return f'{_SCHEDULED_INSTRUCTIONS} {_SKIP_INSTRUCTIONS}' if self.skip_allowed else _SCHEDULED_INSTRUCTIONS
+
+    @typing.override
+    def prompt(self, user_input: str) -> str:
+        # A ZoneInfo prints its IANA name, which says more than an offset or an abbreviation like CST.
+        # The weekday is spelled out because models often get it wrong when they work it out from a date.
+        when = f'{self.fired_at.isoformat()} {self.fired_at.tzinfo}, {_WEEKDAYS[self.fired_at.weekday()]}'
+        return f'[Scheduled: {self.schedule}, {when}] {user_input}'

@@ -192,6 +192,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
+| `schedules` | `[]` | Prompts the agent runs on a cron schedule, pushing each reply into a chat. See [Scheduled Prompts](#scheduled-prompts). |
 | `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
@@ -265,6 +266,48 @@ Each platform needs a little more setup before the bot can read a group.
 - **Every-Message Mode**: enable the privileged **Message Content Intent** on the bot in the Developer Portal. If Discord refuses it, the bot logs an error and answers mentions only, while direct messages keep working.
 
 </details>
+
+## Scheduled Prompts
+
+The agent can also speak first. A schedule runs a prompt on a cron expression, with no incoming message, and pushes the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
+
+### Configuration
+
+```yaml
+schedules:
+  - name: vaccine-reminder
+    cron: "0 9 * * *"
+    timezone: Asia/Taipei
+    target:
+      surface: line
+      to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
+    allow_skip: true
+    failure_message: The reminder could not read its data today, please check the server.
+    prompt: |
+      List vaccine doses due within 7 days. When none are due, call skip_reply.
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `name` | *(required)* | Unique name, shown to the agent and in logs. |
+| `cron` | *(required)* | Five-field cron expression. |
+| `timezone` | `UTC` | IANA zone the cron expression is read in. |
+| `prompt` | *(required)* | What the agent is asked, in the language it should reply in. |
+| `target.surface` · `target.to` | *(required)* | The surface and the user or chat id to push to. |
+| `principal` | *(none)* | Whose stored credentials the tools use, such as `line:U123`. Unset runs with no one's authorization. |
+| `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
+| `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
+| `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
+
+### Behavior
+
+- **Prompt Header**: the agent reads the prompt as `[Scheduled: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
+- **Shared History**: the prompt and the reply join the target chat's conversation, so a follow-up there has the reply as context. A skipped turn adds nothing.
+- **Authorization**: without a `principal` the turn needs every tool to work without a user's token, the same [requirement](#requirement) as group chats. With one, the turn uses that user's stored tokens and fails, rather than waiting, when they need a new sign-in.
+- **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
+- **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
+- **Timing**: a firing missed while the process is down is skipped, not caught up. With several replicas, a Redis lock per firing lets exactly one run it.
+- **Push Quota**: every scheduled reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
 ## The Reply Model
 

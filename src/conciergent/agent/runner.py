@@ -22,7 +22,7 @@ from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
-from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
+from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, SkippedReply, TurnResult
 from conciergent.store.credential import CredentialStore
 
 
@@ -55,6 +55,10 @@ _REVOKE_INSTRUCTION = (
     'Tell the user in their language that their authorization was removed. '
     'Any new message will start a fresh sign-in. Then reply to the user and stop.'
 )
+
+
+def _never_ask(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_args: dict[str, typing.Any]) -> bool:
+    return False
 
 
 @dataclasses.dataclass
@@ -132,6 +136,12 @@ class ChatRunner:
             ToolOutput(Card, name='reply_card'),
             ToolOutput(Carousel, name='reply_carousel'),
             DeferredToolRequests,
+        ]
+        # Each run passes its own spec, so only a turn that may end silently, such as a scheduled one, gets skip_reply.
+        self._reply_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = output_type
+        self._skippable_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = [
+            *output_type,
+            ToolOutput(SkippedReply, name='skip_reply'),
         ]
         self._agent: Agent[_AgentDeps, Reply | DeferredToolRequests] = Agent(
             model,
@@ -278,6 +288,9 @@ class ChatRunner:
         reaches every server without a user's token and ignores ``bridge``.
         """
         user_credentials = chat_context.uses_user_credentials
+        destructive_tools = chat_context.destructive_tools
+        # A turn that runs destructive tools unasked gates nothing, the others gate them for approval.
+        approval_predicate = _never_ask if destructive_tools == 'run' else self._approval_predicate
         toolsets = [
             await build_toolset(
                 server,
@@ -285,12 +298,15 @@ class ChatRunner:
                 credential_store=self._credential_store if user_credentials else None,
                 oauth_bridge=bridge if user_credentials else None,
                 redirect_uri=self._redirect_uri if user_credentials else None,
-                approval_predicate=self._approval_predicate,
+                approval_predicate=approval_predicate,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
             )
             for server in self._mcp_servers
         ]
+        if destructive_tools == 'hide':
+            # Nobody could confirm them, so the agent never sees them rather than calling one into a dead end.
+            toolsets = [toolset.filtered(self._is_not_destructive) for toolset in toolsets]
         lang = surface.lang if surface is not None else None
         agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, chat_context=chat_context)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
@@ -311,8 +327,10 @@ class ChatRunner:
                 deferred_tool_results=None,
                 held_messages=[],
             )
+        run_output_type = self._skippable_output_type if chat_context.allows_skip else self._reply_output_type
         result = await self._agent.run(
             run_inputs.prompt,
+            output_type=run_output_type,
             message_history=run_inputs.message_history,
             deferred_tool_results=run_inputs.deferred_tool_results,
             toolsets=toolsets,
@@ -327,6 +345,10 @@ class ChatRunner:
             # so the tool call and its later result land in one stored turn instead of aging out separately.
             return TurnResult(output=self._park(output.approvals, held_messages=new_messages, lang=lang))
         return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
+
+    def _is_not_destructive(self, ctx: RunContext[_AgentDeps], tool_def: ToolDefinition) -> bool:
+        # The predicate decides by the tool alone, so its arguments are not known yet when the tool list is built.
+        return not self._approval_predicate(ctx, tool_def, {})
 
     def _resume(
         self,

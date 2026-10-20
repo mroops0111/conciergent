@@ -197,3 +197,80 @@ def test_gateway_spec_exposure_shorthand_and_server_config():
         'operations': {'listPets': {'name': 'list_pets'}},
         'instructions': 'Pets.',
     }
+
+
+def _scheduled_config(*schedules: dict[str, typing.Any], line_enabled: bool = True) -> dict[str, typing.Any]:
+    return {
+        **_MINIMAL_CONFIG,
+        'surface': {'line': {'enabled': line_enabled, 'channel_secret': 's', 'channel_access_token': 't'}},
+        'schedules': list(schedules),
+    }
+
+
+def _schedule(**overrides: typing.Any) -> dict[str, typing.Any]:
+    return {
+        'name': 'daily-digest',
+        'cron': '0 21 * * *',
+        'timezone': 'Asia/Taipei',
+        'prompt': 'Summarize today.',
+        'target': {'surface': 'line', 'to': 'C1'},
+        **overrides,
+    }
+
+
+def test_schedules_parse_with_safe_defaults():
+    (schedule,) = build_app_config(_scheduled_config(_schedule())).schedules
+
+    assert (schedule.allow_skip, schedule.allow_destructive) == (False, False)
+    assert schedule.principal is None and schedule.failure_message is None
+
+
+def test_schedules_default_to_none_and_accept_a_bare_key():
+    assert build_app_config(_MINIMAL_CONFIG).schedules == []
+    assert build_app_config({**_MINIMAL_CONFIG, 'schedules': None}).schedules == []
+
+
+def test_a_schedule_target_resolves_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, write_config: collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]
+):
+    monkeypatch.setenv('LINE_NOTIFY_TARGET', 'C42')
+    path = write_config(_scheduled_config(_schedule(target={'surface': 'line', 'to': '${LINE_NOTIFY_TARGET}'})))
+
+    assert build_app_config(yaml_layer(path)).schedules[0].target.to == 'C42'
+
+
+@pytest.mark.parametrize(
+    ('overrides', 'message'),
+    [
+        ({'cron': 'every day'}, 'not a valid cron expression'),
+        ({'timezone': 'Asia/Nowhere'}, 'not a known IANA timezone'),
+        ({'target': {'surface': 'line', 'to': ''}}, 'at least 1 character'),
+        ({'target': {'surface': 'line', 'to': 'X1'}}, 'starting with U, C, or R'),
+        ({'target': {'surface': 'slack', 'to': 'C1'}}, "Input should be 'line'"),
+    ],
+)
+def test_a_malformed_schedule_is_rejected(overrides: dict[str, typing.Any], message: str):
+    with pytest.raises(ValueError, match=message):
+        build_app_config(_scheduled_config(_schedule(**overrides)))
+
+
+def test_schedule_names_must_be_unique():
+    with pytest.raises(ValueError, match='repeated: daily-digest'):
+        build_app_config(_scheduled_config(_schedule(), _schedule()))
+
+
+def test_a_schedule_needs_its_target_surface_enabled():
+    with pytest.raises(ValueError, match='targets line, which is not enabled'):
+        build_app_config(_scheduled_config(_schedule(), line_enabled=False))
+
+
+def test_a_schedule_without_a_principal_rejects_a_per_user_spec():
+    config = _group_chats_config({'type': 'oauth2'})
+    config['surface']['line']['group_chats']['enabled'] = False
+    config['schedules'] = [_schedule()]
+
+    with pytest.raises(ValueError, match=r'schedules without a principal \(daily-digest\).*per-user oauth2: api'):
+        build_app_config(config)
+
+    config['schedules'] = [_schedule(principal='line:U1')]
+    assert build_app_config(config).schedules[0].principal == 'line:U1'

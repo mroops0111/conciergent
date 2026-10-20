@@ -148,6 +148,20 @@ def line_chat_from_source(source: dict[str, typing.Any], group_chat_policy: Grou
     return None
 
 
+def line_push_conversation(to: str) -> str:
+    """The conversation a push to a user, group, or room id joins, the key that chat's own messages use."""
+    # LINE ids start with U for a user, C for a group, and R for a room.
+    match to[:1]:
+        case 'U':
+            return make_principal(ChatSurface.line, to)
+        case 'C':
+            return make_principal(ChatSurface.line, 'group', to)
+        case 'R':
+            return make_principal(ChatSurface.line, 'room', to)
+        case _:
+            raise ValueError(f'a LINE push target is a user, group, or room id starting with U, C, or R, got {to!r}')
+
+
 def _code_point_span(text: str, index: int, length: int) -> tuple[int, int]:
     # LINE counts mention offsets in UTF-16 code units, so an emoji before the mention shifts the Python index.
     return _code_point_offset(text, index), _code_point_offset(text, index + length)

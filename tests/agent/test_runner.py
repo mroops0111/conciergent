@@ -1,19 +1,23 @@
 import asyncio
+import datetime
 import typing
+import zoneinfo
 
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
-from conciergent.chat_context import DirectChatContext, GroupChatContext
+from conciergent.chat_context import DestructiveToolPolicy, DirectChatContext, GroupChatContext, ScheduledChatContext
 from conciergent.i18n.lang import Lang
+from conciergent.runtime import SkippedReply
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
 
@@ -409,3 +413,83 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
     assert 'group chat' in instructions
     first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
     assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)
+
+
+def _scheduled(*, skip_allowed: bool = False, policy: DestructiveToolPolicy = 'hide') -> ScheduledChatContext:
+    fired_at = datetime.datetime(2026, 10, 26, 9, tzinfo=zoneinfo.ZoneInfo('Asia/Taipei'))
+    return ScheduledChatContext(
+        'line:group:C1',
+        schedule='reminder',
+        fired_at=fired_at,
+        skip_allowed=skip_allowed,
+        destructive_tool_policy=policy,
+    )
+
+
+async def test_a_scheduled_turn_may_end_with_skip_reply():
+    offered: list[list[str]] = []
+
+    def skip(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append([tool.name for tool in info.output_tools])
+        return ModelResponse(parts=[ToolCallPart('skip_reply', {'reason': 'nothing due'})])
+
+    agent = ChatRunner(model=FunctionModel(skip), system_prompt=_SYSTEM_PROMPT)
+
+    result = await agent.run(
+        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled(skip_allowed=True)
+    )
+
+    assert result.output == SkippedReply(reason='nothing due')
+    assert 'skip_reply' in offered[0]
+
+
+async def test_skip_reply_is_offered_only_where_the_chat_allows_it():
+    model = TestModel(call_tools=[])
+    agent = _agent(model=model)
+
+    for chat_context in (_DIRECT, _scheduled(skip_allowed=False)):
+        await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=chat_context)
+        parameters = model.last_model_request_parameters
+        assert parameters is not None
+        assert 'skip_reply' not in {tool.name for tool in parameters.output_tools}
+
+
+async def test_a_scheduled_turn_states_its_schedule_time_and_weekday():
+    model = TestModel(call_tools=[])
+    agent = _agent(model=model)
+
+    result = await agent.run(
+        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled()
+    )
+
+    first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
+    prompt = '[Scheduled: reminder, 2026-10-26T09:00:00+08:00 Asia/Taipei, Monday] remind'
+    assert any(getattr(part, 'content', None) == prompt for part in first_request.parts)
+
+
+async def test_a_scheduled_turn_hides_destructive_tools_by_default():
+    calls: list[int] = []
+    model = TestModel()
+    agent = _agent(destructive_server(calls), model=model)
+
+    result = await agent.run(
+        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled()
+    )
+
+    parameters = model.last_model_request_parameters
+    assert parameters is not None
+    assert 'delete_it' not in {tool.name for tool in parameters.function_tools}
+    assert not isinstance(result.output, PendingApproval)
+    assert calls == []
+
+
+async def test_a_scheduled_turn_allowed_destructive_tools_runs_them_unasked():
+    calls: list[int] = []
+    agent = _agent(destructive_server(calls))
+
+    result = await agent.run(
+        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled(policy='run')
+    )
+
+    assert not isinstance(result.output, PendingApproval)
+    assert len(calls) == 1

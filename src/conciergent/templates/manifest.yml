@@ -68,6 +68,20 @@ gateway:
   #   - name: petstore
   #     spec: ./petstore.json
 
+# schedules: # prompts the agent runs on a cron schedule, pushing each reply into a chat (LINE only for now)
+#   - name: daily-digest
+#     cron: "0 21 * * *"
+#     timezone: Asia/Taipei
+#     target:
+#       surface: line
+#       to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
+#     prompt: |
+#       Summarize today's activity and flag anything unusual.
+#     # principal: line:U123 # whose stored credentials the tools use; unset runs with no one's authorization
+#     # allow_skip: false # let the agent end with skip_reply and send nothing
+#     # allow_destructive: false # unsafe: run destructive tools without a confirmation
+#     # failure_message: null # text pushed as-is when the turn fails
+
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision
 #   history_ttl_seconds: 604800 # how long conversation history is retained (one week)

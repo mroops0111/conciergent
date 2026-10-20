@@ -79,6 +79,9 @@ conversation:
   history_ttl_seconds: 604800
   oauth_wait_timeout_seconds: 240
 
+# Prompts the agent runs on a cron schedule, pushing each reply into a chat.
+schedules: []
+
 logger:
   level: INFO
   format: text

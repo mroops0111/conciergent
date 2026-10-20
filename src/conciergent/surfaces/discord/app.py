@@ -4,12 +4,15 @@ import fastapi
 
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
+from conciergent.identity import ChatSurface
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.discord.gateway import DiscordGateway, DiscordGatewaySettings
 
 
 class Discord(Surface):
     """The Discord platform, a gateway connection turning direct messages, server channels, and clicks into turns."""
+
+    name = ChatSurface.discord
 
     def __init__(
         self,

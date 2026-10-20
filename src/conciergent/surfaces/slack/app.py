@@ -5,6 +5,7 @@ import fastapi
 
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
+from conciergent.identity import ChatSurface
 from conciergent.surfaces.base import Surface, SurfaceContext
 from conciergent.surfaces.slack.install import SlackInstallSettings, build_install_router
 from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_router
@@ -12,6 +13,8 @@ from conciergent.surfaces.slack.webhook import SlackWebhookSettings, build_route
 
 class Slack(Surface):
     """The Slack platform, webhook routes plus the optional multi-workspace install flow."""
+
+    name = ChatSurface.slack
 
     # The scopes the bot needs to function, so they are fixed by the surface rather than configured.
     DEFAULT_SCOPES = ('chat:write', 'im:history', 'im:read', 'im:write', 'users:read')

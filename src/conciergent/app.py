@@ -12,9 +12,17 @@ import uvicorn
 from conciergent import i18n, logger
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.config import AppConfig, GatewaySettings, LoggerSettings, build_app_config, yaml_layer
+from conciergent.config import (
+    AppConfig,
+    GatewaySettings,
+    LoggerSettings,
+    ScheduleSettings,
+    build_app_config,
+    yaml_layer,
+)
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
+from conciergent.scheduler import Scheduler
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import Surface, SurfaceContext
@@ -38,6 +46,7 @@ class App:
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
+        schedules: collections.abc.Sequence[ScheduleSettings] = (),
         gateway_settings: GatewaySettings | None = None,
         logger_settings: LoggerSettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
@@ -52,6 +61,7 @@ class App:
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
+        self._schedules = list(schedules)
         self._gateway_settings = gateway_settings
         self._logger_settings = logger_settings
         self._approval_ttl_seconds = approval_ttl_seconds
@@ -104,6 +114,7 @@ class App:
             credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
+            schedules=config.schedules,
             gateway_settings=config.gateway,
             logger_settings=config.logger,
             host=config.server.host,
@@ -147,6 +158,17 @@ class App:
                 # A webhook surface's run_connection returns at once.
                 # Every task is cancelled cleanly at shutdown.
                 connections = [asyncio.create_task(surface.run_connection(context)) for surface in self._surfaces]
+                if self._schedules:
+                    # The gateway's session managers are up by now, so a firing can dial back into its tools.
+                    scheduler = Scheduler(
+                        self._schedules,
+                        surfaces={surface.name: surface for surface in self._surfaces},
+                        runner=self._runner,
+                        message_store=self._message_store,
+                        compactor=self._compactor,
+                        history_ttl_seconds=self._history_ttl_seconds,
+                    )
+                    connections.append(asyncio.create_task(scheduler.run()))
                 try:
                     yield
                 finally:
