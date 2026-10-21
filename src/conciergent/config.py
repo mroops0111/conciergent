@@ -319,9 +319,6 @@ class ScheduleSettings(pydantic.BaseModel):
     timezone: str = 'UTC'
     prompt: typing.Annotated[str, pydantic.Field(min_length=1)]
     target: ScheduleTarget
-    # Whose stored credentials reach the MCP servers, such as line:U123.
-    # Without one the turn runs with no one's authorization, like a group chat.
-    principal: str | None = None
     # Whether the agent may end the turn with skip_reply and send nothing, when the prompt finds nothing to say.
     allow_skip: bool = False
     # Run destructive tools without a confirmation nobody is present to give.
@@ -381,14 +378,13 @@ class AppConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode='after')
     def _unattributed_turns_need_shared_identity_specs(self) -> typing.Self:
-        # Group chats and schedules without a principal hold no one's authorization, so no per-user spec runs there.
+        # Group chats and schedules hold no one's authorization, so no per-user spec runs there.
         # Gateway specs are known up front and fail here, other MCP servers are probed when the app starts.
         unattributed = []
         if self.surface.group_chats_enabled():
             unattributed.append('group chats')
-        unprincipaled = [schedule.name for schedule in self.schedules if schedule.principal is None]
-        if unprincipaled:
-            unattributed.append(f'schedules without a principal ({", ".join(unprincipaled)})')
+        if self.schedules:
+            unattributed.append(f'schedules ({", ".join(schedule.name for schedule in self.schedules)})')
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
         if self.gateway.enabled and unattributed and per_user:
             raise ValueError(

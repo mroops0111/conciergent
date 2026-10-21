@@ -15,10 +15,6 @@ class OAuthHandoffExpiredError(Exception):
     """The user received the authorization link but never completed the flow in time."""
 
 
-class AuthorizationRequiredError(Exception):
-    """An unattended turn reached a server that needs an authorization nobody is present to give."""
-
-
 def is_handoff_expiry(error: BaseException) -> bool:
     """Report whether ``error`` is a handoff expiry, unwrapping the groups task runners nest it in."""
     if isinstance(error, OAuthHandoffExpiredError):
@@ -116,13 +112,3 @@ class AuthorizationProbe(OAuthBridge):
         result = await self._inner.request_authorization(authorize_url)
         self.authorized = True
         return result
-
-
-class UnattendedOAuthBridge(OAuthBridge):
-    """Fail an authorization at once, for an unattended turn that may only use credentials already stored."""
-
-    @typing.override
-    async def request_authorization(self, authorize_url: str) -> AuthorizationCodeResult:
-        raise AuthorizationRequiredError(
-            'the stored authorization is missing or expired, and nobody is present to renew it'
-        )

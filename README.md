@@ -294,7 +294,6 @@ schedules:
 | `timezone` | `UTC` | IANA zone the prompt header gives the firing time in. |
 | `prompt` | *(required)* | What the agent is asked, in the language it should reply in. |
 | `target.surface` · `target.to` | *(required)* | The surface and the user or chat id to push to. |
-| `principal` | *(none)* | Whose stored credentials the tools use, such as `line:U123`. Unset runs with no one's authorization. With a target other than that user's own chat, the reply carries their data to whoever is there. |
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
@@ -348,7 +347,7 @@ spec:
 
 - **Prompt Header**: the agent reads the prompt as `[Scheduled: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
 - **Shared History**: the prompt and the reply join the target chat's conversation, so a follow-up there has the reply as context. A skipped turn adds nothing.
-- **Authorization**: without a `principal` the turn needs every tool to work without a user's token, the same [requirement](#requirement) as group chats. With one, the turn uses that user's stored tokens and fails, rather than waiting, when they need a new sign-in.
+- **Authorization**: the turn holds no one's authorization, so every tool must work without a user's token, the same [requirement](#requirement) as group chats. A per-user gateway spec fails the config, which `fire` reports with exit 2. Another MCP server that needs a user's token is found when the turn starts, which fails the firing with exit 1 and pushes `failure_message`.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
 - **Push Quota**: every scheduled reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.

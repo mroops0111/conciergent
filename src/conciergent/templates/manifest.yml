@@ -76,7 +76,6 @@ gateway:
 #       to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
 #     prompt: |
 #       Summarize today's activity and flag anything unusual.
-#     # principal: line:U123 # whose stored credentials the tools use; unset runs with no one's authorization
 #     # allow_skip: false # let the agent end with skip_reply and send nothing
 #     # allow_destructive: false # unsafe: run destructive tools without a confirmation
 #     # failure_message: null # text pushed as-is when the turn fails

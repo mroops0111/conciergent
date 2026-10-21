@@ -190,15 +190,12 @@ class ScheduledChatContext(ChatContext):
     """An unattended turn a schedule starts, whose reply is pushed into a chat's conversation.
 
     Nobody is present to authorize, confirm, or sign out,
-    so the turn uses a user's stored credentials only when the schedule names a principal,
-    and it never asks about a destructive tool.
+    so like a group chat the turn holds no one's authorization, and it never asks about a destructive tool.
     """
 
     # The schedule's name and the time it fired, which head the prompt so the agent knows what started it and when.
     schedule_name: str
     fired_at: datetime.datetime
-    # Whose stored credentials reach the MCP servers, or None to hold no one's authorization.
-    principal: str | None = None
     # Stands in for the base class property of the same name.
     allows_skip: bool = False
     # Nobody can confirm a destructive tool, so it is left out unless the schedule opts into running it unasked.
@@ -206,8 +203,7 @@ class ScheduledChatContext(ChatContext):
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
-        # Without a principal the turn holds no one's authorization.
-        return self.uses_user_credentials or await runner.works_without_user_credentials()
+        return await runner.works_without_user_credentials()
 
     @typing.override
     async def decline(self, surface: ReplySurface) -> None:
@@ -227,7 +223,7 @@ class ScheduledChatContext(ChatContext):
     @property
     @typing.override
     def uses_user_credentials(self) -> bool:
-        return self.principal is not None
+        return False
 
     @property
     @typing.override

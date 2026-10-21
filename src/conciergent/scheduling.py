@@ -12,7 +12,6 @@ from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
 from conciergent.reply import Card, ReplySurface
-from conciergent.runtime import UnattendedOAuthBridge
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface
 from conciergent.turn import run_turn
@@ -89,19 +88,17 @@ class ScheduleExecutor:
             conversation=conversation,
             schedule_name=schedule.name,
             fired_at=fired_at,
-            principal=schedule.principal,
             allows_skip=schedule.allow_skip,
             runs_destructive_tools=schedule.allow_destructive,
         )
         await run_turn(
             schedule.prompt,
-            # Without a principal the turn reaches no one's credentials, so this only labels it.
-            principal=schedule.principal or f'schedule:{schedule.name}',
+            # The turn reaches no one's credentials, so this only labels it.
+            principal=f'schedule:{schedule.name}',
             chat_context=chat_context,
             runner=self._runner,
             surface=surface,
             message_store=self._message_store,
-            bridge=UnattendedOAuthBridge() if schedule.principal is not None else None,
             compactor=self._compactor,
             history_ttl_seconds=self._history_ttl_seconds,
         )

@@ -196,3 +196,19 @@ def test_fire_names_the_configured_schedules_when_the_name_is_unknown(stores):
 
     with pytest.raises(UnknownScheduleError, match="no schedule named 'weekly', the configured ones are: daily-digest"):
         app.fire('weekly')
+
+
+def test_fire_fails_with_the_failure_message_when_an_mcp_server_needs_a_users_token(stores):
+    runner = StubRunner('ok')
+    # What the startup probe reports for an MCP server outside the gateway that needs a per-user authorization.
+    runner.credential_free = False
+    surface = RecordingPushSurface()
+    app = App(
+        runner=runner.as_runner(),
+        **stores,
+        surfaces=[surface],
+        schedules=[schedule(failure_message='baby is down')],
+    )
+
+    assert app.fire('daily-digest') is FiringOutcome.failed
+    assert runner.calls == [] and surface.texts() == ['baby is down']

@@ -221,7 +221,7 @@ def test_schedules_parse_with_safe_defaults():
     (schedule,) = build_app_config(_scheduled_config(_schedule())).schedules
 
     assert (schedule.allow_skip, schedule.allow_destructive) == (False, False)
-    assert schedule.principal is None and schedule.failure_message is None
+    assert schedule.failure_message is None
 
 
 def test_schedules_default_to_none_and_accept_a_bare_key():
@@ -265,16 +265,18 @@ def test_a_schedule_needs_its_target_surface_enabled():
         build_app_config(_scheduled_config(_schedule(), line_enabled=False))
 
 
-def test_a_schedule_without_a_principal_rejects_a_per_user_spec():
+def test_a_schedule_rejects_a_per_user_spec():
     config = _group_chats_config({'type': 'oauth2'})
     config['surface']['line']['group_chats']['enabled'] = False
     config['schedules'] = [_schedule()]
 
-    with pytest.raises(ValueError, match=r'schedules without a principal \(daily-digest\).*per-user oauth2: api'):
+    with pytest.raises(ValueError, match=r'schedules \(daily-digest\).*per-user oauth2: api'):
         build_app_config(config)
 
-    config['schedules'] = [_schedule(principal='line:U1')]
-    assert build_app_config(config).schedules[0].principal == 'line:U1'
+
+def test_a_schedule_rejects_a_principal():
+    with pytest.raises(ValueError, match='principal\n  Extra inputs are not permitted'):
+        build_app_config(_scheduled_config(_schedule(principal='line:U1')))
 
 
 def test_a_schedule_needs_a_surface_that_can_push():
