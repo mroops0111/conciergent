@@ -81,6 +81,7 @@ gateway:
 #     # allow_skip: false # let the agent end with skip_reply and send nothing
 #     # allow_destructive: false # unsafe: run destructive tools without a confirmation
 #     # failure_message: null # text pushed as-is when the turn fails
+#     # misfire_grace_seconds: 300 # how late a firing may still run, such as after a restart
 
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision

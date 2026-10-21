@@ -4,6 +4,8 @@ import datetime
 import typing
 
 from conciergent import i18n
+from conciergent.agent.mcp.tool_policy import ConfirmDestructiveTools, DestructiveToolPolicy, HideDestructiveTools
+from conciergent.reply import ReplySurface
 
 
 if typing.TYPE_CHECKING:
@@ -21,21 +23,25 @@ _SCHEDULED_INSTRUCTIONS = (
     'Nobody can answer a question or confirm an action before your reply is sent, so write the finished message the prompt asks for. '
     'Never write the bracketed schedule prefix in your own reply.'
 )
+_SKIP_INSTRUCTIONS = 'When the prompt finds nothing worth sending, end the turn with skip_reply instead of a reply.'
 # Spelled out here rather than with strftime, whose day names follow the process locale.
 _WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
-_SKIP_INSTRUCTIONS = 'When the prompt finds nothing worth sending, end the turn with skip_reply instead of a reply.'
+# Stateless, so every chat that confirms shares one.
+_CONFIRM_DESTRUCTIVE_TOOLS = ConfirmDestructiveTools()
 
-# How a turn treats a tool its MCP server marks destructive.
-# Confirm asks in the chat first, hide leaves it out of the turn, and run calls it without asking.
-DestructiveToolPolicy = typing.Literal['confirm', 'hide', 'run']
+
+class ChatUnavailableError(Exception):
+    """A turn nobody is waiting on cannot run, such as when an MCP server is unreachable."""
 
 
 @dataclasses.dataclass(frozen=True)
 class ChatContext(abc.ABC):
     """The chat one turn runs in, a direct chat with one user or a group chat shared by several.
 
-    The two differ in whose history and approvals the turn uses, whose credentials reach the MCP servers,
+    The kinds differ in whose history and approvals the turn uses, whose credentials reach the MCP servers,
     and how the agent reads the message, so each kind answers those questions and the runtime never branches.
+    The abstract members are what every kind must decide.
+    The concrete ones are what an interactive chat does, which a new kind overrides only where it differs.
     """
 
     # The history scope, such as one user's direct chat, one Slack thread, or one group chat.
@@ -65,22 +71,29 @@ class ChatContext(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def allows_skip(self) -> bool:
-        """Whether the turn may end with no reply at all, which only an unattended turn needs."""
-
-    @property
-    @abc.abstractmethod
-    def destructive_tools(self) -> DestructiveToolPolicy:
-        """How the turn treats a destructive tool, which a chat with nobody to confirm it cannot ask about."""
-
-    @property
-    @abc.abstractmethod
     def instructions(self) -> str:
         """Extra system instructions this kind of chat needs, empty when none."""
 
     @abc.abstractmethod
     def prompt(self, user_input: str) -> str:
         """The message as the agent reads it."""
+
+    async def decline(self, surface: ReplySurface) -> None:
+        """Settle a turn the app cannot serve right now, see ``can_run``.
+
+        Someone in a chat sent the message, so by default it is dropped quietly, as the platform needs.
+        """
+        await surface.acknowledge_silently()
+
+    @property
+    def allows_skip(self) -> bool:
+        """Whether the turn may end with no reply at all, which only a turn nobody asked for needs."""
+        return False
+
+    @property
+    def destructive_tools(self) -> DestructiveToolPolicy:
+        """How the turn treats a destructive tool, which by default someone in the chat confirms first."""
+        return _CONFIRM_DESTRUCTIVE_TOOLS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -111,16 +124,6 @@ class DirectChatContext(ChatContext):
 
     @property
     @typing.override
-    def allows_skip(self) -> bool:
-        return False
-
-    @property
-    @typing.override
-    def destructive_tools(self) -> DestructiveToolPolicy:
-        return 'confirm'
-
-    @property
-    @typing.override
     def instructions(self) -> str:
         return ''
 
@@ -142,7 +145,7 @@ class GroupChatContext(ChatContext):
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
-        return await runner.supports_group_chats()
+        return await runner.works_without_user_credentials()
 
     @typing.override
     def approval_owner(self, principal: str) -> str | None:
@@ -167,16 +170,6 @@ class GroupChatContext(ChatContext):
 
     @property
     @typing.override
-    def allows_skip(self) -> bool:
-        return False
-
-    @property
-    @typing.override
-    def destructive_tools(self) -> DestructiveToolPolicy:
-        return 'confirm'
-
-    @property
-    @typing.override
     def instructions(self) -> str:
         return _GROUP_CHAT_INSTRUCTIONS
 
@@ -190,7 +183,7 @@ class ScheduledChatContext(ChatContext):
     """An unattended turn a schedule starts, whose reply is pushed into a chat's conversation.
 
     Nobody is present to authorize, confirm, or sign out,
-    so the turn uses a user's stored credentials only when the schedule names a ``principal``,
+    so the turn uses a user's stored credentials only when the schedule names a principal,
     and it never asks about a destructive tool.
     """
 
@@ -200,12 +193,17 @@ class ScheduledChatContext(ChatContext):
     # Whether the schedule names a principal, whose stored credentials then reach the MCP servers.
     has_principal: bool = False
     skip_allowed: bool = False
-    destructive_tool_policy: DestructiveToolPolicy = 'hide'
+    destructive_tool_policy: DestructiveToolPolicy = dataclasses.field(default_factory=HideDestructiveTools)
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
-        # Without a principal the turn holds no one's authorization, the same requirement as a group chat.
-        return self.has_principal or await runner.supports_group_chats()
+        # Without a principal the turn holds no one's authorization.
+        return self.has_principal or await runner.works_without_user_credentials()
+
+    @typing.override
+    async def decline(self, surface: ReplySurface) -> None:
+        # Nobody sent a message to drop, so a quiet ending would hide an outage behind silence.
+        raise ChatUnavailableError('an MCP server is unreachable or needs a per-user authorization')
 
     @typing.override
     def approval_owner(self, principal: str) -> str | None:

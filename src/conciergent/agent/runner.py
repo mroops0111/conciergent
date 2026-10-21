@@ -57,10 +57,6 @@ _REVOKE_INSTRUCTION = (
 )
 
 
-def _never_ask(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_args: dict[str, typing.Any]) -> bool:
-    return False
-
-
 @dataclasses.dataclass
 class _AgentDeps:
     """Per-turn context the agent's instructions and rendering read, carried through pydantic-ai deps."""
@@ -121,16 +117,16 @@ class ChatRunner:
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
         # Whether a server URL needs a per-user authorization, when the config already says so, as for a gateway spec.
-        # Any other URL is probed, see supports_group_chats.
+        # Any other URL is probed, see works_without_user_credentials.
         self._known_user_authorization = dict(known_user_authorization or {})
         self._probe_timeout_seconds = mcp_probe_timeout_seconds
         self._probe_retry_seconds = mcp_probe_retry_seconds
         # Set once the probes reach a verdict.
         # An unreachable server leaves it unset until the retry time passes.
-        self._group_chats_supported: bool | None = None
-        self._group_chats_retry_at = 0.0
+        self._credential_free_verdict: bool | None = None
+        self._user_credentials_check_retry_at = 0.0
         # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
-        self._group_chats_lock = asyncio.Lock()
+        self._user_credentials_check_lock = asyncio.Lock()
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
@@ -200,18 +196,18 @@ class ChatRunner:
         for server in self._oauth_servers:
             await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
 
-    async def supports_group_chats(self) -> bool:
-        """Report whether group chats may be served, which needs every MCP server to work without a user's token.
+    async def works_without_user_credentials(self) -> bool:
+        """Report whether a turn holding no one's authorization can run, which needs every MCP server to allow it.
 
-        A group is shared by several people, so it never runs a per-user authorization.
-        Any server that needs one rules group chats out for the whole app, rather than leaving some tools half-working.
+        Group chats and schedules without a principal run such turns, since no single user owns them.
+        A server that needs a user's token rules them out app-wide, rather than leaving some tools half-working.
         The verdict is cached once reached.
-        An unreachable server pauses group chats until the retry interval passes.
+        An unreachable server pauses them until the retry interval passes.
         """
-        async with self._group_chats_lock:
-            if self._group_chats_supported is not None:
-                return self._group_chats_supported
-            if time.monotonic() < self._group_chats_retry_at:
+        async with self._user_credentials_check_lock:
+            if self._credential_free_verdict is not None:
+                return self._credential_free_verdict
+            if time.monotonic() < self._user_credentials_check_retry_at:
                 return False
             needs_user = await asyncio.gather(*(self._needs_user_authorization(s) for s in self._oauth_servers))
             per_user = [server for server, verdict in zip(self._oauth_servers, needs_user, strict=True) if verdict]
@@ -220,19 +216,20 @@ class ChatRunner:
             ]
             if per_user:
                 logger.error(
-                    'Group chats are disabled because these MCP servers need a per-user authorization: %s',
+                    'Group chats and schedules without a principal are disabled, these MCP servers need a per-user authorization: %s',
                     ', '.join(per_user),
                 )
-                self._group_chats_supported = False
+                self._credential_free_verdict = False
             elif undecided:
                 logger.warning(
-                    'Group chats are paused until these MCP servers can be checked: %s', ', '.join(undecided)
+                    'Group chats and schedules without a principal are paused until these MCP servers can be checked: %s',
+                    ', '.join(undecided),
                 )
-                self._group_chats_retry_at = time.monotonic() + self._probe_retry_seconds
+                self._user_credentials_check_retry_at = time.monotonic() + self._probe_retry_seconds
                 return False
             else:
-                self._group_chats_supported = True
-            return self._group_chats_supported
+                self._credential_free_verdict = True
+            return self._credential_free_verdict
 
     async def _needs_user_authorization(self, server: str) -> bool | None:
         # Without OAuth configured _oauth_servers is empty, so no server is ever reached with a user's token.
@@ -288,9 +285,6 @@ class ChatRunner:
         reaches every server without a user's token and ignores ``bridge``.
         """
         user_credentials = chat_context.uses_user_credentials
-        destructive_tools = chat_context.destructive_tools
-        # A turn that runs destructive tools unasked gates nothing, the others gate them for approval.
-        approval_predicate = _never_ask if destructive_tools == 'run' else self._approval_predicate
         toolsets = [
             await build_toolset(
                 server,
@@ -298,15 +292,13 @@ class ChatRunner:
                 credential_store=self._credential_store if user_credentials else None,
                 oauth_bridge=bridge if user_credentials else None,
                 redirect_uri=self._redirect_uri if user_credentials else None,
-                approval_predicate=approval_predicate,
+                approval_predicate=self._approval_predicate,
+                destructive_tools=chat_context.destructive_tools,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
             )
             for server in self._mcp_servers
         ]
-        if destructive_tools == 'hide':
-            # Nobody could confirm them, so the agent never sees them rather than calling one into a dead end.
-            toolsets = [toolset.filtered(self._is_not_destructive) for toolset in toolsets]
         lang = surface.lang if surface is not None else None
         agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, chat_context=chat_context)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
@@ -345,10 +337,6 @@ class ChatRunner:
             # so the tool call and its later result land in one stored turn instead of aging out separately.
             return TurnResult(output=self._park(output.approvals, held_messages=new_messages, lang=lang))
         return TurnResult(output=output, history=new_messages, invalidate_history=agent_deps.invalidate_history)
-
-    def _is_not_destructive(self, ctx: RunContext[_AgentDeps], tool_def: ToolDefinition) -> bool:
-        # The predicate decides by the tool alone, so its arguments are not known yet when the tool list is built.
-        return not self._approval_predicate(ctx, tool_def, {})
 
     def _resume(
         self,

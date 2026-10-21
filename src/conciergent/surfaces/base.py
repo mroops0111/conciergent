@@ -61,9 +61,23 @@ class Surface(abc.ABC):
         """
         return None
 
-    def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
-        """Open a push to a user or chat id, for a reply nobody asked for, such as a scheduled one.
 
-        The default refuses, which fits a platform that cannot push yet.
+class PushSurface(Surface):
+    """A platform that can also send a message nobody asked for, such as a scheduled reply.
+
+    Pushing is a capability of its own, so a platform without it implements only ``Surface``,
+    and a schedule can target only a platform that implements this.
+    """
+
+    @classmethod
+    @abc.abstractmethod
+    def push_conversation(cls, to: str) -> str:
+        """The conversation a push to the user or chat id ``to`` joins, the key that chat's own messages use.
+
+        Raises ``ValueError`` when ``to`` is not an id this platform can push to,
+        so a config can be checked before any surface is built.
         """
-        raise NotImplementedError(f'{self.name} cannot push a scheduled reply yet')
+
+    @abc.abstractmethod
+    def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
+        """Open a push to the user or chat id ``to``, yielding the reply surface that sends it."""

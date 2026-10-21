@@ -1,4 +1,3 @@
-import collections.abc
 import logging
 import typing
 
@@ -18,6 +17,7 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
 from conciergent.agent.mcp.storage import OAuthTokenStorage
+from conciergent.agent.mcp.tool_policy import ApprovalPredicate, ConfirmDestructiveTools, DestructiveToolPolicy
 from conciergent.defaults import DEFAULTS
 from conciergent.runtime import OAuthBridge
 from conciergent.store.credential import CredentialStore
@@ -27,9 +27,6 @@ logger = logging.getLogger(__name__)
 
 # The metadata does not change per server, so discovery runs once per process rather than on every connect.
 _OAUTH_METADATA_CACHE: dict[str, OAuthMetadata] = {}
-
-
-type ApprovalPredicate = collections.abc.Callable[[RunContext[typing.Any], ToolDefinition, dict[str, typing.Any]], bool]
 
 
 def needs_approval(ctx: RunContext[typing.Any], tool_def: ToolDefinition, tool_args: dict[str, typing.Any]) -> bool:
@@ -50,6 +47,7 @@ async def build_toolset(
     oauth_bridge: OAuthBridge | None = None,
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
+    destructive_tools: DestructiveToolPolicy = ConfirmDestructiveTools(),
     client_name: str = DEFAULTS.agent.client_name,
     read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
 ) -> AbstractToolset[typing.Any]:
@@ -57,7 +55,8 @@ async def build_toolset(
 
     OAuth is attached only for a URL client with both a ``bridge`` and a ``redirect_uri``,
     otherwise the server is reached unauthenticated.
-    Every tool the server annotates as destructive is gated for approval before it runs.
+    Every tool ``approval_predicate`` marks destructive is treated as ``destructive_tools`` says,
+    by default gated for approval before it runs.
     """
     if (oauth_bridge is None) != (redirect_uri is None):
         raise ValueError('bridge and redirect_uri must be given together to enable MCP OAuth')
@@ -81,7 +80,7 @@ async def build_toolset(
             toolset = MCPToolset(server, read_timeout=read_timeout_seconds)
     else:
         toolset = MCPToolset(server)
-    return toolset.approval_required(approval_predicate)
+    return destructive_tools.apply(toolset, approval_predicate)
 
 
 async def _oauth_provider(

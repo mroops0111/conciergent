@@ -298,6 +298,7 @@ schedules:
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
+| `misfire_grace_seconds` | `300` | How late a firing may still run, such as one due while every replica restarted. |
 
 ### Behavior
 
@@ -306,7 +307,7 @@ schedules:
 - **Authorization**: without a `principal` the turn needs every tool to work without a user's token, the same [requirement](#requirement) as group chats. With one, the turn uses that user's stored tokens and fails, rather than waiting, when they need a new sign-in.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
-- **Timing**: a firing missed while the process is down is skipped, not caught up. With several replicas, a Redis lock per firing lets exactly one run it.
+- **Timing**: a firing missed by a restart still runs if the app is back within `misfire_grace_seconds`, and an older one is skipped rather than caught up. Every replica keeps the schedule, and a Redis lock per firing lets exactly one of them run it.
 - **Push Quota**: every scheduled reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
 ## The Reply Model
@@ -336,6 +337,34 @@ class Surface(abc.ABC):
 ```
 
 Implement `Surface`, a `ReplySurface` to render the reply model, and (if it has per-user auth) an `OAuthBridge`, then pass an instance to the app. Slack, LINE, and Discord are the three that ship.
+
+A platform that can also send a message nobody asked for implements `PushSurface` instead, which [scheduled prompts](#scheduled-prompts) can then target.
+
+```python
+class PushSurface(Surface):
+    @classmethod
+    @abc.abstractmethod
+    def push_conversation(cls, to: str) -> str:
+        """The conversation a push to `to` joins, raising ValueError for an id the platform cannot push to."""
+
+    @abc.abstractmethod
+    def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
+        """Open a push to `to`, yielding the reply surface that sends it."""
+```
+
+</details>
+
+<details>
+<summary><b>Add a Schedule Trigger</b></summary>
+
+A `ScheduleTrigger` decides when schedules fire and hands each firing to the `ScheduleExecutor`, which runs the turn, pushes the reply, and takes the per-firing lock. The shipped `CronTrigger` runs in the app process. Another source of firings, such as an external scheduler calling in, is another trigger passed to `App(schedule_triggers=[...])`.
+
+```python
+class ScheduleTrigger(abc.ABC):
+    @abc.abstractmethod
+    async def serve(self, executor: ScheduleExecutor) -> None:
+        """Hand firings to executor.fire(schedule, fired_at) until the app stops."""
+```
 
 </details>
 

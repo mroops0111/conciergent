@@ -245,8 +245,9 @@ def test_a_schedule_target_resolves_from_the_environment(
         ({'cron': 'every day'}, 'not a valid cron expression'),
         ({'timezone': 'Asia/Nowhere'}, 'not a known IANA timezone'),
         ({'target': {'surface': 'line', 'to': ''}}, 'at least 1 character'),
-        ({'target': {'surface': 'line', 'to': 'X1'}}, 'starting with U, C, or R'),
-        ({'target': {'surface': 'slack', 'to': 'C1'}}, "Input should be 'line'"),
+        ({'target': {'surface': 'line', 'to': 'X1'}}, 'schedule daily-digest: .*starting with U, C, or R'),
+        ({'target': {'surface': 'teams', 'to': 'C1'}}, "Input should be 'slack', 'line' or 'discord'"),
+        ({'misfire_grace_seconds': -1}, 'greater than or equal to 0'),
     ],
 )
 def test_a_malformed_schedule_is_rejected(overrides: dict[str, typing.Any], message: str):
@@ -274,3 +275,11 @@ def test_a_schedule_without_a_principal_rejects_a_per_user_spec():
 
     config['schedules'] = [_schedule(principal='line:U1')]
     assert build_app_config(config).schedules[0].principal == 'line:U1'
+
+
+def test_a_schedule_needs_a_surface_that_can_push():
+    config = _scheduled_config(_schedule(target={'surface': 'slack', 'to': 'C1'}))
+    config['surface']['slack'] = {'enabled': True, 'signing_secret': 's'}
+
+    with pytest.raises(ValueError, match='targets slack, which cannot push messages yet'):
+        build_app_config(config)

@@ -1,4 +1,5 @@
 import logging
+import typing
 
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
@@ -28,13 +29,13 @@ async def run_turn(
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
     The ``principal`` is the user's identity and keys credentials,
-    while ``chat_context`` names the chat the turn runs in, a direct chat or a group chat,
+    while ``chat_context`` names the chat the turn runs in, such as a direct chat, a group chat, or a schedule's,
     with the conversation that scopes history and pending approvals.
     This is side-effect only, the surface sends and the appended history turn.
     """
     if not await chat_context.can_run(runner):
-        # The app cannot serve this chat right now, so the message is dropped without a reply.
-        await surface.acknowledge_silently()
+        # The app cannot serve this chat right now, and the kind of chat decides how that ends.
+        await chat_context.decline(surface)
         return
     conversation = chat_context.conversation
     history = await message_store.load_history(conversation)
@@ -61,27 +62,28 @@ async def run_turn(
         chat_context=chat_context,
     )
 
-    output = result.output
-    if isinstance(output, PendingApproval):
-        # The turn is only paused, not finished.
-        # The in-flight messages ride on ``output.state`` and are replayed via ``pending_approval`` on resume,
-        # so committing ``result.history`` here would either wipe the conversation with the empty default,
-        # or orphan the tool-call turn from its later result.
-        await message_store.park_approval(conversation, output.state, ttl_seconds=approval_ttl_seconds, owner=owner)
-        await surface.send_card(output.card, destructive=True)
-        return
-
-    if isinstance(output, SkippedReply):
-        # Nothing reached the chat, so nothing joins the history the members see.
-        logger.info('Turn in %s ended without a reply: %s', conversation, output.reason)
-        return
-
-    if isinstance(output, Carousel):
-        await surface.send_carousel([*output.options, output.fallback])
-    elif isinstance(output, Card):
-        await surface.send_card(output)
-    else:
-        await surface.send_text(output)
+    # The outcomes are a closed set, and assert_never makes the type checker flag one left unhandled here.
+    match result.output:
+        case PendingApproval(card=card, state=state):
+            # The turn is only paused, not finished.
+            # The in-flight messages ride on ``state`` and are replayed via ``pending_approval`` on resume,
+            # so committing ``result.history`` here would either wipe the conversation with the empty default,
+            # or orphan the tool-call turn from its later result.
+            await message_store.park_approval(conversation, state, ttl_seconds=approval_ttl_seconds, owner=owner)
+            await surface.send_card(card, destructive=True)
+            return
+        case SkippedReply(reason=reason):
+            # Nothing reached the chat, so nothing joins the history the members see.
+            logger.info('Turn in %s ended without a reply: %s', conversation, reason)
+            return
+        case Carousel(options=options, fallback=fallback):
+            await surface.send_carousel([*options, fallback])
+        case Card() as card:
+            await surface.send_card(card)
+        case str() as text:
+            await surface.send_text(text)
+        case unhandled:
+            typing.assert_never(unhandled)
 
     if result.invalidate_history:
         # A tool made earlier turns stale, e.g. a sign-out, so drop them instead of appending this turn.

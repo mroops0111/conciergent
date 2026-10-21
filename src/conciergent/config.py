@@ -1,3 +1,4 @@
+import abc
 import os
 import pathlib
 import re
@@ -10,10 +11,10 @@ import yaml
 
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
-from conciergent.surfaces.base import Surface
+from conciergent.identity import ChatSurface
+from conciergent.surfaces.base import PushSurface, Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
-from conciergent.surfaces.line.chat import line_push_conversation
 from conciergent.surfaces.slack.app import Slack
 
 
@@ -66,21 +67,42 @@ class GroupChatSettings(pydantic.BaseModel):
         return GroupChatPolicy(enabled=self.enabled, reply_trigger=self.reply_trigger)
 
 
-class SlackSettings(pydantic.BaseModel):
+class SurfaceKindSettings(pydantic.BaseModel, abc.ABC):
+    """What every chat platform's settings share, with the ``Surface`` class they build.
+
+    A new platform subclasses this with its own credentials, so the checks that span platforms need no change.
+    """
+
+    # The Surface class these settings build, which the config asks what the platform can do before building it.
+    surface_class: typing.ClassVar[type[Surface]]
+
+    enabled: bool = False
+    brand_color: str
+    destructive_color: str
+    api_timeout_seconds: float
+    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
+
+    @abc.abstractmethod
+    def build(self) -> Surface:
+        """Build the platform's surface from these settings."""
+
+    @property
+    def group_chats_enabled(self) -> bool:
+        return self.enabled and self.group_chats.policy().enabled
+
+
+class SlackSettings(SurfaceKindSettings):
     """Slack app credentials, created once in the Slack app dashboard.
 
     UI text is not configured here, it lives in the locale catalog so it can be translated (see ``locales_dir``).
     """
 
-    enabled: bool = False
+    surface_class = Slack
+
     signing_secret: str = ''
     client_id: str = ''
     client_secret: str = ''
     bot_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_secret_when_enabled(self) -> typing.Self:
@@ -89,6 +111,7 @@ class SlackSettings(pydantic.BaseModel):
             raise ValueError('surface.slack.signing_secret is required when slack is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Slack(
             signing_secret=self.signing_secret,
@@ -102,16 +125,13 @@ class SlackSettings(pydantic.BaseModel):
         )
 
 
-class LineSettings(pydantic.BaseModel):
+class LineSettings(SurfaceKindSettings):
     """LINE Messaging API channel credentials, created once in the LINE developers console."""
 
-    enabled: bool = False
+    surface_class = Line
+
     channel_secret: str = ''
     channel_access_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_credentials_when_enabled(self) -> typing.Self:
@@ -119,6 +139,7 @@ class LineSettings(pydantic.BaseModel):
             raise ValueError('surface.line channel_secret and channel_access_token are required when line is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Line(
             channel_secret=self.channel_secret,
@@ -130,18 +151,15 @@ class LineSettings(pydantic.BaseModel):
         )
 
 
-class DiscordSettings(pydantic.BaseModel):
+class DiscordSettings(SurfaceKindSettings):
     """Discord app credentials, created once in the Discord developer portal.
 
     The bot connects over the gateway and replies in direct messages, so a single bot token is all it needs.
     """
 
-    enabled: bool = False
+    surface_class = Discord
+
     bot_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_token_when_enabled(self) -> typing.Self:
@@ -149,6 +167,7 @@ class DiscordSettings(pydantic.BaseModel):
             raise ValueError('surface.discord.bot_token is required when discord is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Discord(
             bot_token=self.bot_token,
@@ -160,20 +179,23 @@ class DiscordSettings(pydantic.BaseModel):
 
 
 class SurfaceSettings(pydantic.BaseModel):
-    """The chat surfaces, each turned on by its own ``enabled`` flag."""
+    """The chat surfaces, each turned on by its own ``enabled`` flag, and each field named for its ``ChatSurface``."""
 
     slack: SlackSettings
     line: LineSettings
     discord: DiscordSettings
 
+    def kinds(self) -> list[SurfaceKindSettings]:
+        return [self.settings_for(surface) for surface in ChatSurface]
+
+    def settings_for(self, surface: ChatSurface) -> SurfaceKindSettings:
+        return getattr(self, surface.value)
+
     def enabled_surfaces(self) -> list[Surface]:
-        return [settings.build() for settings in (self.slack, self.line, self.discord) if settings.enabled]
+        return [settings.build() for settings in self.kinds() if settings.enabled]
 
     def group_chats_enabled(self) -> bool:
-        return any(
-            settings.enabled and settings.group_chats.policy().enabled
-            for settings in (self.slack, self.line, self.discord)
-        )
+        return any(settings.group_chats_enabled for settings in self.kinds())
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -274,17 +296,11 @@ class ConversationSettings(pydantic.BaseModel):
 class ScheduleTarget(pydantic.BaseModel):
     """Where a schedule's reply goes, a surface and the user or chat id it pushes to.
 
-    Only LINE can push for now.
+    Whether the surface can push, and to which ids, is the surface's own answer, checked with the whole config.
     """
 
-    surface: typing.Literal['line']
-    # A LINE user, group, or room id, such as the C-prefixed id of a group.
+    surface: ChatSurface
     to: typing.Annotated[str, pydantic.Field(min_length=1)]
-
-    @pydantic.model_validator(mode='after')
-    def _to_names_a_chat(self) -> typing.Self:
-        line_push_conversation(self.to)
-        return self
 
 
 class ScheduleSettings(pydantic.BaseModel):
@@ -309,6 +325,8 @@ class ScheduleSettings(pydantic.BaseModel):
     allow_destructive: bool = False
     # Text pushed as-is when the turn fails, such as when an MCP server is down, so a failure is not silent.
     failure_message: str | None = None
+    # How late a firing may still run, such as one due while a rolling deploy restarted every replica.
+    misfire_grace_seconds: typing.Annotated[int, pydantic.Field(ge=0)] = 300
 
     @pydantic.field_validator('cron')
     @classmethod
@@ -387,9 +405,16 @@ class AppConfig(pydantic.BaseModel):
         if duplicates:
             raise ValueError(f'schedule names must be unique, repeated: {", ".join(duplicates)}')
         for schedule in self.schedules:
-            surface = getattr(self.surface, schedule.target.surface)
-            if not surface.enabled:
-                raise ValueError(f'schedule {schedule.name} targets {schedule.target.surface}, which is not enabled')
+            target = schedule.target
+            settings = self.surface.settings_for(target.surface)
+            if not settings.enabled:
+                raise ValueError(f'schedule {schedule.name} targets {target.surface}, which is not enabled')
+            if not issubclass(settings.surface_class, PushSurface):
+                raise ValueError(f'schedule {schedule.name} targets {target.surface}, which cannot push messages yet')
+            try:
+                settings.surface_class.push_conversation(target.to)
+            except ValueError as error:
+                raise ValueError(f'schedule {schedule.name}: {error}') from error
         # A schedule with no principal holds no one's authorization, the same requirement group chats have.
         unattended = [schedule.name for schedule in self.schedules if schedule.principal is None]
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]

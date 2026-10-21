@@ -12,20 +12,13 @@ import uvicorn
 from conciergent import i18n, logger
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.config import (
-    AppConfig,
-    GatewaySettings,
-    LoggerSettings,
-    ScheduleSettings,
-    build_app_config,
-    yaml_layer,
-)
+from conciergent.config import AppConfig, GatewaySettings, LoggerSettings, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.scheduler import Scheduler
+from conciergent.scheduling import CronTrigger, ScheduleExecutor, ScheduleTrigger
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
-from conciergent.surfaces.base import Surface, SurfaceContext
+from conciergent.surfaces.base import PushSurface, Surface, SurfaceContext
 
 
 class App:
@@ -46,7 +39,7 @@ class App:
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
-        schedules: collections.abc.Sequence[ScheduleSettings] = (),
+        schedule_triggers: collections.abc.Sequence[ScheduleTrigger] = (),
         gateway_settings: GatewaySettings | None = None,
         logger_settings: LoggerSettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
@@ -61,7 +54,7 @@ class App:
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
-        self._schedules = list(schedules)
+        self._schedule_triggers = list(schedule_triggers)
         self._gateway_settings = gateway_settings
         self._logger_settings = logger_settings
         self._approval_ttl_seconds = approval_ttl_seconds
@@ -114,7 +107,7 @@ class App:
             credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
-            schedules=config.schedules,
+            schedule_triggers=[CronTrigger(config.schedules)] if config.schedules else [],
             gateway_settings=config.gateway,
             logger_settings=config.logger,
             host=config.server.host,
@@ -145,9 +138,10 @@ class App:
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
             await self._credential_store.prepare()
-            if any(surface.group_chat_policy.enabled for surface in self._surfaces):
-                # Check up front so a server that rules group chats out is logged at startup, not at the first group.
-                await self._runner.supports_group_chats()
+            if self._schedule_triggers or any(surface.group_chat_policy.enabled for surface in self._surfaces):
+                # Check up front so a server that rules out turns without a user's credentials is logged at startup,
+                # not at the first group message or firing.
+                await self._runner.works_without_user_credentials()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
                     # The mounted MCP sub-apps only serve while their session managers run,
@@ -158,17 +152,18 @@ class App:
                 # A webhook surface's run_connection returns at once.
                 # Every task is cancelled cleanly at shutdown.
                 connections = [asyncio.create_task(surface.run_connection(context)) for surface in self._surfaces]
-                if self._schedules:
+                if self._schedule_triggers:
                     # The gateway's session managers are up by now, so a firing can dial back into its tools.
-                    scheduler = Scheduler(
-                        self._schedules,
-                        surfaces={surface.name: surface for surface in self._surfaces},
+                    executor = ScheduleExecutor(
+                        surfaces={
+                            surface.name: surface for surface in self._surfaces if isinstance(surface, PushSurface)
+                        },
                         runner=self._runner,
                         message_store=self._message_store,
                         compactor=self._compactor,
                         history_ttl_seconds=self._history_ttl_seconds,
                     )
-                    connections.append(asyncio.create_task(scheduler.run()))
+                    connections += [asyncio.create_task(trigger.serve(executor)) for trigger in self._schedule_triggers]
                 try:
                     yield
                 finally:
