@@ -14,13 +14,13 @@ from pydantic_ai.models.test import TestModel
 from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
-from conciergent.agent.mcp.tool_policy import DestructiveToolPolicy, HideDestructiveTools, RunDestructiveTools
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.chat_context import DirectChatContext, GroupChatContext, ScheduledChatContext
 from conciergent.i18n.lang import Lang
 from conciergent.runtime import SkippedReply
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
+from tests.scheduling.conftest import schedule
 
 
 _PRINCIPAL = 'p'
@@ -418,15 +418,9 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
     assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)
 
 
-def _scheduled(*, skip_allowed: bool = False, policy: DestructiveToolPolicy | None = None) -> ScheduledChatContext:
+def _scheduled(**overrides: typing.Any) -> ScheduledChatContext:
     fired_at = datetime.datetime(2026, 10, 26, 9, tzinfo=zoneinfo.ZoneInfo('Asia/Taipei'))
-    return ScheduledChatContext(
-        'line:group:C1',
-        schedule='reminder',
-        fired_at=fired_at,
-        skip_allowed=skip_allowed,
-        destructive_tool_policy=policy or HideDestructiveTools(),
-    )
+    return ScheduledChatContext('line:group:C1', schedule=schedule(name='reminder', **overrides), fired_at=fired_at)
 
 
 async def test_a_scheduled_turn_may_end_with_skip_reply():
@@ -439,7 +433,7 @@ async def test_a_scheduled_turn_may_end_with_skip_reply():
     agent = ChatRunner(model=FunctionModel(skip), system_prompt=_SYSTEM_PROMPT)
 
     result = await agent.run(
-        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled(skip_allowed=True)
+        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_scheduled(allow_skip=True)
     )
 
     assert result.output == SkippedReply(reason='nothing due')
@@ -450,7 +444,7 @@ async def test_skip_reply_is_offered_only_where_the_chat_allows_it():
     model = TestModel(call_tools=[])
     agent = _agent(model=model)
 
-    for chat_context in (_DIRECT, _scheduled(skip_allowed=False)):
+    for chat_context in (_DIRECT, _scheduled(allow_skip=False)):
         await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=chat_context)
         parameters = model.last_model_request_parameters
         assert parameters is not None
@@ -495,7 +489,7 @@ async def test_a_scheduled_turn_allowed_destructive_tools_runs_them_unasked():
         principal=_PRINCIPAL,
         history=[],
         pending_approval=None,
-        chat_context=_scheduled(policy=RunDestructiveTools()),
+        chat_context=_scheduled(allow_destructive=True),
     )
 
     assert not isinstance(result.output, PendingApproval)

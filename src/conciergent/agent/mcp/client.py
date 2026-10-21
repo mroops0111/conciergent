@@ -17,7 +17,7 @@ from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset
 
 from conciergent.agent.mcp.storage import OAuthTokenStorage
-from conciergent.agent.mcp.tool_policy import ApprovalPredicate, ConfirmDestructiveTools, DestructiveToolPolicy
+from conciergent.agent.mcp.tool_policy import ApprovalPredicate, ConfirmDestructiveToolPolicy, DestructiveToolPolicy
 from conciergent.defaults import DEFAULTS
 from conciergent.runtime import OAuthBridge
 from conciergent.store.credential import CredentialStore
@@ -47,7 +47,7 @@ async def build_toolset(
     oauth_bridge: OAuthBridge | None = None,
     redirect_uri: str | None = None,
     approval_predicate: ApprovalPredicate = needs_approval,
-    destructive_tools: DestructiveToolPolicy = ConfirmDestructiveTools(),
+    destructive_tool_policy: DestructiveToolPolicy = ConfirmDestructiveToolPolicy(),
     client_name: str = DEFAULTS.agent.client_name,
     read_timeout_seconds: float = DEFAULTS.agent.mcp_read_timeout_seconds,
 ) -> AbstractToolset[typing.Any]:
@@ -55,7 +55,7 @@ async def build_toolset(
 
     OAuth is attached only for a URL client with both a ``bridge`` and a ``redirect_uri``,
     otherwise the server is reached unauthenticated.
-    Every tool ``approval_predicate`` marks destructive is treated as ``destructive_tools`` says,
+    Every tool ``approval_predicate`` marks destructive is treated as ``destructive_tool_policy`` says,
     by default gated for approval before it runs.
     """
     if (oauth_bridge is None) != (redirect_uri is None):
@@ -80,7 +80,7 @@ async def build_toolset(
             toolset = MCPToolset(server, read_timeout=read_timeout_seconds)
     else:
         toolset = MCPToolset(server)
-    return destructive_tools.apply(toolset, approval_predicate)
+    return destructive_tool_policy.apply(toolset, approval_predicate)
 
 
 async def _oauth_provider(

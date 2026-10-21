@@ -7,10 +7,10 @@ from pydantic_ai.tools import DeferredToolRequests
 
 from conciergent.agent.mcp.client import needs_approval
 from conciergent.agent.mcp.tool_policy import (
-    ConfirmDestructiveTools,
+    ConfirmDestructiveToolPolicy,
     DestructiveToolPolicy,
-    HideDestructiveTools,
-    RunDestructiveTools,
+    HideDestructiveToolPolicy,
+    RunDestructiveToolPolicy,
 )
 from tests.conftest import destructive_server
 
@@ -29,9 +29,9 @@ async def _run(policy: DestructiveToolPolicy, server: MCPServer) -> tuple[object
 @pytest.mark.parametrize(
     ('policy', 'offered', 'deferred', 'ran'),
     [
-        (ConfirmDestructiveTools(), True, True, False),
-        (HideDestructiveTools(), False, False, False),
-        (RunDestructiveTools(), True, False, True),
+        (ConfirmDestructiveToolPolicy(), True, True, False),
+        (HideDestructiveToolPolicy(), False, False, False),
+        (RunDestructiveToolPolicy(), True, False, True),
     ],
 )
 async def test_each_policy_treats_a_destructive_tool_its_own_way(

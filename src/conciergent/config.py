@@ -66,7 +66,7 @@ class GroupChatSettings(pydantic.BaseModel):
         return GroupChatPolicy(enabled=self.enabled, reply_trigger=self.reply_trigger)
 
 
-class SurfaceKindSettings(pydantic.BaseModel, abc.ABC):
+class ChatSurfaceSettings(pydantic.BaseModel, abc.ABC):
     """What every chat platform's settings share, with the ``Surface`` class they build.
 
     A new platform subclasses this with its own credentials, so the checks that span platforms need no change.
@@ -90,7 +90,7 @@ class SurfaceKindSettings(pydantic.BaseModel, abc.ABC):
         return self.enabled and self.group_chats.policy().enabled
 
 
-class SlackSettings(SurfaceKindSettings):
+class SlackSettings(ChatSurfaceSettings):
     """Slack app credentials, created once in the Slack app dashboard.
 
     UI text is not configured here, it lives in the locale catalog so it can be translated (see ``locales_dir``).
@@ -124,7 +124,7 @@ class SlackSettings(SurfaceKindSettings):
         )
 
 
-class LineSettings(SurfaceKindSettings):
+class LineSettings(ChatSurfaceSettings):
     """LINE Messaging API channel credentials, created once in the LINE developers console."""
 
     surface_class = Line
@@ -150,7 +150,7 @@ class LineSettings(SurfaceKindSettings):
         )
 
 
-class DiscordSettings(SurfaceKindSettings):
+class DiscordSettings(ChatSurfaceSettings):
     """Discord app credentials, created once in the Discord developer portal.
 
     The bot connects over the gateway and replies in direct messages, so a single bot token is all it needs.
@@ -184,17 +184,17 @@ class SurfaceSettings(pydantic.BaseModel):
     line: LineSettings
     discord: DiscordSettings
 
-    def kinds(self) -> list[SurfaceKindSettings]:
+    def all_settings(self) -> list[ChatSurfaceSettings]:
         return [self.settings_for(surface) for surface in ChatSurface]
 
-    def settings_for(self, surface: ChatSurface) -> SurfaceKindSettings:
+    def settings_for(self, surface: ChatSurface) -> ChatSurfaceSettings:
         return getattr(self, surface.value)
 
     def enabled_surfaces(self) -> list[Surface]:
-        return [settings.build() for settings in self.kinds() if settings.enabled]
+        return [settings.build() for settings in self.all_settings() if settings.enabled]
 
     def group_chats_enabled(self) -> bool:
-        return any(settings.group_chats_enabled for settings in self.kinds())
+        return any(settings.group_chats_enabled for settings in self.all_settings())
 
 
 class StoreSettings(pydantic.BaseModel):

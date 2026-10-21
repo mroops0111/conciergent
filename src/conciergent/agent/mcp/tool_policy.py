@@ -24,7 +24,7 @@ class DestructiveToolPolicy(abc.ABC):
         """Wrap ``toolset`` so its destructive tools behave as this policy says."""
 
 
-class ConfirmDestructiveTools(DestructiveToolPolicy):
+class ConfirmDestructiveToolPolicy(DestructiveToolPolicy):
     """Pause before a destructive tool runs, until someone in the chat confirms it."""
 
     @typing.override
@@ -34,7 +34,7 @@ class ConfirmDestructiveTools(DestructiveToolPolicy):
         return toolset.approval_required(is_destructive)
 
 
-class HideDestructiveTools(DestructiveToolPolicy):
+class HideDestructiveToolPolicy(DestructiveToolPolicy):
     """Leave destructive tools out of the turn, for a chat where nobody could confirm one."""
 
     @typing.override
@@ -45,7 +45,7 @@ class HideDestructiveTools(DestructiveToolPolicy):
         return toolset.filtered(lambda ctx, tool_def: not is_destructive(ctx, tool_def, {}))
 
 
-class RunDestructiveTools(DestructiveToolPolicy):
+class RunDestructiveToolPolicy(DestructiveToolPolicy):
     """Run destructive tools without asking, which an operator must opt into knowingly."""
 
     @typing.override

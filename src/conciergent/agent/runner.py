@@ -123,7 +123,7 @@ class ChatRunner:
         self._probe_retry_seconds = mcp_probe_retry_seconds
         # Set once the probes reach a verdict.
         # An unreachable server leaves it unset until the retry time passes.
-        self._credential_free_verdict: bool | None = None
+        self._user_credentials_check_result: bool | None = None
         self._user_credentials_check_retry_at = 0.0
         # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
         self._user_credentials_check_lock = asyncio.Lock()
@@ -205,8 +205,8 @@ class ChatRunner:
         An unreachable server pauses them until the retry interval passes.
         """
         async with self._user_credentials_check_lock:
-            if self._credential_free_verdict is not None:
-                return self._credential_free_verdict
+            if self._user_credentials_check_result is not None:
+                return self._user_credentials_check_result
             if time.monotonic() < self._user_credentials_check_retry_at:
                 return False
             needs_user = await asyncio.gather(*(self._needs_user_authorization(s) for s in self._oauth_servers))
@@ -219,7 +219,7 @@ class ChatRunner:
                     'Group chats and schedules without a principal are disabled, these MCP servers need a per-user authorization: %s',
                     ', '.join(per_user),
                 )
-                self._credential_free_verdict = False
+                self._user_credentials_check_result = False
             elif undecided:
                 logger.warning(
                     'Group chats and schedules without a principal are paused until these MCP servers can be checked: %s',
@@ -228,8 +228,8 @@ class ChatRunner:
                 self._user_credentials_check_retry_at = time.monotonic() + self._probe_retry_seconds
                 return False
             else:
-                self._credential_free_verdict = True
-            return self._credential_free_verdict
+                self._user_credentials_check_result = True
+            return self._user_credentials_check_result
 
     async def _needs_user_authorization(self, server: str) -> bool | None:
         # Without OAuth configured _oauth_servers is empty, so no server is ever reached with a user's token.
@@ -293,7 +293,7 @@ class ChatRunner:
                 oauth_bridge=bridge if user_credentials else None,
                 redirect_uri=self._redirect_uri if user_credentials else None,
                 approval_predicate=self._approval_predicate,
-                destructive_tools=chat_context.destructive_tools,
+                destructive_tool_policy=chat_context.destructive_tool_policy,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
             )

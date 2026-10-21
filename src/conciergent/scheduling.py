@@ -5,7 +5,6 @@ import logging
 import typing
 
 from conciergent.agent.compactor import HistorySummarizer
-from conciergent.agent.mcp.tool_policy import HideDestructiveTools, RunDestructiveTools
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ScheduledChatContext
 from conciergent.config import ScheduleSettings
@@ -13,7 +12,7 @@ from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
 from conciergent.reply import Card, ReplySurface
-from conciergent.runtime import HeadlessOAuthBridge
+from conciergent.runtime import UnattendedOAuthBridge
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface
 from conciergent.turn import run_turn
@@ -78,14 +77,7 @@ class ScheduleExecutor:
     async def _run_turn(
         self, schedule: ScheduleSettings, fired_at: datetime.datetime, conversation: str, surface: ReplySurface
     ) -> None:
-        chat_context = ScheduledChatContext(
-            conversation=conversation,
-            schedule=schedule.name,
-            fired_at=fired_at,
-            has_principal=schedule.principal is not None,
-            skip_allowed=schedule.allow_skip,
-            destructive_tool_policy=RunDestructiveTools() if schedule.allow_destructive else HideDestructiveTools(),
-        )
+        chat_context = ScheduledChatContext(conversation=conversation, schedule=schedule, fired_at=fired_at)
         await run_turn(
             schedule.prompt,
             # Without a principal the turn reaches no one's credentials, so this only labels it.
@@ -94,7 +86,7 @@ class ScheduleExecutor:
             runner=self._runner,
             surface=surface,
             message_store=self._message_store,
-            bridge=HeadlessOAuthBridge() if schedule.principal is not None else None,
+            bridge=UnattendedOAuthBridge() if schedule.principal is not None else None,
             compactor=self._compactor,
             history_ttl_seconds=self._history_ttl_seconds,
         )

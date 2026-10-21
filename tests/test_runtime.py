@@ -12,13 +12,14 @@ from conciergent import (
 )
 from conciergent.chat_context import (
     ChatContext,
-    ChatUnavailableError,
     DirectChatContext,
     GroupChatContext,
     ScheduledChatContext,
+    TurnDeclinedError,
 )
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
+from tests.scheduling.conftest import schedule
 
 
 _PRINCIPAL = 'slack:T:U'
@@ -188,11 +189,11 @@ async def test_a_scheduled_turn_that_cannot_run_raises_instead_of_dropping_quiet
     surface = RecordingSurface()
     fired_at = datetime.datetime(2026, 10, 21, 21, tzinfo=datetime.UTC)
 
-    with pytest.raises(ChatUnavailableError):
+    with pytest.raises(TurnDeclinedError):
         await run_turn(
             'remind',
             principal='schedule:reminder',
-            chat_context=ScheduledChatContext('line:group:C1', schedule='reminder', fired_at=fired_at),
+            chat_context=ScheduledChatContext('line:group:C1', schedule=schedule(), fired_at=fired_at),
             runner=runner.as_runner(),
             surface=surface,
             message_store=message_store,

@@ -118,7 +118,7 @@ class AuthorizationProbe(OAuthBridge):
         return result
 
 
-class HeadlessOAuthBridge(OAuthBridge):
+class UnattendedOAuthBridge(OAuthBridge):
     """Fail an authorization at once, for an unattended turn that may only use credentials already stored."""
 
     @typing.override
