@@ -5,6 +5,7 @@ import logging
 import typing
 
 from conciergent.agent.compactor import HistorySummarizer
+from conciergent.agent.mcp.tool_policy import HideDestructiveToolPolicy, RunDestructiveToolPolicy
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ScheduledChatContext
 from conciergent.config import ScheduleSettings
@@ -77,7 +78,17 @@ class ScheduleExecutor:
     async def _run_turn(
         self, schedule: ScheduleSettings, fired_at: datetime.datetime, conversation: str, surface: ReplySurface
     ) -> None:
-        chat_context = ScheduledChatContext(conversation=conversation, schedule=schedule, fired_at=fired_at)
+        # This is where the config meets the domain, so the context never sees the config's shape.
+        chat_context = ScheduledChatContext(
+            conversation=conversation,
+            schedule_name=schedule.name,
+            fired_at=fired_at,
+            principal=schedule.principal,
+            allows_skip=schedule.allow_skip,
+            destructive_tool_policy=RunDestructiveToolPolicy()
+            if schedule.allow_destructive
+            else HideDestructiveToolPolicy(),
+        )
         await run_turn(
             schedule.prompt,
             # Without a principal the turn reaches no one's credentials, so this only labels it.

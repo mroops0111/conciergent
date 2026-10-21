@@ -19,7 +19,6 @@ from conciergent.chat_context import (
 )
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
-from tests.scheduling.conftest import schedule
 
 
 _PRINCIPAL = 'slack:T:U'
@@ -193,7 +192,7 @@ async def test_a_scheduled_turn_that_cannot_run_raises_instead_of_dropping_quiet
         await run_turn(
             'remind',
             principal='schedule:reminder',
-            chat_context=ScheduledChatContext('line:group:C1', schedule=schedule(), fired_at=fired_at),
+            chat_context=ScheduledChatContext('line:group:C1', schedule_name='reminder', fired_at=fired_at),
             runner=runner.as_runner(),
             surface=surface,
             message_store=message_store,

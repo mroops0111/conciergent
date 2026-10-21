@@ -32,7 +32,7 @@ async def test_a_firing_pushes_the_reply_and_joins_the_chat_history(message_stor
     call = runner.calls[0]
     chat_context = call['chat_context']
     assert isinstance(chat_context, ScheduledChatContext)
-    assert chat_context.schedule.name == 'daily-digest' and chat_context.fired_at == FIRED_AT
+    assert chat_context.schedule_name == 'daily-digest' and chat_context.fired_at == FIRED_AT
     assert not chat_context.uses_user_credentials
     assert isinstance(chat_context.destructive_tool_policy, HideDestructiveToolPolicy)
     assert call['bridge'] is None
@@ -57,6 +57,7 @@ async def test_a_skipped_reply_sends_nothing_and_records_nothing(message_store: 
     outcome = await executor(message_store, runner=runner, surface=surface).fire(schedule(allow_skip=True), FIRED_AT)
 
     assert outcome is FiringOutcome.skipped
+    assert runner.calls[0]['chat_context'].allows_skip
     assert surface.texts() == []
     assert await message_store.load_history('line:group:C1') == []
 
