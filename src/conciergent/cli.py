@@ -4,7 +4,7 @@ import pathlib
 import click
 
 from conciergent.app import App
-from conciergent.scheduling import FiringOutcome
+from conciergent.scheduling import FiringOutcome, UnknownScheduleError
 
 
 def _template(name: str) -> str:
@@ -34,8 +34,12 @@ def fire(schedule_name: str, config_path: str) -> None:
     Exits 2 for a bad config or schedule name.
     """
     try:
-        outcome = App.from_config(config_path).fire(schedule_name)
+        app = App.from_config(config_path)
     except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    try:
+        outcome = app.fire(schedule_name)
+    except UnknownScheduleError as error:
         raise click.UsageError(str(error)) from error
     if outcome is FiringOutcome.failed:
         raise SystemExit(1)

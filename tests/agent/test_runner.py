@@ -14,7 +14,6 @@ from pydantic_ai.models.test import TestModel
 from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
-from conciergent.agent.mcp.tool_policy import RunDestructiveToolPolicy
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.chat_context import DirectChatContext, GroupChatContext, ScheduledChatContext
 from conciergent.i18n.lang import Lang
@@ -460,7 +459,7 @@ async def test_a_scheduled_turn_states_its_schedule_time_and_weekday():
     )
 
     first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
-    prompt = '[Scheduled: reminder, 2026-10-26T09:00:00+08:00 Asia/Taipei, Monday] remind'
+    prompt = '[Scheduled: reminder, 2026-10-26T09:00+08:00 Asia/Taipei, Monday] remind'
     assert any(getattr(part, 'content', None) == prompt for part in first_request.parts)
 
 
@@ -489,7 +488,7 @@ async def test_a_scheduled_turn_allowed_destructive_tools_runs_them_unasked():
         principal=_PRINCIPAL,
         history=[],
         pending_approval=None,
-        chat_context=_scheduled(destructive_tool_policy=RunDestructiveToolPolicy()),
+        chat_context=_scheduled(runs_destructive_tools=True),
     )
 
     assert not isinstance(result.output, PendingApproval)

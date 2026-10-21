@@ -380,15 +380,19 @@ class AppConfig(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode='after')
-    def _group_chats_need_shared_identity_specs(self) -> typing.Self:
-        # A group turn holds no one's authorization, so a per-user spec could never run there.
+    def _unattributed_turns_need_shared_identity_specs(self) -> typing.Self:
+        # Group chats and schedules without a principal hold no one's authorization, so no per-user spec runs there.
         # Gateway specs are known up front and fail here, other MCP servers are probed when the app starts.
-        if not (self.gateway.enabled and self.surface.group_chats_enabled()):
-            return self
+        unattributed = []
+        if self.surface.group_chats_enabled():
+            unattributed.append('group chats')
+        unprincipaled = [schedule.name for schedule in self.schedules if schedule.principal is None]
+        if unprincipaled:
+            unattributed.append(f'schedules without a principal ({", ".join(unprincipaled)})')
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
-        if per_user:
+        if self.gateway.enabled and unattributed and per_user:
             raise ValueError(
-                'group chats need every tool to work without a per-user authorization, '
+                f'{" and ".join(unattributed)} need every tool to work without a per-user authorization, '
                 f'but these gateway specs use per-user oauth2: {", ".join(per_user)}'
             )
         return self
@@ -410,14 +414,6 @@ class AppConfig(pydantic.BaseModel):
                 settings.surface_class.push_conversation(target.to)
             except ValueError as error:
                 raise ValueError(f'schedule {schedule.name}: {error}') from error
-        # A schedule with no principal holds no one's authorization, the same requirement group chats have.
-        unattended = [schedule.name for schedule in self.schedules if schedule.principal is None]
-        per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
-        if unattended and self.gateway.enabled and per_user:
-            raise ValueError(
-                f'schedules without a principal ({", ".join(unattended)}) need every tool to work without a per-user '
-                f'authorization, but these gateway specs use per-user oauth2: {", ".join(per_user)}'
-            )
         return self
 
 

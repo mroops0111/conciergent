@@ -5,7 +5,6 @@ import logging
 import typing
 
 from conciergent.agent.compactor import HistorySummarizer
-from conciergent.agent.mcp.tool_policy import HideDestructiveToolPolicy, RunDestructiveToolPolicy
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ScheduledChatContext
 from conciergent.config import ScheduleSettings
@@ -20,6 +19,10 @@ from conciergent.turn import run_turn
 
 
 logger = logging.getLogger(__name__)
+
+
+class UnknownScheduleError(LookupError):
+    """No configured schedule has the name a firing asked for."""
 
 
 class FiringOutcome(enum.StrEnum):
@@ -56,6 +59,7 @@ class ScheduleExecutor:
     async def fire(self, schedule: ScheduleSettings, fired_at: datetime.datetime) -> FiringOutcome:
         """Run ``schedule`` as fired at ``fired_at``, pushing the failure message when it fails before replying."""
         surface = self._surfaces[schedule.target.surface]
+        delivery: _DeliveryRecorder | None = None
         try:
             async with surface.push_target(schedule.target.to) as target:
                 delivery = _DeliveryRecorder(target.surface)
@@ -69,11 +73,13 @@ class ScheduleExecutor:
                     if schedule.failure_message:
                         await target.surface.send_text(schedule.failure_message)
                     return FiringOutcome.failed
-                return FiringOutcome.delivered if delivery.delivered else FiringOutcome.skipped
+                outcome = FiringOutcome.delivered if delivery.delivered else FiringOutcome.skipped
         except Exception:
-            # Even the failure message could not be pushed, so the log is all that is left.
+            # The push could not open, the failure message could not go out, or closing the push failed.
             logger.exception('Schedule %s could not push to %s', schedule.name, schedule.target.to)
-            return FiringOutcome.failed
+            # A reply already out still counts, or a retry would push it twice.
+            return FiringOutcome.delivered if delivery is not None and delivery.delivered else FiringOutcome.failed
+        return outcome
 
     async def _run_turn(
         self, schedule: ScheduleSettings, fired_at: datetime.datetime, conversation: str, surface: ReplySurface
@@ -85,9 +91,7 @@ class ScheduleExecutor:
             fired_at=fired_at,
             principal=schedule.principal,
             allows_skip=schedule.allow_skip,
-            destructive_tool_policy=RunDestructiveToolPolicy()
-            if schedule.allow_destructive
-            else HideDestructiveToolPolicy(),
+            runs_destructive_tools=schedule.allow_destructive,
         )
         await run_turn(
             schedule.prompt,

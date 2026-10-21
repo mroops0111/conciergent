@@ -24,7 +24,7 @@ from conciergent.config import (
 )
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.scheduling import FiringOutcome, ScheduleExecutor
+from conciergent.scheduling import FiringOutcome, ScheduleExecutor, UnknownScheduleError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface, Surface, SurfaceContext
@@ -211,13 +211,13 @@ class App:
         schedule = self._schedules.get(name)
         if schedule is None:
             known = ', '.join(self._schedules) or 'none'
-            raise ValueError(f'no schedule named {name!r}, the configured ones are: {known}')
+            raise UnknownScheduleError(f'no schedule named {name!r}, the configured ones are: {known}')
         self._configure_process()
         return asyncio.run(self._fire(schedule))
 
     async def _fire(self, schedule: ScheduleSettings) -> FiringOutcome:
-        await self._message_store.ping()
-        await self._credential_store.prepare()
+        # The stores are not checked up front, so an outage fails inside the turn, where the failure message goes out.
+        # The serving app has already created the credential tables.
         executor = ScheduleExecutor(
             surfaces={surface.name: surface for surface in self._surfaces if isinstance(surface, PushSurface)},
             runner=self._runner,

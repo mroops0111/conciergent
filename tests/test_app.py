@@ -12,7 +12,7 @@ from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
-from conciergent.scheduling import FiringOutcome
+from conciergent.scheduling import FiringOutcome, UnknownScheduleError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
@@ -194,5 +194,5 @@ def test_fire_runs_the_named_schedule_once_and_pushes_the_reply(stores):
 def test_fire_names_the_configured_schedules_when_the_name_is_unknown(stores):
     app = _silent_app(stores, surfaces=[RecordingPushSurface()], schedules=[schedule()])
 
-    with pytest.raises(ValueError, match="no schedule named 'weekly', the configured ones are: daily-digest"):
+    with pytest.raises(UnknownScheduleError, match="no schedule named 'weekly', the configured ones are: daily-digest"):
         app.fire('weekly')

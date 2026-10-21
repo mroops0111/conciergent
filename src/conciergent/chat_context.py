@@ -8,6 +8,7 @@ from conciergent.agent.mcp.tool_policy import (
     ConfirmDestructiveToolPolicy,
     DestructiveToolPolicy,
     HideDestructiveToolPolicy,
+    RunDestructiveToolPolicy,
 )
 from conciergent.reply import ReplySurface
 
@@ -33,6 +34,7 @@ _WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
 # Policies are stateless, so every chat shares one of each.
 _CONFIRM_DESTRUCTIVE_TOOL_POLICY = ConfirmDestructiveToolPolicy()
 _HIDE_DESTRUCTIVE_TOOL_POLICY = HideDestructiveToolPolicy()
+_RUN_DESTRUCTIVE_TOOL_POLICY = RunDestructiveToolPolicy()
 
 
 class TurnDeclinedError(Exception):
@@ -197,9 +199,10 @@ class ScheduledChatContext(ChatContext):
     fired_at: datetime.datetime
     # Whose stored credentials reach the MCP servers, or None to hold no one's authorization.
     principal: str | None = None
-    # These two fields stand in for the base class properties of the same name.
+    # Stands in for the base class property of the same name.
     allows_skip: bool = False
-    destructive_tool_policy: DestructiveToolPolicy = _HIDE_DESTRUCTIVE_TOOL_POLICY
+    # Nobody can confirm a destructive tool, so it is left out unless the schedule opts into running it unasked.
+    runs_destructive_tools: bool = False
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
@@ -213,7 +216,9 @@ class ScheduledChatContext(ChatContext):
 
     @typing.override
     def approval_owner(self, principal: str) -> str | None:
-        return None
+        # The conversation may be a user's direct chat, whose own approval sits under no owner,
+        # so a schedule keys its own and never takes theirs.
+        return f'schedule:{self.schedule_name}'
 
     @typing.override
     def drops_unowned_decision(self, user_input: str) -> bool:
@@ -231,6 +236,11 @@ class ScheduledChatContext(ChatContext):
 
     @property
     @typing.override
+    def destructive_tool_policy(self) -> DestructiveToolPolicy:
+        return _RUN_DESTRUCTIVE_TOOL_POLICY if self.runs_destructive_tools else _HIDE_DESTRUCTIVE_TOOL_POLICY
+
+    @property
+    @typing.override
     def instructions(self) -> str:
         return f'{_SCHEDULED_INSTRUCTIONS} {_SKIP_INSTRUCTIONS}' if self.allows_skip else _SCHEDULED_INSTRUCTIONS
 
@@ -238,5 +248,6 @@ class ScheduledChatContext(ChatContext):
     def prompt(self, user_input: str) -> str:
         # A ZoneInfo prints its IANA name, which says more than an offset or an abbreviation like CST.
         # The weekday is spelled out because models often get it wrong when they work it out from a date.
-        when = f'{self.fired_at.isoformat()} {self.fired_at.tzinfo}, {_WEEKDAYS[self.fired_at.weekday()]}'
+        moment = self.fired_at.isoformat(timespec='minutes')
+        when = f'{moment} {self.fired_at.tzinfo}, {_WEEKDAYS[self.fired_at.weekday()]}'
         return f'[Scheduled: {self.schedule_name}, {when}] {user_input}'

@@ -124,3 +124,52 @@ async def test_an_unreachable_push_target_fails_the_firing(message_store: Messag
     outcome = await executor(message_store, surface=BrokenPush()).fire(schedule(), FIRED_AT)
 
     assert outcome is FiringOutcome.failed
+
+
+async def test_a_failure_closing_the_push_after_the_reply_is_out_still_counts_as_delivered(message_store: MessageStore):
+    class ClosingFails(RecordingPushSurface):
+        @contextlib.asynccontextmanager
+        async def push_target(self, to: str) -> collections.abc.AsyncIterator[PushTarget]:
+            async with super().push_target(to) as target:
+                yield target
+            raise RuntimeError('closing the LINE client failed')
+
+    surface = ClosingFails()
+
+    outcome = await executor(message_store, runner=StubRunner('Fed 6 times today.'), surface=surface).fire(
+        schedule(), FIRED_AT
+    )
+
+    assert outcome is FiringOutcome.delivered
+    assert surface.texts() == ['Fed 6 times today.']
+
+
+async def test_a_store_outage_pushes_the_failure_message(message_store: MessageStore, monkeypatch: pytest.MonkeyPatch):
+    async def unreachable(*args: typing.Any, **kwargs: typing.Any) -> list[typing.Any]:
+        raise ConnectionError('Redis is down')
+
+    monkeypatch.setattr(message_store, 'load_history', unreachable)
+    surface = RecordingPushSurface()
+
+    outcome = await executor(message_store, surface=surface).fire(schedule(failure_message='baby is down'), FIRED_AT)
+
+    assert outcome is FiringOutcome.failed
+    assert surface.texts() == ['baby is down']
+
+
+async def test_a_schedule_never_takes_an_approval_waiting_in_the_users_direct_chat(message_store: MessageStore):
+    # A push to a LINE user joins their direct chat, where their own pending approval is parked under no owner.
+    await message_store.park_approval('line:U1', {'pending': 'delete'}, ttl_seconds=60)
+    runner = StubRunner('Good morning.')
+
+    class DirectChatPush(RecordingPushSurface):
+        @classmethod
+        def push_conversation(cls, to: str) -> str:
+            return f'line:{to}'
+
+    await executor(message_store, runner=runner, surface=DirectChatPush()).fire(
+        schedule(target={'surface': 'line', 'to': 'U1'}), FIRED_AT
+    )
+
+    assert runner.calls[0]['pending_approval'] is None
+    assert await message_store.take_approval('line:U1') == {'pending': 'delete'}

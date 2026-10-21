@@ -5,7 +5,7 @@ import pytest
 
 from conciergent.app import App
 from conciergent.cli import main
-from conciergent.scheduling import FiringOutcome
+from conciergent.scheduling import FiringOutcome, UnknownScheduleError
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ class _FiringApp:
 
     def fire(self, name: str) -> FiringOutcome:
         if name != 'daily-digest':
-            raise ValueError(f'no schedule named {name!r}')
+            raise UnknownScheduleError(f'no schedule named {name!r}')
         self.fired.append(name)
         return self.outcome
 
@@ -80,3 +80,36 @@ def test_fire_rejects_an_unknown_schedule_as_a_usage_error(
 
     assert result.exit_code == 2
     assert "no schedule named 'weekly'" in result.output
+
+
+def test_fire_reports_an_invalid_config_as_a_usage_error(
+    runner: click.testing.CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+):
+    def invalid(path: str) -> App:
+        raise ValueError('schedule names must be unique, repeated: daily-digest')
+
+    monkeypatch.setattr(App, 'from_config', invalid)
+    config = tmp_path / 'manifest.yml'
+    config.write_text('')
+
+    result = runner.invoke(main, ['fire', 'daily-digest', '--config', str(config)])
+
+    assert result.exit_code == 2
+    assert 'schedule names must be unique' in result.output
+
+
+def test_fire_leaves_a_runtime_value_error_as_a_failure_not_a_usage_error(
+    runner: click.testing.CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+):
+    class BrokenApp(_FiringApp):
+        def fire(self, name: str) -> FiringOutcome:
+            raise ValueError('something broke at run time')
+
+    monkeypatch.setattr(App, 'from_config', lambda path: BrokenApp(FiringOutcome.delivered))
+    config = tmp_path / 'manifest.yml'
+    config.write_text('')
+
+    result = runner.invoke(main, ['fire', 'daily-digest', '--config', str(config)])
+
+    assert result.exit_code == 1
+    assert 'Usage' not in result.output

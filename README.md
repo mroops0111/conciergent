@@ -294,7 +294,7 @@ schedules:
 | `timezone` | `UTC` | IANA zone the prompt header gives the firing time in. |
 | `prompt` | *(required)* | What the agent is asked, in the language it should reply in. |
 | `target.surface` · `target.to` | *(required)* | The surface and the user or chat id to push to. |
-| `principal` | *(none)* | Whose stored credentials the tools use, such as `line:U123`. Unset runs with no one's authorization. |
+| `principal` | *(none)* | Whose stored credentials the tools use, such as `line:U123`. Unset runs with no one's authorization. With a target other than that user's own chat, the reply carries their data to whoever is there. |
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
