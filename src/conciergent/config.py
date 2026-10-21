@@ -298,6 +298,8 @@ class ScheduleTarget(pydantic.BaseModel):
     Whether the surface can push, and to which ids, is the surface's own answer, checked with the whole config.
     """
 
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     surface: ChatSurface
     to: typing.Annotated[str, pydantic.Field(min_length=1)]
 
@@ -308,6 +310,9 @@ class ScheduleSettings(pydantic.BaseModel):
     When it fires is up to the caller, such as cron or a Kubernetes CronJob.
     The turn joins the target chat's history, so a follow-up question there has the reply as context.
     """
+
+    # Most keys here switch behavior, so a misspelled one is an error, not a schedule that silently runs otherwise.
+    model_config = pydantic.ConfigDict(extra='forbid')
 
     name: typing.Annotated[str, pydantic.Field(min_length=1)]
     # An IANA zone name the prompt header gives the firing time in, such as Asia/Taipei.

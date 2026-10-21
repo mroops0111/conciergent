@@ -245,6 +245,9 @@ def test_a_schedule_target_resolves_from_the_environment(
         ({'target': {'surface': 'line', 'to': ''}}, 'at least 1 character'),
         ({'target': {'surface': 'line', 'to': 'X1'}}, 'schedule daily-digest: .*starting with U, C, or R'),
         ({'target': {'surface': 'teams', 'to': 'C1'}}, "Input should be 'slack', 'line' or 'discord'"),
+        ({'alow_skip': True}, 'alow_skip\n  Extra inputs are not permitted'),
+        ({'cron': '0 21 * * *'}, 'cron\n  Extra inputs are not permitted'),
+        ({'target': {'surface': 'line', 'to': 'C1', 'too': 'C2'}}, 'too\n  Extra inputs are not permitted'),
     ],
 )
 def test_a_malformed_schedule_is_rejected(overrides: dict[str, typing.Any], message: str):
