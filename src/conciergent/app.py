@@ -1,8 +1,10 @@
 import asyncio
 import collections.abc
 import contextlib
+import datetime
 import pathlib
 import typing
+import zoneinfo
 
 import fastapi
 import fastapi.responses
@@ -12,10 +14,17 @@ import uvicorn
 from conciergent import i18n, logger
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.config import AppConfig, GatewaySettings, LoggerSettings, build_app_config, yaml_layer
+from conciergent.config import (
+    AppConfig,
+    GatewaySettings,
+    LoggerSettings,
+    ScheduleSettings,
+    build_app_config,
+    yaml_layer,
+)
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.scheduling import CronTrigger, ScheduleExecutor, ScheduleTrigger
+from conciergent.scheduling import FiringOutcome, ScheduleExecutor
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface, Surface, SurfaceContext
@@ -39,7 +48,7 @@ class App:
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
-        schedule_triggers: collections.abc.Sequence[ScheduleTrigger] = (),
+        schedules: collections.abc.Sequence[ScheduleSettings] = (),
         gateway_settings: GatewaySettings | None = None,
         logger_settings: LoggerSettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
@@ -54,7 +63,7 @@ class App:
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
-        self._schedule_triggers = list(schedule_triggers)
+        self._schedules = {schedule.name: schedule for schedule in schedules}
         self._gateway_settings = gateway_settings
         self._logger_settings = logger_settings
         self._approval_ttl_seconds = approval_ttl_seconds
@@ -107,7 +116,7 @@ class App:
             credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
-            schedule_triggers=[CronTrigger(config.schedules)] if config.schedules else [],
+            schedules=config.schedules,
             gateway_settings=config.gateway,
             logger_settings=config.logger,
             host=config.server.host,
@@ -138,9 +147,9 @@ class App:
         async def lifespan(_app: fastapi.FastAPI) -> typing.AsyncGenerator[None, None]:
             await self._message_store.ping()
             await self._credential_store.prepare()
-            if self._schedule_triggers or any(surface.group_chat_policy.enabled for surface in self._surfaces):
-                # Check up front so a server that rules out turns without a user's credentials is logged at startup,
-                # not at the first group message or firing.
+            if any(surface.group_chat_policy.enabled for surface in self._surfaces):
+                # Check up front so a server that rules out group chats is logged at startup,
+                # not at the first group message.
                 await self._runner.works_without_user_credentials()
             async with contextlib.AsyncExitStack() as stack:
                 if gateway is not None:
@@ -152,18 +161,6 @@ class App:
                 # A webhook surface's run_connection returns at once.
                 # Every task is cancelled cleanly at shutdown.
                 connections = [asyncio.create_task(surface.run_connection(context)) for surface in self._surfaces]
-                if self._schedule_triggers:
-                    # The gateway's session managers are up by now, so a firing can dial back into its tools.
-                    executor = ScheduleExecutor(
-                        surfaces={
-                            surface.name: surface for surface in self._surfaces if isinstance(surface, PushSurface)
-                        },
-                        runner=self._runner,
-                        message_store=self._message_store,
-                        compactor=self._compactor,
-                        history_ttl_seconds=self._history_ttl_seconds,
-                    )
-                    connections += [asyncio.create_task(trigger.serve(executor)) for trigger in self._schedule_triggers]
                 try:
                     yield
                 finally:
@@ -201,16 +198,44 @@ class App:
 
     def run(self) -> None:
         """Serve the webhook application."""
+        # Configure process-wide logging once, before uvicorn brings up its own loggers.
+        self._configure_process()
+        uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
+
+    def fire(self, name: str) -> FiringOutcome:
+        """Run the schedule called ``name`` once, now, in this process, and say how it ended.
+
+        It serves nothing, so it runs beside a serving app, such as from cron or a Kubernetes CronJob.
+        Tools from the embedded gateway are still dialed at ``server.url``, so that app must be up.
+        """
+        schedule = self._schedules.get(name)
+        if schedule is None:
+            known = ', '.join(self._schedules) or 'none'
+            raise ValueError(f'no schedule named {name!r}, the configured ones are: {known}')
+        self._configure_process()
+        return asyncio.run(self._fire(schedule))
+
+    async def _fire(self, schedule: ScheduleSettings) -> FiringOutcome:
+        await self._message_store.ping()
+        await self._credential_store.prepare()
+        executor = ScheduleExecutor(
+            surfaces={surface.name: surface for surface in self._surfaces if isinstance(surface, PushSurface)},
+            runner=self._runner,
+            message_store=self._message_store,
+            compactor=self._compactor,
+            history_ttl_seconds=self._history_ttl_seconds,
+        )
+        return await executor.fire(schedule, datetime.datetime.now(zoneinfo.ZoneInfo(schedule.timezone)))
+
+    def _configure_process(self) -> None:
         # The process owns its output, which may be JSON logs, so pydantic-ai's first-run banner stays off.
         pydantic_ai.BANNER_ENABLED = False
         if self._logger_settings is not None:
-            # Configure process-wide logging once, before uvicorn brings up its own loggers.
             logger.setup(
                 level=self._logger_settings.level,
                 format=self._logger_settings.format,
                 file=self._logger_settings.file,
             )
-        uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
 
 
 def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:

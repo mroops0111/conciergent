@@ -51,7 +51,6 @@ def schedule(**overrides: typing.Any) -> ScheduleSettings:
     return ScheduleSettings.model_validate(
         {
             'name': 'daily-digest',
-            'cron': '0 21 * * *',
             'timezone': 'Asia/Taipei',
             'prompt': 'Summarize today.',
             'target': {'surface': 'line', 'to': 'C1'},

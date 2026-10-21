@@ -12,10 +12,12 @@ from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
+from conciergent.scheduling import FiringOutcome
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
 from tests.conftest import StubRunner
+from tests.scheduling.conftest import RecordingPushSurface, schedule
 
 
 @pytest.fixture
@@ -179,3 +181,18 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     finally:
         # Restore the shipped catalog so the global override does not leak into other tests.
         i18n.load_overrides([])
+
+
+def test_fire_runs_the_named_schedule_once_and_pushes_the_reply(stores):
+    surface = RecordingPushSurface()
+    app = _silent_app(stores, surfaces=[surface], schedules=[schedule()])
+
+    assert app.fire('daily-digest') is FiringOutcome.delivered
+    assert surface.targets == ['C1'] and surface.texts() == ['ok']
+
+
+def test_fire_names_the_configured_schedules_when_the_name_is_unknown(stores):
+    app = _silent_app(stores, surfaces=[RecordingPushSurface()], schedules=[schedule()])
+
+    with pytest.raises(ValueError, match="no schedule named 'weekly', the configured ones are: daily-digest"):
+        app.fire('weekly')

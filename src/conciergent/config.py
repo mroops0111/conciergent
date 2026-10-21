@@ -5,7 +5,6 @@ import re
 import typing
 import zoneinfo
 
-import croniter
 import pydantic
 import yaml
 
@@ -304,14 +303,14 @@ class ScheduleTarget(pydantic.BaseModel):
 
 
 class ScheduleSettings(pydantic.BaseModel):
-    """A prompt the agent runs on a cron schedule, pushing its reply into a chat nobody spoke in.
+    """A prompt the agent runs on demand from ``conciergent fire``, pushing its reply into a chat nobody spoke in.
 
+    When it fires is up to the caller, such as cron or a Kubernetes CronJob.
     The turn joins the target chat's history, so a follow-up question there has the reply as context.
     """
 
     name: typing.Annotated[str, pydantic.Field(min_length=1)]
-    cron: str
-    # An IANA zone name the cron expression is read in, such as Asia/Taipei.
+    # An IANA zone name the prompt header gives the firing time in, such as Asia/Taipei.
     timezone: str = 'UTC'
     prompt: typing.Annotated[str, pydantic.Field(min_length=1)]
     target: ScheduleTarget
@@ -325,15 +324,6 @@ class ScheduleSettings(pydantic.BaseModel):
     allow_destructive: bool = False
     # Text pushed as-is when the turn fails, such as when an MCP server is down, so a failure is not silent.
     failure_message: str | None = None
-    # How late a firing may still run, such as one due while a rolling deploy restarted every replica.
-    misfire_grace_seconds: typing.Annotated[int, pydantic.Field(ge=0)] = 300
-
-    @pydantic.field_validator('cron')
-    @classmethod
-    def _cron_parses(cls, value: str) -> str:
-        if not croniter.croniter.is_valid(value):
-            raise ValueError(f'not a valid cron expression: {value!r}')
-        return value
 
     @pydantic.field_validator('timezone')
     @classmethod

@@ -210,7 +210,6 @@ def _scheduled_config(*schedules: dict[str, typing.Any], line_enabled: bool = Tr
 def _schedule(**overrides: typing.Any) -> dict[str, typing.Any]:
     return {
         'name': 'daily-digest',
-        'cron': '0 21 * * *',
         'timezone': 'Asia/Taipei',
         'prompt': 'Summarize today.',
         'target': {'surface': 'line', 'to': 'C1'},
@@ -242,12 +241,10 @@ def test_a_schedule_target_resolves_from_the_environment(
 @pytest.mark.parametrize(
     ('overrides', 'message'),
     [
-        ({'cron': 'every day'}, 'not a valid cron expression'),
         ({'timezone': 'Asia/Nowhere'}, 'not a known IANA timezone'),
         ({'target': {'surface': 'line', 'to': ''}}, 'at least 1 character'),
         ({'target': {'surface': 'line', 'to': 'X1'}}, 'schedule daily-digest: .*starting with U, C, or R'),
         ({'target': {'surface': 'teams', 'to': 'C1'}}, "Input should be 'slack', 'line' or 'discord'"),
-        ({'misfire_grace_seconds': -1}, 'greater than or equal to 0'),
     ],
 )
 def test_a_malformed_schedule_is_rejected(overrides: dict[str, typing.Any], message: str):

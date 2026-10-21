@@ -68,10 +68,9 @@ gateway:
   #   - name: petstore
   #     spec: ./petstore.json
 
-# schedules: # prompts the agent runs on a cron schedule, pushing each reply into a chat (LINE only for now)
+# schedules: # prompts `conciergent fire <name>` runs from cron or a CronJob, pushing each reply into a chat (LINE only for now)
 #   - name: daily-digest
-#     cron: "0 21 * * *"
-#     timezone: Asia/Taipei
+#     timezone: Asia/Taipei # the zone the prompt header gives the firing time in
 #     target:
 #       surface: line
 #       to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
@@ -81,7 +80,6 @@ gateway:
 #     # allow_skip: false # let the agent end with skip_reply and send nothing
 #     # allow_destructive: false # unsafe: run destructive tools without a confirmation
 #     # failure_message: null # text pushed as-is when the turn fails
-#     # misfire_grace_seconds: 300 # how late a firing may still run, such as after a restart
 
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision

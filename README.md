@@ -192,7 +192,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
-| `schedules` | `[]` | Prompts the agent runs on a cron schedule, pushing each reply into a chat. See [Scheduled Prompts](#scheduled-prompts). |
+| `schedules` | `[]` | Prompts `conciergent fire` runs, pushing each reply into a chat. See [Scheduled Prompts](#scheduled-prompts). |
 | `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
@@ -269,14 +269,15 @@ Each platform needs a little more setup before the bot can read a group.
 
 ## Scheduled Prompts
 
-The agent can also speak first. A schedule runs a prompt on a cron expression, with no incoming message, and pushes the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
+The agent can also speak first. A schedule is a prompt that `conciergent fire` runs with no incoming message, pushing the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
+
+conciergent has no scheduler of its own. When a schedule fires is up to whatever runs the command, such as cron, a Kubernetes CronJob, or Cloud Scheduler, so timing, retries, and run history come from a tool built for them.
 
 ### Configuration
 
 ```yaml
 schedules:
   - name: vaccine-reminder
-    cron: "0 9 * * *"
     timezone: Asia/Taipei
     target:
       surface: line
@@ -289,16 +290,59 @@ schedules:
 
 | Field | Default | Description |
 |---|---|---|
-| `name` | *(required)* | Unique name, shown to the agent and in logs. |
-| `cron` | *(required)* | Five-field cron expression. |
-| `timezone` | `UTC` | IANA zone the cron expression is read in. |
+| `name` | *(required)* | Unique name, which `conciergent fire` takes and the agent sees. |
+| `timezone` | `UTC` | IANA zone the prompt header gives the firing time in. |
 | `prompt` | *(required)* | What the agent is asked, in the language it should reply in. |
 | `target.surface` · `target.to` | *(required)* | The surface and the user or chat id to push to. |
 | `principal` | *(none)* | Whose stored credentials the tools use, such as `line:U123`. Unset runs with no one's authorization. |
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
-| `misfire_grace_seconds` | `300` | How late a firing may still run, such as one due while every replica restarted. |
+
+### Running
+
+```bash
+conciergent fire vaccine-reminder --config manifest.yml
+```
+
+The command runs the schedule once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.url`, so the app must be up.
+
+| Exit | Meaning | Retry |
+|---|---|---|
+| `0` | The reply was pushed, or the agent called `skip_reply`. A later step such as saving history may still have failed, which is logged. | No |
+| `1` | The firing failed before any reply was pushed, and `failure_message` was pushed when set. | Safe |
+| `2` | The config or the schedule name is invalid. | No |
+
+With cron on the host, where `CRON_TZ` sets the zone the times are read in:
+
+```cron
+CRON_TZ=Asia/Taipei
+0 9 * * * cd /srv/app && docker compose exec -T app conciergent fire vaccine-reminder --config /home/app/manifest.yml
+```
+
+With a Kubernetes CronJob, running the app image with the same env and config as the app:
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vaccine-reminder
+spec:
+  schedule: "0 9 * * *"
+  timeZone: Asia/Taipei
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2 # exit 1 is the only failure, and safe to retry
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: fire
+              image: ghcr.io/mroops0111/conciergent:<version>
+              args: ["fire", "vaccine-reminder", "--config", "/home/app/manifest.yml"]
+              # Mount manifest.yml and set the env exactly as for the app's own Deployment.
+```
 
 ### Behavior
 
@@ -307,7 +351,6 @@ schedules:
 - **Authorization**: without a `principal` the turn needs every tool to work without a user's token, the same [requirement](#requirement) as group chats. With one, the turn uses that user's stored tokens and fails, rather than waiting, when they need a new sign-in.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
-- **Timing**: a firing missed by a restart still runs if the app is back within `misfire_grace_seconds`, and an older one is skipped rather than caught up. Every replica keeps the schedule, and a Redis lock per firing lets exactly one of them run it.
 - **Push Quota**: every scheduled reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
 ## The Reply Model
@@ -350,20 +393,6 @@ class PushSurface(Surface):
     @abc.abstractmethod
     def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
         """Open a push to `to`, yielding the reply surface that sends it."""
-```
-
-</details>
-
-<details>
-<summary><b>Add a Schedule Trigger</b></summary>
-
-A `ScheduleTrigger` decides when schedules fire and hands each firing to the `ScheduleExecutor`, which runs the turn, pushes the reply, and takes the per-firing lock. The shipped `CronTrigger` runs in the app process. Another source of firings, such as an external scheduler calling in, is another trigger passed to `App(schedule_triggers=[...])`.
-
-```python
-class ScheduleTrigger(abc.ABC):
-    @abc.abstractmethod
-    async def serve(self, executor: ScheduleExecutor) -> None:
-        """Hand firings to executor.fire(schedule, fired_at) until the app stops."""
 ```
 
 </details>
