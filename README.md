@@ -310,7 +310,7 @@ The command runs the schedule once and exits, serving nothing, so it can run bes
 | Exit | Meaning | Retry |
 |---|---|---|
 | `0` | The reply was pushed, or the agent called `skip_reply`. A later step such as saving history may still have failed, which is logged. | No |
-| `1` | The firing failed before any reply was pushed, and `failure_message` was pushed when set. | Safe |
+| `1` | The firing failed before any reply was pushed, and `failure_message` was pushed when set. | Safe, though a retry that fails again pushes `failure_message` again |
 | `2` | The config or the schedule name is invalid. | No |
 
 With cron on the host, where `CRON_TZ` sets the zone the times are read in:

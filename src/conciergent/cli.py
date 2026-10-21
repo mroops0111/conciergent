@@ -30,7 +30,7 @@ def fire(schedule_name: str, config_path: str) -> None:
     """Run one schedule now and push its reply, for cron or a Kubernetes CronJob to call.
 
     Exits 0 once the reply is out or the agent chose to skip.
-    Exits 1 when the firing failed before anything was pushed, the only case a retry cannot repeat a reply.
+    Exits 1 when the firing failed before any reply was pushed, the only case a retry cannot repeat a reply.
     Exits 2 for a bad config or schedule name.
     """
     try:
