@@ -22,7 +22,7 @@ from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Carousel, Reply, ReplySurface, Section, Suggestion
-from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, TurnResult
+from conciergent.runtime import AuthorizationProbe, OAuthBridge, PendingApproval, SkippedReply, TurnResult
 from conciergent.store.credential import CredentialStore
 
 
@@ -117,21 +117,27 @@ class ChatRunner:
         self._client_name = client_name
         self._mcp_read_timeout_seconds = mcp_read_timeout_seconds
         # Whether a server URL needs a per-user authorization, when the config already says so, as for a gateway spec.
-        # Any other URL is probed, see supports_group_chats.
+        # Any other URL is probed, see works_without_user_credentials.
         self._known_user_authorization = dict(known_user_authorization or {})
         self._probe_timeout_seconds = mcp_probe_timeout_seconds
         self._probe_retry_seconds = mcp_probe_retry_seconds
         # Set once the probes reach a verdict.
         # An unreachable server leaves it unset until the retry time passes.
-        self._group_chats_supported: bool | None = None
-        self._group_chats_retry_at = 0.0
+        self._user_credentials_check_result: bool | None = None
+        self._user_credentials_check_retry_at = 0.0
         # One check at a time, so messages arriving together wait for the same probes instead of starting their own.
-        self._group_chats_lock = asyncio.Lock()
+        self._user_credentials_check_lock = asyncio.Lock()
         output_type: OutputSpec[Reply | DeferredToolRequests] = [
             str,
             ToolOutput(Card, name='reply_card'),
             ToolOutput(Carousel, name='reply_carousel'),
             DeferredToolRequests,
+        ]
+        # Each run passes its own spec, so only a turn that may end silently, such as a push, gets skip_reply.
+        self._reply_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = output_type
+        self._skippable_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = [
+            *output_type,
+            ToolOutput(SkippedReply, name='skip_reply'),
         ]
         self._agent: Agent[_AgentDeps, Reply | DeferredToolRequests] = Agent(
             model,
@@ -190,18 +196,18 @@ class ChatRunner:
         for server in self._oauth_servers:
             await OAuthTokenStorage(credential_store, server=server, principal=principal).delete_tokens()
 
-    async def supports_group_chats(self) -> bool:
-        """Report whether group chats may be served, which needs every MCP server to work without a user's token.
+    async def works_without_user_credentials(self) -> bool:
+        """Report whether a turn holding no one's authorization can run, which needs every MCP server to allow it.
 
-        A group is shared by several people, so it never runs a per-user authorization.
-        Any server that needs one rules group chats out for the whole app, rather than leaving some tools half-working.
+        Group chats and pushes run such turns, since no single user owns them.
+        A server that needs a user's token rules them out app-wide, rather than leaving some tools half-working.
         The verdict is cached once reached.
-        An unreachable server pauses group chats until the retry interval passes.
+        An unreachable server pauses them until the retry interval passes.
         """
-        async with self._group_chats_lock:
-            if self._group_chats_supported is not None:
-                return self._group_chats_supported
-            if time.monotonic() < self._group_chats_retry_at:
+        async with self._user_credentials_check_lock:
+            if self._user_credentials_check_result is not None:
+                return self._user_credentials_check_result
+            if time.monotonic() < self._user_credentials_check_retry_at:
                 return False
             needs_user = await asyncio.gather(*(self._needs_user_authorization(s) for s in self._oauth_servers))
             per_user = [server for server, verdict in zip(self._oauth_servers, needs_user, strict=True) if verdict]
@@ -210,19 +216,20 @@ class ChatRunner:
             ]
             if per_user:
                 logger.error(
-                    'Group chats are disabled because these MCP servers need a per-user authorization: %s',
+                    'Group chats and pushes are disabled, these MCP servers need a per-user authorization: %s',
                     ', '.join(per_user),
                 )
-                self._group_chats_supported = False
+                self._user_credentials_check_result = False
             elif undecided:
                 logger.warning(
-                    'Group chats are paused until these MCP servers can be checked: %s', ', '.join(undecided)
+                    'Group chats and pushes are paused until these MCP servers can be checked: %s',
+                    ', '.join(undecided),
                 )
-                self._group_chats_retry_at = time.monotonic() + self._probe_retry_seconds
+                self._user_credentials_check_retry_at = time.monotonic() + self._probe_retry_seconds
                 return False
             else:
-                self._group_chats_supported = True
-            return self._group_chats_supported
+                self._user_credentials_check_result = True
+            return self._user_credentials_check_result
 
     async def _needs_user_authorization(self, server: str) -> bool | None:
         # Without OAuth configured _oauth_servers is empty, so no server is ever reached with a user's token.
@@ -286,6 +293,7 @@ class ChatRunner:
                 oauth_bridge=bridge if user_credentials else None,
                 redirect_uri=self._redirect_uri if user_credentials else None,
                 approval_predicate=self._approval_predicate,
+                destructive_tool_policy=chat_context.destructive_tool_policy,
                 client_name=self._client_name,
                 read_timeout_seconds=self._mcp_read_timeout_seconds,
             )
@@ -311,8 +319,10 @@ class ChatRunner:
                 deferred_tool_results=None,
                 held_messages=[],
             )
+        run_output_type = self._skippable_output_type if chat_context.allows_skip else self._reply_output_type
         result = await self._agent.run(
             run_inputs.prompt,
+            output_type=run_output_type,
             message_history=run_inputs.message_history,
             deferred_tool_results=run_inputs.deferred_tool_results,
             toolsets=toolsets,

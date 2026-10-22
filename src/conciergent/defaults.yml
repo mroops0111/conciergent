@@ -79,6 +79,9 @@ conversation:
   history_ttl_seconds: 604800
   oauth_wait_timeout_seconds: 240
 
+# Prompts `conciergent push <name>` runs, sending each reply into a chat.
+pushes: []
+
 logger:
   level: INFO
   format: text

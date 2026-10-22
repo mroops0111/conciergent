@@ -197,3 +197,91 @@ def test_gateway_spec_exposure_shorthand_and_server_config():
         'operations': {'listPets': {'name': 'list_pets'}},
         'instructions': 'Pets.',
     }
+
+
+def _pushes_config(*pushes: dict[str, typing.Any], line_enabled: bool = True) -> dict[str, typing.Any]:
+    return {
+        **_MINIMAL_CONFIG,
+        'surface': {'line': {'enabled': line_enabled, 'channel_secret': 's', 'channel_access_token': 't'}},
+        'pushes': list(pushes),
+    }
+
+
+def _push(**overrides: typing.Any) -> dict[str, typing.Any]:
+    return {
+        'name': 'daily-digest',
+        'timezone': 'Asia/Taipei',
+        'prompt': 'Summarize today.',
+        'target': {'surface': 'line', 'to': 'C1'},
+        **overrides,
+    }
+
+
+def test_pushes_parse_with_safe_defaults():
+    (push,) = build_app_config(_pushes_config(_push())).pushes
+
+    assert (push.allow_skip, push.allow_destructive) == (False, False)
+    assert push.failure_message is None
+
+
+def test_pushes_default_to_none_and_accept_a_bare_key():
+    assert build_app_config(_MINIMAL_CONFIG).pushes == []
+    assert build_app_config({**_MINIMAL_CONFIG, 'pushes': None}).pushes == []
+
+
+def test_a_push_target_resolves_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, write_config: collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]
+):
+    monkeypatch.setenv('LINE_NOTIFY_TARGET', 'C42')
+    path = write_config(_pushes_config(_push(target={'surface': 'line', 'to': '${LINE_NOTIFY_TARGET}'})))
+
+    assert build_app_config(yaml_layer(path)).pushes[0].target.to == 'C42'
+
+
+@pytest.mark.parametrize(
+    ('overrides', 'message'),
+    [
+        ({'timezone': 'Asia/Nowhere'}, 'not a known IANA timezone'),
+        ({'target': {'surface': 'line', 'to': ''}}, 'at least 1 character'),
+        ({'target': {'surface': 'line', 'to': 'X1'}}, 'push daily-digest: .*starting with U, C, or R'),
+        ({'target': {'surface': 'teams', 'to': 'C1'}}, "Input should be 'slack', 'line' or 'discord'"),
+        ({'alow_skip': True}, 'alow_skip\n  Extra inputs are not permitted'),
+        ({'cron': '0 21 * * *'}, 'cron\n  Extra inputs are not permitted'),
+        ({'target': {'surface': 'line', 'to': 'C1', 'too': 'C2'}}, 'too\n  Extra inputs are not permitted'),
+    ],
+)
+def test_a_malformed_push_is_rejected(overrides: dict[str, typing.Any], message: str):
+    with pytest.raises(ValueError, match=message):
+        build_app_config(_pushes_config(_push(**overrides)))
+
+
+def test_push_names_must_be_unique():
+    with pytest.raises(ValueError, match='repeated: daily-digest'):
+        build_app_config(_pushes_config(_push(), _push()))
+
+
+def test_a_push_needs_its_target_surface_enabled():
+    with pytest.raises(ValueError, match='targets line, which is not enabled'):
+        build_app_config(_pushes_config(_push(), line_enabled=False))
+
+
+def test_a_push_rejects_a_per_user_spec():
+    config = _group_chats_config({'type': 'oauth2'})
+    config['surface']['line']['group_chats']['enabled'] = False
+    config['pushes'] = [_push()]
+
+    with pytest.raises(ValueError, match=r'pushes \(daily-digest\).*per-user oauth2: api'):
+        build_app_config(config)
+
+
+def test_a_push_rejects_a_principal():
+    with pytest.raises(ValueError, match='principal\n  Extra inputs are not permitted'):
+        build_app_config(_pushes_config(_push(principal='line:U1')))
+
+
+def test_a_push_needs_a_surface_that_can_push():
+    config = _pushes_config(_push(target={'surface': 'slack', 'to': 'C1'}))
+    config['surface']['slack'] = {'enabled': True, 'signing_secret': 's'}
+
+    with pytest.raises(ValueError, match='targets slack, which cannot push messages yet'):
+        build_app_config(config)

@@ -93,7 +93,7 @@ async def test_group_chats_are_ignored_while_disabled(discord_app: BuildHarness)
 async def test_group_chats_are_ignored_when_a_server_needs_per_user_authorization(
     group_harness: DiscordHarness,
 ) -> None:
-    group_harness.agent.group_chats_supported = False
+    group_harness.agent.credential_free = False
 
     await group_harness.send(_guild_message(f'<@{BOT}> hi', message_id='M6'))
 
@@ -103,7 +103,7 @@ async def test_group_chats_are_ignored_when_a_server_needs_per_user_authorizatio
 async def test_a_click_while_group_chats_cannot_be_served_is_acknowledged_silently(
     group_harness: DiscordHarness,
 ) -> None:
-    group_harness.agent.group_chats_supported = False
+    group_harness.agent.credential_free = False
 
     await group_harness.click(_guild_click('More', interaction_id='I3'))
 

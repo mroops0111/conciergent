@@ -1,8 +1,16 @@
 import abc
 import dataclasses
+import datetime
 import typing
 
 from conciergent import i18n
+from conciergent.agent.mcp.tool_policy import (
+    ConfirmDestructiveToolPolicy,
+    DestructiveToolPolicy,
+    HideDestructiveToolPolicy,
+    RunDestructiveToolPolicy,
+)
+from conciergent.reply import ReplySurface
 
 
 if typing.TYPE_CHECKING:
@@ -15,14 +23,32 @@ _GROUP_CHAT_INSTRUCTIONS = (
     'Answer the latest speaker, and tell people apart by those names. '
     'Never write the bracketed name prefix in your own reply.'
 )
+_UNATTENDED_INSTRUCTIONS = (
+    'This turn was started automatically, not by a person, and its message starts with its name and the time. '
+    'Nobody can answer a question or confirm an action before your reply is sent, so write the finished message the prompt asks for. '
+    'Never write that bracketed prefix in your own reply.'
+)
+_SKIP_INSTRUCTIONS = 'When the prompt finds nothing worth sending, end the turn with skip_reply instead of a reply.'
+# Spelled out here rather than with strftime, whose day names follow the process locale.
+_WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
+# Policies are stateless, so every chat shares one of each.
+_CONFIRM_DESTRUCTIVE_TOOL_POLICY = ConfirmDestructiveToolPolicy()
+_HIDE_DESTRUCTIVE_TOOL_POLICY = HideDestructiveToolPolicy()
+_RUN_DESTRUCTIVE_TOOL_POLICY = RunDestructiveToolPolicy()
+
+
+class TurnDeclinedError(Exception):
+    """A turn nobody is waiting on cannot run, such as when an MCP server is unreachable."""
 
 
 @dataclasses.dataclass(frozen=True)
 class ChatContext(abc.ABC):
     """The chat one turn runs in, a direct chat with one user or a group chat shared by several.
 
-    The two differ in whose history and approvals the turn uses, whose credentials reach the MCP servers,
+    The kinds differ in whose history and approvals the turn uses, whose credentials reach the MCP servers,
     and how the agent reads the message, so each kind answers those questions and the runtime never branches.
+    The abstract members are what every kind must decide.
+    The concrete ones are what an interactive chat does, which a new kind overrides only where it differs.
     """
 
     # The history scope, such as one user's direct chat, one Slack thread, or one group chat.
@@ -58,6 +84,23 @@ class ChatContext(abc.ABC):
     @abc.abstractmethod
     def prompt(self, user_input: str) -> str:
         """The message as the agent reads it."""
+
+    async def decline(self, surface: ReplySurface) -> None:
+        """Settle a turn the app cannot serve right now, see ``can_run``.
+
+        Someone in a chat sent the message, so by default it is dropped quietly, as the platform needs.
+        """
+        await surface.acknowledge_silently()
+
+    @property
+    def allows_skip(self) -> bool:
+        """Whether the turn may end with no reply at all, which only a turn nobody asked for needs."""
+        return False
+
+    @property
+    def destructive_tool_policy(self) -> DestructiveToolPolicy:
+        """How the turn treats a destructive tool, which by default someone in the chat confirms first."""
+        return _CONFIRM_DESTRUCTIVE_TOOL_POLICY
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,7 +152,7 @@ class GroupChatContext(ChatContext):
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
-        return await runner.supports_group_chats()
+        return await runner.works_without_user_credentials()
 
     @typing.override
     def approval_owner(self, principal: str) -> str | None:
@@ -140,3 +183,67 @@ class GroupChatContext(ChatContext):
     @typing.override
     def prompt(self, user_input: str) -> str:
         return f'[{self.speaker}] {user_input}'
+
+
+@dataclasses.dataclass(frozen=True)
+class UnattendedChatContext(ChatContext):
+    """A turn nobody asked for, such as a push, whose reply is sent into a chat's conversation.
+
+    Nobody is present to authorize, confirm, or sign out,
+    so like a group chat the turn holds no one's authorization, and it never asks about a destructive tool.
+    """
+
+    # The push's name and the time it started, which head the prompt so the agent knows what started it and when.
+    push_name: str
+    started_at: datetime.datetime
+    # Stands in for the base class property of the same name.
+    allows_skip: bool = False
+    # Nobody can confirm a destructive tool, so it is left out unless the push opts into running it unasked.
+    runs_destructive_tools: bool = False
+
+    @typing.override
+    async def can_run(self, runner: 'ChatRunner') -> bool:
+        return await runner.works_without_user_credentials()
+
+    @typing.override
+    async def decline(self, surface: ReplySurface) -> None:
+        # Nobody sent a message to drop, so a quiet ending would hide an outage behind silence.
+        raise TurnDeclinedError('an MCP server is unreachable or needs a per-user authorization')
+
+    @typing.override
+    def approval_owner(self, principal: str) -> str | None:
+        # The conversation may be a user's direct chat, whose own approval sits under no owner,
+        # so a push keys its own and never takes theirs.
+        return f'push:{self.push_name}'
+
+    @typing.override
+    def drops_unowned_decision(self, user_input: str) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def uses_user_credentials(self) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def allows_sign_out(self) -> bool:
+        return False
+
+    @property
+    @typing.override
+    def destructive_tool_policy(self) -> DestructiveToolPolicy:
+        return _RUN_DESTRUCTIVE_TOOL_POLICY if self.runs_destructive_tools else _HIDE_DESTRUCTIVE_TOOL_POLICY
+
+    @property
+    @typing.override
+    def instructions(self) -> str:
+        return f'{_UNATTENDED_INSTRUCTIONS} {_SKIP_INSTRUCTIONS}' if self.allows_skip else _UNATTENDED_INSTRUCTIONS
+
+    @typing.override
+    def prompt(self, user_input: str) -> str:
+        # A ZoneInfo prints its IANA name, which says more than an offset or an abbreviation like CST.
+        # The weekday is spelled out because models often get it wrong when they work it out from a date.
+        moment = self.started_at.isoformat(timespec='minutes')
+        when = f'{moment} {self.started_at.tzinfo}, {_WEEKDAYS[self.started_at.weekday()]}'
+        return f'[Automated: {self.push_name}, {when}] {user_input}'

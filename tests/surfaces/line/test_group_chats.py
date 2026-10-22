@@ -76,7 +76,7 @@ async def test_group_chatter_is_dropped_before_any_check_or_lookup(group_harness
 
     assert group_harness.agent.inputs == []
     assert group_harness.lang_lookups == []
-    assert group_harness.agent.group_chat_checks == 0
+    assert group_harness.agent.credential_free_checks == 0
 
 
 async def test_reply_to_all_answers_every_message(line_app: BuildHarness) -> None:
@@ -96,7 +96,7 @@ async def test_group_chats_are_ignored_while_disabled(line_app: BuildHarness) ->
 
 
 async def test_group_chats_are_ignored_when_a_server_needs_per_user_authorization(group_harness: LineHarness) -> None:
-    group_harness.agent.group_chats_supported = False
+    group_harness.agent.credential_free = False
 
     await group_harness.post(_addressed('hi', event_id='g8'))
 

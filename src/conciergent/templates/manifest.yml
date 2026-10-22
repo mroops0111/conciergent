@@ -68,6 +68,18 @@ gateway:
   #   - name: petstore
   #     spec: ./petstore.json
 
+# pushes: # prompts `conciergent push <name>` runs from cron or a CronJob, sending each reply into a chat (LINE only for now)
+#   - name: daily-digest
+#     timezone: Asia/Taipei # the zone the prompt header gives the start time in
+#     target:
+#       surface: line
+#       to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
+#     prompt: |
+#       Summarize today's activity and flag anything unusual.
+#     # allow_skip: false # let the agent end with skip_reply and send nothing
+#     # allow_destructive: false # unsafe: run destructive tools without a confirmation
+#     # failure_message: null # text pushed as-is when the turn fails
+
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision
 #   history_ttl_seconds: 604800 # how long conversation history is retained (one week)

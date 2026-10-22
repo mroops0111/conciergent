@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import typing
 
 import fastapi
@@ -7,6 +8,8 @@ from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
+from conciergent.identity import ChatSurface
+from conciergent.reply import ReplySurface
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -24,12 +27,22 @@ class SurfaceContext(typing.NamedTuple):
     oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds
 
 
+class PushTarget(typing.NamedTuple):
+    """Where an unattended turn's reply goes, a surface that pushes it and the conversation its history joins."""
+
+    conversation: str
+    surface: ReplySurface
+
+
 class Surface(abc.ABC):
     """One chat platform's contribution to the application.
 
     The application stays ignorant of concrete platforms,
     adding one means implementing this and passing an instance to ``App``, never editing the assembly.
     """
+
+    # The platform's name, which a push's target names.
+    name: typing.ClassVar[ChatSurface]
 
     def __init__(self, *, group_chat_policy: GroupChatPolicy = GroupChatPolicy()) -> None:
         # Which group chats this platform answers in, beyond direct messages.
@@ -47,3 +60,24 @@ class Surface(abc.ABC):
         The default does nothing, which fits a webhook surface, whose events arrive as requests.
         """
         return None
+
+
+class PushSurface(Surface):
+    """A platform that can also send a message nobody asked for, such as a push's reply.
+
+    Pushing is a capability of its own, so a platform without it implements only ``Surface``,
+    and a push can target only a platform that implements this.
+    """
+
+    @classmethod
+    @abc.abstractmethod
+    def push_conversation(cls, to: str) -> str:
+        """The conversation a push to the user or chat id ``to`` joins, the key that chat's own messages use.
+
+        Raises ``ValueError`` when ``to`` is not an id this platform can push to,
+        so a config can be checked before any surface is built.
+        """
+
+    @abc.abstractmethod
+    def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
+        """Open a push to the user or chat id ``to``, yielding the reply surface that sends it."""

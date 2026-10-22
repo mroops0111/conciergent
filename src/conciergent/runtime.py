@@ -3,6 +3,7 @@ import dataclasses
 import typing
 import urllib.parse
 
+import pydantic
 from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent.defaults import DEFAULTS
@@ -36,11 +37,17 @@ class PendingApproval:
     state: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
 
 
+class SkippedReply(pydantic.BaseModel):
+    """End the turn without sending anything to the chat."""
+
+    reason: str = pydantic.Field(description="Why nothing is worth sending this time, written for the operator's log.")
+
+
 @dataclasses.dataclass
 class TurnResult:
     """The outcome of one turn, carrying the reply to send and this turn's new messages to append."""
 
-    output: Reply | PendingApproval
+    output: Reply | PendingApproval | SkippedReply
     history: list[typing.Any] = dataclasses.field(default_factory=list)
     # Set when a tool made earlier turns stale, e.g. a sign-out, so the stored history is cleared instead of appended.
     invalidate_history: bool = False

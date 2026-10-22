@@ -1,4 +1,7 @@
+import datetime
 import typing
+
+import pytest
 
 from conciergent import (
     Card,
@@ -7,7 +10,13 @@ from conciergent import (
     Section,
     run_turn,
 )
-from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
+from conciergent.chat_context import (
+    ChatContext,
+    DirectChatContext,
+    GroupChatContext,
+    TurnDeclinedError,
+    UnattendedChatContext,
+)
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
 
@@ -165,9 +174,28 @@ async def test_direct_confirm_without_an_approval_still_runs(message_store: Mess
 
 async def test_a_group_turn_is_dropped_quietly_while_group_chats_cannot_be_served(message_store: MessageStore):
     runner = StubRunner('ok')
-    runner.group_chats_supported = False
+    runner.credential_free = False
 
     surface = await _turn('hello', runner, message_store, principal=_BOB, chat_context=_BOB_IN_GROUP)
 
     assert [call['pending_approval'] for call in runner.calls] == []
     assert surface.calls == [('acknowledged', None)]
+
+
+async def test_an_unattended_turn_that_cannot_run_raises_instead_of_dropping_quietly(message_store: MessageStore):
+    runner = StubRunner()
+    runner.credential_free = False
+    surface = RecordingSurface()
+    started_at = datetime.datetime(2026, 10, 21, 21, tzinfo=datetime.UTC)
+
+    with pytest.raises(TurnDeclinedError):
+        await run_turn(
+            'remind',
+            principal='push:reminder',
+            chat_context=UnattendedChatContext('line:group:C1', push_name='reminder', started_at=started_at),
+            runner=runner.as_runner(),
+            surface=surface,
+            message_store=message_store,
+        )
+
+    assert runner.calls == [] and surface.calls == []

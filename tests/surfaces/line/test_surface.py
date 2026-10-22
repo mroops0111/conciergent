@@ -1,10 +1,14 @@
 import typing
 
 import httpx
+import pytest
 from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent import Card, Section, Suggestion
 from conciergent.store.message import MessageStore
+from conciergent.surfaces.line import app as line_app
+from conciergent.surfaces.line.app import Line
+from conciergent.surfaces.line.chat import LineChatAddress
 from conciergent.surfaces.line.surface import LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
 
@@ -13,7 +17,14 @@ class FakeMessenger:
         self.reply_fails = reply_fails
         self.replies: list[dict[str, typing.Any]] = []
         self.pushes: list[dict[str, typing.Any]] = []
+        self.push_targets: list[str] = []
         self.loading_started = 0
+
+    async def __aenter__(self) -> 'FakeMessenger':
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
 
     async def reply(self, reply_token: str, message: dict[str, typing.Any]) -> None:
         if self.reply_fails:
@@ -23,6 +34,7 @@ class FakeMessenger:
 
     async def push(self, to: str, message: dict[str, typing.Any]) -> None:
         self.pushes.append(message)
+        self.push_targets.append(to)
 
     async def start_loading(self, user_id: str) -> None:
         self.loading_started += 1
@@ -123,3 +135,26 @@ async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
     button = rendered['contents']['footer']['contents'][0]
     # OAuth providers reject LINE's in-app webview, so the link forces the system browser.
     assert button['action']['uri'] == f'{authorize_url}&openExternalBrowser=1'
+
+
+@pytest.mark.parametrize(
+    ('to', 'conversation'),
+    [('U1', 'line:U1'), ('C1', 'line:group:C1'), ('R1', 'line:room:R1')],
+)
+def test_a_push_joins_the_conversation_that_chat_already_uses(to: str, conversation: str):
+    assert LineChatAddress.parse(to).conversation == conversation
+
+
+async def test_a_line_push_target_pushes_without_a_reply_token_or_loading(monkeypatch: pytest.MonkeyPatch):
+    messenger = FakeMessenger()
+    monkeypatch.setattr(line_app, 'LineMessenger', lambda *args, **options: messenger)
+    line = Line(channel_secret='s', channel_access_token='t')
+
+    async with line.push_target('C1') as target:
+        await target.surface.show_processing()
+        await target.surface.send_text('hello')
+
+    assert target.conversation == 'line:group:C1'
+    assert messenger.loading_started == 0
+    assert messenger.pushes == [{'type': 'text', 'text': 'hello'}]
+    assert messenger.push_targets == ['C1']

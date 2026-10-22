@@ -10,6 +10,37 @@ from conciergent.surfaces.line.surface import LineMessenger
 
 
 @dataclasses.dataclass(frozen=True)
+class LineChatAddress:
+    """A LINE user, group, or room by id, which names where a push goes and which conversation the chat keeps."""
+
+    kind: typing.Literal['user', 'group', 'room']
+    id: str
+
+    @classmethod
+    def parse(cls, id: str) -> 'LineChatAddress':
+        """Read the kind off a bare id, which LINE starts with U for a user, C for a group, and R for a room.
+
+        Raises ``ValueError`` for any other id.
+        """
+        match id[:1]:
+            case 'U':
+                return cls('user', id)
+            case 'C':
+                return cls('group', id)
+            case 'R':
+                return cls('room', id)
+            case _:
+                raise ValueError(f'a LINE chat id is a user, group, or room id starting with U, C, or R, got {id!r}')
+
+    @property
+    def conversation(self) -> str:
+        """The history scope, the same whether the chat's own message or a push reaches it."""
+        if self.kind == 'user':
+            return make_principal(ChatSurface.line, self.id)
+        return make_principal(ChatSurface.line, self.kind, self.id)
+
+
+@dataclasses.dataclass(frozen=True)
 class LineChat(abc.ABC):
     """The chat a LINE event came from, which decides how the bot reads the event and replies there.
 
@@ -21,8 +52,8 @@ class LineChat(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def push_target(self) -> str:
-        """The id a push message goes to once the reply token is spent."""
+    def address(self) -> LineChatAddress:
+        """Where a push message goes once the reply token is spent, and which conversation the chat keeps."""
 
     @property
     @abc.abstractmethod
@@ -63,8 +94,8 @@ class LineDirectChat(LineChat):
 
     @property
     @typing.override
-    def push_target(self) -> str:
-        return self.user_id
+    def address(self) -> LineChatAddress:
+        return LineChatAddress('user', self.user_id)
 
     @property
     @typing.override
@@ -81,7 +112,7 @@ class LineDirectChat(LineChat):
 
     @typing.override
     async def resolve_chat_context(self, messenger: LineMessenger) -> ChatContext:
-        return DirectChatContext(conversation=make_principal(ChatSurface.line, self.user_id))
+        return DirectChatContext(conversation=self.address.conversation)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,8 +125,8 @@ class LineGroupChat(LineChat):
 
     @property
     @typing.override
-    def push_target(self) -> str:
-        return self.chat_id
+    def address(self) -> LineChatAddress:
+        return LineChatAddress(self.kind, self.chat_id)
 
     @property
     @typing.override
@@ -124,7 +155,7 @@ class LineGroupChat(LineChat):
     async def resolve_chat_context(self, messenger: LineMessenger) -> ChatContext:
         speaker = await messenger.get_member_display_name(self.kind, self.chat_id, self.user_id)
         return GroupChatContext(
-            conversation=make_principal(ChatSurface.line, self.kind, self.chat_id),
+            conversation=self.address.conversation,
             # A member whose profile cannot be read still needs a stable label, so members stay distinct.
             speaker=speaker or f'user-{self.user_id[-4:]}',
         )

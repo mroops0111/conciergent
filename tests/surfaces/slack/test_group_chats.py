@@ -73,7 +73,7 @@ async def test_plain_channel_messages_need_reply_to_all(slack_app: BuildHarness)
 
 
 async def test_group_chats_are_ignored_when_a_server_needs_per_user_authorization(group_harness: SlackHarness) -> None:
-    group_harness.agent.group_chats_supported = False
+    group_harness.agent.credential_free = False
 
     await group_harness.post_event(_mention('hi', event_id='E6'))
 

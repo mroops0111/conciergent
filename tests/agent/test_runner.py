@@ -1,19 +1,23 @@
 import asyncio
+import datetime
 import typing
+import zoneinfo
 
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
-from conciergent.chat_context import DirectChatContext, GroupChatContext
+from conciergent.chat_context import DirectChatContext, GroupChatContext, UnattendedChatContext
 from conciergent.i18n.lang import Lang
+from conciergent.runtime import SkippedReply
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
 
@@ -327,7 +331,7 @@ async def test_surface_formatting_hint_joins_the_instructions():
 async def test_group_chats_are_supported_without_oauth():
     agent = _agent(destructive_server([]))
 
-    assert await agent.supports_group_chats() is True
+    assert await agent.works_without_user_credentials() is True
 
 
 async def test_group_chats_follow_the_known_authorization_without_probing(
@@ -340,8 +344,8 @@ async def test_group_chats_follow_the_known_authorization_without_probing(
     shared = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: False})
     per_user = _oauth_agent(credential_store, known_user_authorization={_OAUTH_SERVER: True})
 
-    assert await shared.supports_group_chats() is True
-    assert await per_user.supports_group_chats() is False
+    assert await shared.works_without_user_credentials() is True
+    assert await per_user.works_without_user_credentials() is False
 
 
 async def test_an_unreachable_server_pauses_group_chats_until_a_probe_decides(
@@ -357,15 +361,17 @@ async def test_an_unreachable_server_pauses_group_chats_until_a_probe_decides(
     monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
     agent = _oauth_agent(credential_store)
 
-    assert await agent.supports_group_chats() is False
-    assert await agent.supports_group_chats() is False  # still inside the retry interval, so no second probe yet
-    agent._group_chats_retry_at = 0.0  # the retry interval has passed
-    assert await agent.supports_group_chats() is True
-    assert await agent.supports_group_chats() is True  # a reached verdict is cached
+    assert await agent.works_without_user_credentials() is False
+    assert (
+        await agent.works_without_user_credentials() is False
+    )  # still inside the retry interval, so no second probe yet
+    agent._user_credentials_check_retry_at = 0.0  # the retry interval has passed
+    assert await agent.works_without_user_credentials() is True
+    assert await agent.works_without_user_credentials() is True  # a reached verdict is cached
     assert probed == [_OAUTH_SERVER, _OAUTH_SERVER]
 
 
-async def test_concurrent_group_chat_checks_share_one_probe_of_each_server(
+async def test_concurrent_credential_free_checks_share_one_probe_of_each_server(
     credential_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ):
     servers = ['https://a.example/mcp', 'https://b.example/mcp']
@@ -383,7 +389,7 @@ async def test_concurrent_group_chat_checks_share_one_probe_of_each_server(
     monkeypatch.setattr(runner_module, 'requires_user_authorization', probe)
     agent = _oauth_agent(credential_store, servers=servers)
 
-    verdicts = await asyncio.gather(*(agent.supports_group_chats() for _ in range(5)))
+    verdicts = await asyncio.gather(*(agent.works_without_user_credentials() for _ in range(5)))
 
     assert verdicts == [True] * 5
     assert sorted(probed) == servers
@@ -409,3 +415,81 @@ async def test_a_group_turn_names_its_speaker_and_hides_the_sign_out(credential_
     assert 'group chat' in instructions
     first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
     assert any(getattr(part, 'content', None) == '[Amy] hi' for part in first_request.parts)
+
+
+def _unattended(**overrides: typing.Any) -> UnattendedChatContext:
+    started_at = datetime.datetime(2026, 10, 26, 9, tzinfo=zoneinfo.ZoneInfo('Asia/Taipei'))
+    return UnattendedChatContext('line:group:C1', push_name='reminder', started_at=started_at, **overrides)
+
+
+async def test_an_unattended_turn_may_end_with_skip_reply():
+    offered: list[list[str]] = []
+
+    def skip(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append([tool.name for tool in info.output_tools])
+        return ModelResponse(parts=[ToolCallPart('skip_reply', {'reason': 'nothing due'})])
+
+    agent = ChatRunner(model=FunctionModel(skip), system_prompt=_SYSTEM_PROMPT)
+
+    result = await agent.run(
+        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_unattended(allows_skip=True)
+    )
+
+    assert result.output == SkippedReply(reason='nothing due')
+    assert 'skip_reply' in offered[0]
+
+
+async def test_skip_reply_is_offered_only_where_the_chat_allows_it():
+    model = TestModel(call_tools=[])
+    agent = _agent(model=model)
+
+    for chat_context in (_DIRECT, _unattended(allows_skip=False)):
+        await agent.run('hi', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=chat_context)
+        parameters = model.last_model_request_parameters
+        assert parameters is not None
+        assert 'skip_reply' not in {tool.name for tool in parameters.output_tools}
+
+
+async def test_an_unattended_turn_states_its_name_time_and_weekday():
+    model = TestModel(call_tools=[])
+    agent = _agent(model=model)
+
+    result = await agent.run(
+        'remind', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_unattended()
+    )
+
+    first_request = ModelMessagesTypeAdapter.validate_python(result.history)[0]
+    prompt = '[Automated: reminder, 2026-10-26T09:00+08:00 Asia/Taipei, Monday] remind'
+    assert any(getattr(part, 'content', None) == prompt for part in first_request.parts)
+
+
+async def test_an_unattended_turn_hides_destructive_tools_by_default():
+    calls: list[int] = []
+    model = TestModel()
+    agent = _agent(destructive_server(calls), model=model)
+
+    result = await agent.run(
+        'delete it', principal=_PRINCIPAL, history=[], pending_approval=None, chat_context=_unattended()
+    )
+
+    parameters = model.last_model_request_parameters
+    assert parameters is not None
+    assert 'delete_it' not in {tool.name for tool in parameters.function_tools}
+    assert not isinstance(result.output, PendingApproval)
+    assert calls == []
+
+
+async def test_an_unattended_turn_allowed_destructive_tools_runs_them_unasked():
+    calls: list[int] = []
+    agent = _agent(destructive_server(calls))
+
+    result = await agent.run(
+        'delete it',
+        principal=_PRINCIPAL,
+        history=[],
+        pending_approval=None,
+        chat_context=_unattended(runs_destructive_tools=True),
+    )
+
+    assert not isinstance(result.output, PendingApproval)
+    assert len(calls) == 1

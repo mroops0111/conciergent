@@ -1,14 +1,17 @@
+import abc
 import os
 import pathlib
 import re
 import typing
+import zoneinfo
 
 import pydantic
 import yaml
 
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
-from conciergent.surfaces.base import Surface
+from conciergent.identity import ChatSurface
+from conciergent.surfaces.base import PushSurface, Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
 from conciergent.surfaces.slack.app import Slack
@@ -63,21 +66,42 @@ class GroupChatSettings(pydantic.BaseModel):
         return GroupChatPolicy(enabled=self.enabled, reply_trigger=self.reply_trigger)
 
 
-class SlackSettings(pydantic.BaseModel):
+class ChatSurfaceSettings(pydantic.BaseModel, abc.ABC):
+    """What every chat platform's settings share, with the ``Surface`` class they build.
+
+    A new platform subclasses this with its own credentials, so the checks that span platforms need no change.
+    """
+
+    # The Surface class these settings build, which the config asks what the platform can do before building it.
+    surface_class: typing.ClassVar[type[Surface]]
+
+    enabled: bool = False
+    brand_color: str
+    destructive_color: str
+    api_timeout_seconds: float
+    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
+
+    @abc.abstractmethod
+    def build(self) -> Surface:
+        """Build the platform's surface from these settings."""
+
+    @property
+    def group_chats_enabled(self) -> bool:
+        return self.enabled and self.group_chats.policy().enabled
+
+
+class SlackSettings(ChatSurfaceSettings):
     """Slack app credentials, created once in the Slack app dashboard.
 
     UI text is not configured here, it lives in the locale catalog so it can be translated (see ``locales_dir``).
     """
 
-    enabled: bool = False
+    surface_class = Slack
+
     signing_secret: str = ''
     client_id: str = ''
     client_secret: str = ''
     bot_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_secret_when_enabled(self) -> typing.Self:
@@ -86,6 +110,7 @@ class SlackSettings(pydantic.BaseModel):
             raise ValueError('surface.slack.signing_secret is required when slack is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Slack(
             signing_secret=self.signing_secret,
@@ -99,16 +124,13 @@ class SlackSettings(pydantic.BaseModel):
         )
 
 
-class LineSettings(pydantic.BaseModel):
+class LineSettings(ChatSurfaceSettings):
     """LINE Messaging API channel credentials, created once in the LINE developers console."""
 
-    enabled: bool = False
+    surface_class = Line
+
     channel_secret: str = ''
     channel_access_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_credentials_when_enabled(self) -> typing.Self:
@@ -116,6 +138,7 @@ class LineSettings(pydantic.BaseModel):
             raise ValueError('surface.line channel_secret and channel_access_token are required when line is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Line(
             channel_secret=self.channel_secret,
@@ -127,18 +150,15 @@ class LineSettings(pydantic.BaseModel):
         )
 
 
-class DiscordSettings(pydantic.BaseModel):
+class DiscordSettings(ChatSurfaceSettings):
     """Discord app credentials, created once in the Discord developer portal.
 
     The bot connects over the gateway and replies in direct messages, so a single bot token is all it needs.
     """
 
-    enabled: bool = False
+    surface_class = Discord
+
     bot_token: str = ''
-    brand_color: str
-    destructive_color: str
-    api_timeout_seconds: float
-    group_chats: GroupChatSettings = pydantic.Field(default_factory=GroupChatSettings)
 
     @pydantic.model_validator(mode='after')
     def _require_token_when_enabled(self) -> typing.Self:
@@ -146,6 +166,7 @@ class DiscordSettings(pydantic.BaseModel):
             raise ValueError('surface.discord.bot_token is required when discord is enabled')
         return self
 
+    @typing.override
     def build(self) -> Surface:
         return Discord(
             bot_token=self.bot_token,
@@ -157,20 +178,23 @@ class DiscordSettings(pydantic.BaseModel):
 
 
 class SurfaceSettings(pydantic.BaseModel):
-    """The chat surfaces, each turned on by its own ``enabled`` flag."""
+    """The chat surfaces, each turned on by its own ``enabled`` flag, and each field named for its ``ChatSurface``."""
 
     slack: SlackSettings
     line: LineSettings
     discord: DiscordSettings
 
+    def all_settings(self) -> list[ChatSurfaceSettings]:
+        return [self.settings_for(surface) for surface in ChatSurface]
+
+    def settings_for(self, surface: ChatSurface) -> ChatSurfaceSettings:
+        return getattr(self, surface.value)
+
     def enabled_surfaces(self) -> list[Surface]:
-        return [settings.build() for settings in (self.slack, self.line, self.discord) if settings.enabled]
+        return [settings.build() for settings in self.all_settings() if settings.enabled]
 
     def group_chats_enabled(self) -> bool:
-        return any(
-            settings.enabled and settings.group_chats.policy().enabled
-            for settings in (self.slack, self.line, self.discord)
-        )
+        return any(settings.group_chats_enabled for settings in self.all_settings())
 
 
 class StoreSettings(pydantic.BaseModel):
@@ -268,6 +292,51 @@ class ConversationSettings(pydantic.BaseModel):
     oauth_wait_timeout_seconds: float
 
 
+class PushTargetSettings(pydantic.BaseModel):
+    """Where a push's reply goes, a surface and the user or chat id it pushes to.
+
+    Whether the surface can push, and to which ids, is the surface's own answer, checked with the whole config.
+    """
+
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    surface: ChatSurface
+    to: typing.Annotated[str, pydantic.Field(min_length=1)]
+
+
+class PushSettings(pydantic.BaseModel):
+    """A prompt the agent runs on demand from ``conciergent push``, sending its reply into a chat nobody spoke in.
+
+    When and how often it runs is up to the caller, such as cron or a Kubernetes CronJob.
+    The turn joins the target chat's history, so a follow-up question there has the reply as context.
+    """
+
+    # Most keys here switch behavior, so a misspelled one is an error, not a push that silently runs otherwise.
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    name: typing.Annotated[str, pydantic.Field(min_length=1)]
+    # An IANA zone name the prompt header gives the start time in, such as Asia/Taipei.
+    timezone: str = 'UTC'
+    prompt: typing.Annotated[str, pydantic.Field(min_length=1)]
+    target: PushTargetSettings
+    # Whether the agent may end the turn with skip_reply and send nothing, when the prompt finds nothing to say.
+    allow_skip: bool = False
+    # Run destructive tools without a confirmation nobody is present to give.
+    # Unsafe, so off by default, which leaves those tools out of the turn.
+    allow_destructive: bool = False
+    # Text pushed as-is when the turn fails, such as when an MCP server is down, so a failure is not silent.
+    failure_message: str | None = None
+
+    @pydantic.field_validator('timezone')
+    @classmethod
+    def _timezone_exists(cls, value: str) -> str:
+        try:
+            zoneinfo.ZoneInfo(value)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError(f'not a known IANA timezone: {value!r}') from error
+        return value
+
+
 class LoggerSettings(pydantic.BaseModel):
     """How the process logs, applied once at startup by ``conciergent.logger.setup``."""
 
@@ -286,8 +355,15 @@ class AppConfig(pydantic.BaseModel):
     gateway: GatewaySettings
     conversation: ConversationSettings
     logger: LoggerSettings
+    pushes: list[PushSettings] = pydantic.Field(default_factory=list)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
+
+    @pydantic.field_validator('pushes', mode='before')
+    @classmethod
+    def _no_pushes_when_null(cls, value: typing.Any) -> typing.Any:
+        # A bare `pushes:` in YAML parses to None, which means no pushes rather than an error.
+        return [] if value is None else value
 
     @pydantic.model_validator(mode='after')
     def _mcp_read_timeout_outlasts_oauth_wait(self) -> typing.Self:
@@ -301,17 +377,39 @@ class AppConfig(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode='after')
-    def _group_chats_need_shared_identity_specs(self) -> typing.Self:
-        # A group turn holds no one's authorization, so a per-user spec could never run there.
+    def _unattributed_turns_need_shared_identity_specs(self) -> typing.Self:
+        # Group chats and pushes hold no one's authorization, so no per-user spec runs there.
         # Gateway specs are known up front and fail here, other MCP servers are probed when the app starts.
-        if not (self.gateway.enabled and self.surface.group_chats_enabled()):
-            return self
+        unattributed = []
+        if self.surface.group_chats_enabled():
+            unattributed.append('group chats')
+        if self.pushes:
+            unattributed.append(f'pushes ({", ".join(push.name for push in self.pushes)})')
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
-        if per_user:
+        if self.gateway.enabled and unattributed and per_user:
             raise ValueError(
-                'group chats need every tool to work without a per-user authorization, '
+                f'{" and ".join(unattributed)} need every tool to work without a per-user authorization, '
                 f'but these gateway specs use per-user oauth2: {", ".join(per_user)}'
             )
+        return self
+
+    @pydantic.model_validator(mode='after')
+    def _pushes_fit_the_app(self) -> typing.Self:
+        names = [push.name for push in self.pushes]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise ValueError(f'push names must be unique, repeated: {", ".join(duplicates)}')
+        for push in self.pushes:
+            target = push.target
+            settings = self.surface.settings_for(target.surface)
+            if not settings.enabled:
+                raise ValueError(f'push {push.name} targets {target.surface}, which is not enabled')
+            if not issubclass(settings.surface_class, PushSurface):
+                raise ValueError(f'push {push.name} targets {target.surface}, which cannot push messages yet')
+            try:
+                settings.surface_class.push_conversation(target.to)
+            except ValueError as error:
+                raise ValueError(f'push {push.name}: {error}') from error
         return self
 
 

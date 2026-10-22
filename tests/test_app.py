@@ -12,10 +12,12 @@ from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
+from conciergent.push import PushOutcome, UnknownPushError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
 from tests.conftest import StubRunner
+from tests.push.conftest import RecordingPushSurface, push_settings
 
 
 @pytest.fixture
@@ -179,3 +181,34 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     finally:
         # Restore the shipped catalog so the global override does not leak into other tests.
         i18n.load_overrides([])
+
+
+def test_push_runs_the_named_push_once_and_pushes_the_reply(stores):
+    surface = RecordingPushSurface()
+    app = _silent_app(stores, surfaces=[surface], pushes=[push_settings()])
+
+    assert app.push('daily-digest') is PushOutcome.delivered
+    assert surface.targets == ['C1'] and surface.texts() == ['ok']
+
+
+def test_push_names_the_configured_pushes_when_the_name_is_unknown(stores):
+    app = _silent_app(stores, surfaces=[RecordingPushSurface()], pushes=[push_settings()])
+
+    with pytest.raises(UnknownPushError, match="no push named 'weekly', the configured ones are: daily-digest"):
+        app.push('weekly')
+
+
+def test_fire_fails_with_the_failure_message_when_an_mcp_server_needs_a_users_token(stores):
+    runner = StubRunner('ok')
+    # What the startup probe reports for an MCP server outside the gateway that needs a per-user authorization.
+    runner.credential_free = False
+    surface = RecordingPushSurface()
+    app = App(
+        runner=runner.as_runner(),
+        **stores,
+        surfaces=[surface],
+        pushes=[push_settings(failure_message='baby is down')],
+    )
+
+    assert app.push('daily-digest') is PushOutcome.failed
+    assert runner.calls == [] and surface.texts() == ['baby is down']
