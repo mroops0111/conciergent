@@ -102,7 +102,7 @@ async def _dispatch_event(
     principal = make_principal(ChatSurface.line, chat.user_id)
     async with LineMessenger(settings.channel_access_token, timeout_seconds=settings.api_timeout_seconds) as messenger:
         slot = ReplyTokenSlot(
-            messenger, to=chat.push_target, reply_token=event.get('replyToken'), show_loading=chat.shows_loading
+            messenger, to=chat.address.id, reply_token=event.get('replyToken'), show_loading=chat.shows_loading
         )
         # Resolve the user's language once so the greeting, reply, approval card, and OAuth prompt all match it.
         lang = await messenger.get_lang(chat.user_id)

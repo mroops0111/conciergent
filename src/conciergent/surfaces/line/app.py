@@ -8,7 +8,7 @@ from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
 from conciergent.identity import ChatSurface
 from conciergent.surfaces.base import PushSurface, PushTarget, SurfaceContext
-from conciergent.surfaces.line.chat import line_push_conversation
+from conciergent.surfaces.line.chat import LineChatAddress
 from conciergent.surfaces.line.surface import LineMessenger, LineReplySurface, ReplyTokenSlot
 from conciergent.surfaces.line.webhook import LineWebhookSettings, build_router
 
@@ -59,14 +59,14 @@ class Line(PushSurface):
     @classmethod
     @typing.override
     def push_conversation(cls, to: str) -> str:
-        return line_push_conversation(to)
+        return LineChatAddress.parse(to).conversation
 
     @typing.override
     @contextlib.asynccontextmanager
     async def push_target(self, to: str) -> collections.abc.AsyncIterator[PushTarget]:
-        conversation = self.push_conversation(to)
+        address = LineChatAddress.parse(to)
         async with LineMessenger(self._channel_access_token, timeout_seconds=self._api_timeout_seconds) as messenger:
             # With no reply token every message goes out through the push API, and nobody waits on a loading animation.
-            slot = ReplyTokenSlot(messenger, to=to, reply_token=None, show_loading=False)
+            slot = ReplyTokenSlot(messenger, to=address.id, reply_token=None, show_loading=False)
             surface = LineReplySurface(slot, brand_color=self._brand_color, destructive_color=self._destructive_color)
-            yield PushTarget(conversation=conversation, surface=surface)
+            yield PushTarget(conversation=address.conversation, surface=surface)

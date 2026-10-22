@@ -8,7 +8,7 @@ from conciergent import Card, Section, Suggestion
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.line import app as line_app
 from conciergent.surfaces.line.app import Line
-from conciergent.surfaces.line.chat import line_push_conversation
+from conciergent.surfaces.line.chat import LineChatAddress
 from conciergent.surfaces.line.surface import LineOAuthBridge, LineReplySurface, ReplyTokenSlot
 
 
@@ -142,7 +142,7 @@ async def test_oauth_bridge_renders_a_link_bubble(message_store: MessageStore):
     [('U1', 'line:U1'), ('C1', 'line:group:C1'), ('R1', 'line:room:R1')],
 )
 def test_a_push_joins_the_conversation_that_chat_already_uses(to: str, conversation: str):
-    assert line_push_conversation(to) == conversation
+    assert LineChatAddress.parse(to).conversation == conversation
 
 
 async def test_a_line_push_target_pushes_without_a_reply_token_or_loading(monkeypatch: pytest.MonkeyPatch):
