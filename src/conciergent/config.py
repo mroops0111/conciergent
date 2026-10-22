@@ -292,8 +292,8 @@ class ConversationSettings(pydantic.BaseModel):
     oauth_wait_timeout_seconds: float
 
 
-class ScheduleTarget(pydantic.BaseModel):
-    """Where a schedule's reply goes, a surface and the user or chat id it pushes to.
+class PushTargetSettings(pydantic.BaseModel):
+    """Where a push's reply goes, a surface and the user or chat id it pushes to.
 
     Whether the surface can push, and to which ids, is the surface's own answer, checked with the whole config.
     """
@@ -304,21 +304,21 @@ class ScheduleTarget(pydantic.BaseModel):
     to: typing.Annotated[str, pydantic.Field(min_length=1)]
 
 
-class ScheduleSettings(pydantic.BaseModel):
-    """A prompt the agent runs on demand from ``conciergent fire``, pushing its reply into a chat nobody spoke in.
+class PushSettings(pydantic.BaseModel):
+    """A prompt the agent runs on demand from ``conciergent push``, sending its reply into a chat nobody spoke in.
 
-    When it fires is up to the caller, such as cron or a Kubernetes CronJob.
+    When and how often it runs is up to the caller, such as cron or a Kubernetes CronJob.
     The turn joins the target chat's history, so a follow-up question there has the reply as context.
     """
 
-    # Most keys here switch behavior, so a misspelled one is an error, not a schedule that silently runs otherwise.
+    # Most keys here switch behavior, so a misspelled one is an error, not a push that silently runs otherwise.
     model_config = pydantic.ConfigDict(extra='forbid')
 
     name: typing.Annotated[str, pydantic.Field(min_length=1)]
-    # An IANA zone name the prompt header gives the firing time in, such as Asia/Taipei.
+    # An IANA zone name the prompt header gives the start time in, such as Asia/Taipei.
     timezone: str = 'UTC'
     prompt: typing.Annotated[str, pydantic.Field(min_length=1)]
-    target: ScheduleTarget
+    target: PushTargetSettings
     # Whether the agent may end the turn with skip_reply and send nothing, when the prompt finds nothing to say.
     allow_skip: bool = False
     # Run destructive tools without a confirmation nobody is present to give.
@@ -355,14 +355,14 @@ class AppConfig(pydantic.BaseModel):
     gateway: GatewaySettings
     conversation: ConversationSettings
     logger: LoggerSettings
-    schedules: list[ScheduleSettings] = pydantic.Field(default_factory=list)
+    pushes: list[PushSettings] = pydantic.Field(default_factory=list)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None
 
-    @pydantic.field_validator('schedules', mode='before')
+    @pydantic.field_validator('pushes', mode='before')
     @classmethod
-    def _no_schedules_when_null(cls, value: typing.Any) -> typing.Any:
-        # A bare `schedules:` in YAML parses to None, which means no schedules rather than an error.
+    def _no_pushes_when_null(cls, value: typing.Any) -> typing.Any:
+        # A bare `pushes:` in YAML parses to None, which means no pushes rather than an error.
         return [] if value is None else value
 
     @pydantic.model_validator(mode='after')
@@ -378,13 +378,13 @@ class AppConfig(pydantic.BaseModel):
 
     @pydantic.model_validator(mode='after')
     def _unattributed_turns_need_shared_identity_specs(self) -> typing.Self:
-        # Group chats and schedules hold no one's authorization, so no per-user spec runs there.
+        # Group chats and pushes hold no one's authorization, so no per-user spec runs there.
         # Gateway specs are known up front and fail here, other MCP servers are probed when the app starts.
         unattributed = []
         if self.surface.group_chats_enabled():
             unattributed.append('group chats')
-        if self.schedules:
-            unattributed.append(f'schedules ({", ".join(schedule.name for schedule in self.schedules)})')
+        if self.pushes:
+            unattributed.append(f'pushes ({", ".join(push.name for push in self.pushes)})')
         per_user = [spec.name for spec in self.gateway.specs if spec.needs_user_authorization]
         if self.gateway.enabled and unattributed and per_user:
             raise ValueError(
@@ -394,22 +394,22 @@ class AppConfig(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode='after')
-    def _schedules_fit_the_app(self) -> typing.Self:
-        names = [schedule.name for schedule in self.schedules]
+    def _pushes_fit_the_app(self) -> typing.Self:
+        names = [push.name for push in self.pushes]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
-            raise ValueError(f'schedule names must be unique, repeated: {", ".join(duplicates)}')
-        for schedule in self.schedules:
-            target = schedule.target
+            raise ValueError(f'push names must be unique, repeated: {", ".join(duplicates)}')
+        for push in self.pushes:
+            target = push.target
             settings = self.surface.settings_for(target.surface)
             if not settings.enabled:
-                raise ValueError(f'schedule {schedule.name} targets {target.surface}, which is not enabled')
+                raise ValueError(f'push {push.name} targets {target.surface}, which is not enabled')
             if not issubclass(settings.surface_class, PushSurface):
-                raise ValueError(f'schedule {schedule.name} targets {target.surface}, which cannot push messages yet')
+                raise ValueError(f'push {push.name} targets {target.surface}, which cannot push messages yet')
             try:
                 settings.surface_class.push_conversation(target.to)
             except ValueError as error:
-                raise ValueError(f'schedule {schedule.name}: {error}') from error
+                raise ValueError(f'push {push.name}: {error}') from error
         return self
 
 

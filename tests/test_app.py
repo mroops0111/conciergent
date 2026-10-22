@@ -12,12 +12,12 @@ from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
-from conciergent.scheduling import FiringOutcome, UnknownScheduleError
+from conciergent.push import PushOutcome, UnknownPushError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
 from tests.conftest import StubRunner
-from tests.scheduling.conftest import RecordingPushSurface, schedule
+from tests.push.conftest import RecordingPushSurface, push_settings
 
 
 @pytest.fixture
@@ -183,19 +183,19 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
         i18n.load_overrides([])
 
 
-def test_fire_runs_the_named_schedule_once_and_pushes_the_reply(stores):
+def test_push_runs_the_named_push_once_and_pushes_the_reply(stores):
     surface = RecordingPushSurface()
-    app = _silent_app(stores, surfaces=[surface], schedules=[schedule()])
+    app = _silent_app(stores, surfaces=[surface], pushes=[push_settings()])
 
-    assert app.fire('daily-digest') is FiringOutcome.delivered
+    assert app.push('daily-digest') is PushOutcome.delivered
     assert surface.targets == ['C1'] and surface.texts() == ['ok']
 
 
-def test_fire_names_the_configured_schedules_when_the_name_is_unknown(stores):
-    app = _silent_app(stores, surfaces=[RecordingPushSurface()], schedules=[schedule()])
+def test_push_names_the_configured_pushes_when_the_name_is_unknown(stores):
+    app = _silent_app(stores, surfaces=[RecordingPushSurface()], pushes=[push_settings()])
 
-    with pytest.raises(UnknownScheduleError, match="no schedule named 'weekly', the configured ones are: daily-digest"):
-        app.fire('weekly')
+    with pytest.raises(UnknownPushError, match="no push named 'weekly', the configured ones are: daily-digest"):
+        app.push('weekly')
 
 
 def test_fire_fails_with_the_failure_message_when_an_mcp_server_needs_a_users_token(stores):
@@ -207,8 +207,8 @@ def test_fire_fails_with_the_failure_message_when_an_mcp_server_needs_a_users_to
         runner=runner.as_runner(),
         **stores,
         surfaces=[surface],
-        schedules=[schedule(failure_message='baby is down')],
+        pushes=[push_settings(failure_message='baby is down')],
     )
 
-    assert app.fire('daily-digest') is FiringOutcome.failed
+    assert app.push('daily-digest') is PushOutcome.failed
     assert runner.calls == [] and surface.texts() == ['baby is down']

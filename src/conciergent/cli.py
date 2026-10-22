@@ -4,7 +4,7 @@ import pathlib
 import click
 
 from conciergent.app import App
-from conciergent.scheduling import FiringOutcome, UnknownScheduleError
+from conciergent.push import PushOutcome, UnknownPushError
 
 
 def _template(name: str) -> str:
@@ -24,24 +24,24 @@ def run(config_path: str) -> None:
 
 
 @main.command()
-@click.argument('schedule_name')
+@click.argument('push_name')
 @click.option('--config', 'config_path', type=click.Path(exists=True), default='manifest.yml')
-def fire(schedule_name: str, config_path: str) -> None:
-    """Run one schedule now and push its reply, for cron or a Kubernetes CronJob to call.
+def push(push_name: str, config_path: str) -> None:
+    """Run one push now and send its reply, for cron or a Kubernetes CronJob to call.
 
     Exits 0 once the reply is out or the agent chose to skip.
-    Exits 1 when the firing failed before any reply was pushed, the only case a retry cannot repeat a reply.
-    Exits 2 for a bad config or schedule name.
+    Exits 1 when the push failed before any reply was pushed, the only case a retry cannot repeat a reply.
+    Exits 2 for a bad config or push name.
     """
     try:
         app = App.from_config(config_path)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
     try:
-        outcome = app.fire(schedule_name)
-    except UnknownScheduleError as error:
+        outcome = app.push(push_name)
+    except UnknownPushError as error:
         raise click.UsageError(str(error)) from error
-    if outcome is FiringOutcome.failed:
+    if outcome is PushOutcome.failed:
         raise SystemExit(1)
 
 

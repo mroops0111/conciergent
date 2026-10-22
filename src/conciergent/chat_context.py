@@ -23,10 +23,10 @@ _GROUP_CHAT_INSTRUCTIONS = (
     'Answer the latest speaker, and tell people apart by those names. '
     'Never write the bracketed name prefix in your own reply.'
 )
-_SCHEDULED_INSTRUCTIONS = (
-    'This turn was started by a schedule, not by a person, and its message starts with the schedule name and time. '
+_UNATTENDED_INSTRUCTIONS = (
+    'This turn was started automatically, not by a person, and its message starts with its name and the time. '
     'Nobody can answer a question or confirm an action before your reply is sent, so write the finished message the prompt asks for. '
-    'Never write the bracketed schedule prefix in your own reply.'
+    'Never write that bracketed prefix in your own reply.'
 )
 _SKIP_INSTRUCTIONS = 'When the prompt finds nothing worth sending, end the turn with skip_reply instead of a reply.'
 # Spelled out here rather than with strftime, whose day names follow the process locale.
@@ -186,19 +186,19 @@ class GroupChatContext(ChatContext):
 
 
 @dataclasses.dataclass(frozen=True)
-class ScheduledChatContext(ChatContext):
-    """An unattended turn a schedule starts, whose reply is pushed into a chat's conversation.
+class UnattendedChatContext(ChatContext):
+    """A turn nobody asked for, such as a push, whose reply is sent into a chat's conversation.
 
     Nobody is present to authorize, confirm, or sign out,
     so like a group chat the turn holds no one's authorization, and it never asks about a destructive tool.
     """
 
-    # The schedule's name and the time it fired, which head the prompt so the agent knows what started it and when.
-    schedule_name: str
-    fired_at: datetime.datetime
+    # The push's name and the time it started, which head the prompt so the agent knows what started it and when.
+    push_name: str
+    started_at: datetime.datetime
     # Stands in for the base class property of the same name.
     allows_skip: bool = False
-    # Nobody can confirm a destructive tool, so it is left out unless the schedule opts into running it unasked.
+    # Nobody can confirm a destructive tool, so it is left out unless the push opts into running it unasked.
     runs_destructive_tools: bool = False
 
     @typing.override
@@ -213,8 +213,8 @@ class ScheduledChatContext(ChatContext):
     @typing.override
     def approval_owner(self, principal: str) -> str | None:
         # The conversation may be a user's direct chat, whose own approval sits under no owner,
-        # so a schedule keys its own and never takes theirs.
-        return f'schedule:{self.schedule_name}'
+        # so a push keys its own and never takes theirs.
+        return f'push:{self.push_name}'
 
     @typing.override
     def drops_unowned_decision(self, user_input: str) -> bool:
@@ -238,12 +238,12 @@ class ScheduledChatContext(ChatContext):
     @property
     @typing.override
     def instructions(self) -> str:
-        return f'{_SCHEDULED_INSTRUCTIONS} {_SKIP_INSTRUCTIONS}' if self.allows_skip else _SCHEDULED_INSTRUCTIONS
+        return f'{_UNATTENDED_INSTRUCTIONS} {_SKIP_INSTRUCTIONS}' if self.allows_skip else _UNATTENDED_INSTRUCTIONS
 
     @typing.override
     def prompt(self, user_input: str) -> str:
         # A ZoneInfo prints its IANA name, which says more than an offset or an abbreviation like CST.
         # The weekday is spelled out because models often get it wrong when they work it out from a date.
-        moment = self.fired_at.isoformat(timespec='minutes')
-        when = f'{moment} {self.fired_at.tzinfo}, {_WEEKDAYS[self.fired_at.weekday()]}'
-        return f'[Scheduled: {self.schedule_name}, {when}] {user_input}'
+        moment = self.started_at.isoformat(timespec='minutes')
+        when = f'{moment} {self.started_at.tzinfo}, {_WEEKDAYS[self.started_at.weekday()]}'
+        return f'[Automated: {self.push_name}, {when}] {user_input}'

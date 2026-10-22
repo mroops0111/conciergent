@@ -192,7 +192,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
-| `schedules` | `[]` | Prompts `conciergent fire` runs, pushing each reply into a chat. See [Scheduled Prompts](#scheduled-prompts). |
+| `pushes` | `[]` | Prompts `conciergent push` runs, sending each reply into a chat. See [Pushes](#pushes). |
 | `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
@@ -267,16 +267,16 @@ Each platform needs a little more setup before the bot can read a group.
 
 </details>
 
-## Scheduled Prompts
+## Pushes
 
-The agent can also speak first. A schedule is a prompt that `conciergent fire` runs with no incoming message, pushing the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
+The agent can also speak first. A push is a prompt that `conciergent push` runs with no incoming message, sending the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
 
-conciergent has no scheduler of its own. When a schedule fires is up to whatever runs the command, such as cron, a Kubernetes CronJob, or Cloud Scheduler, so timing, retries, and run history come from a tool built for them.
+conciergent has no scheduler of its own. When and how often a push runs is up to whatever runs the command, such as cron, a Kubernetes CronJob, or Cloud Scheduler, so timing, retries, and run history come from a tool built for them.
 
 ### Configuration
 
 ```yaml
-schedules:
+pushes:
   - name: vaccine-reminder
     timezone: Asia/Taipei
     target:
@@ -290,8 +290,8 @@ schedules:
 
 | Field | Default | Description |
 |---|---|---|
-| `name` | *(required)* | Unique name, which `conciergent fire` takes and the agent sees. |
-| `timezone` | `UTC` | IANA zone the prompt header gives the firing time in. |
+| `name` | *(required)* | Unique name, which `conciergent push` takes and the agent sees. |
+| `timezone` | `UTC` | IANA zone the prompt header gives the start time in. |
 | `prompt` | *(required)* | What the agent is asked, in the language it should reply in. |
 | `target.surface` · `target.to` | *(required)* | The surface and the user or chat id to push to. |
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
@@ -301,22 +301,22 @@ schedules:
 ### Running
 
 ```bash
-conciergent fire vaccine-reminder --config manifest.yml
+conciergent push vaccine-reminder --config manifest.yml
 ```
 
-The command runs the schedule once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.url`, so the app must be up.
+The command runs the push once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.url`, so the app must be up.
 
 | Exit | Meaning | Retry |
 |---|---|---|
 | `0` | The reply was pushed, or the agent called `skip_reply`. A later step such as saving history may still have failed, which is logged. | No |
-| `1` | The firing failed before any reply was pushed, and `failure_message` was pushed when set. | Safe, though a retry that fails again pushes `failure_message` again |
-| `2` | The config or the schedule name is invalid. | No |
+| `1` | The push failed before any reply was pushed, and `failure_message` was pushed when set. | Safe, though a retry that fails again pushes `failure_message` again |
+| `2` | The config or the push name is invalid. | No |
 
 With cron on the host, where `CRON_TZ` sets the zone the times are read in:
 
 ```cron
 CRON_TZ=Asia/Taipei
-0 9 * * * cd /srv/app && docker compose exec -T app conciergent fire vaccine-reminder --config /home/app/manifest.yml
+0 9 * * * cd /srv/app && docker compose exec -T app conciergent push vaccine-reminder --config /home/app/manifest.yml
 ```
 
 With a Kubernetes CronJob, running the app image with the same env and config as the app:
@@ -337,20 +337,20 @@ spec:
         spec:
           restartPolicy: Never
           containers:
-            - name: fire
+            - name: push
               image: ghcr.io/mroops0111/conciergent:<version>
-              args: ["fire", "vaccine-reminder", "--config", "/home/app/manifest.yml"]
+              args: ["push", "vaccine-reminder", "--config", "/home/app/manifest.yml"]
               # Mount manifest.yml and set the env exactly as for the app's own Deployment.
 ```
 
 ### Behavior
 
-- **Prompt Header**: the agent reads the prompt as `[Scheduled: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
+- **Prompt Header**: the agent reads the prompt as `[Automated: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
 - **Shared History**: the prompt and the reply join the target chat's conversation, so a follow-up there has the reply as context. A skipped turn adds nothing.
-- **Authorization**: the turn holds no one's authorization, so every tool must work without a user's token, the same [requirement](#requirement) as group chats. A per-user gateway spec fails the config, which `fire` reports with exit 2. Another MCP server that needs a user's token is found when the turn starts, which fails the firing with exit 1 and pushes `failure_message`.
+- **Authorization**: the turn holds no one's authorization, so every tool must work without a user's token, the same [requirement](#requirement) as group chats. A per-user gateway spec fails the config, which `push` reports with exit 2. Another MCP server that needs a user's token is found when the turn starts, which fails the push with exit 1 and pushes `failure_message`.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
-- **Push Quota**: every scheduled reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
+- **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
 ## The Reply Model
 
@@ -380,7 +380,7 @@ class Surface(abc.ABC):
 
 Implement `Surface`, a `ReplySurface` to render the reply model, and (if it has per-user auth) an `OAuthBridge`, then pass an instance to the app. Slack, LINE, and Discord are the three that ship.
 
-A platform that can also send a message nobody asked for implements `PushSurface` instead, which [scheduled prompts](#scheduled-prompts) can then target.
+A platform that can also send a message nobody asked for implements `PushSurface` instead, which [pushes](#pushes) can then target.
 
 ```python
 class PushSurface(Surface):

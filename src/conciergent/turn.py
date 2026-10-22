@@ -29,7 +29,7 @@ async def run_turn(
     """Run one conversation turn end to end and dispatch the reply to ``surface``.
 
     The ``principal`` is the user's identity and keys credentials,
-    while ``chat_context`` names the chat the turn runs in, such as a direct chat, a group chat, or a schedule's,
+    while ``chat_context`` names the chat the turn runs in, such as a direct chat, a group chat, or a push's,
     with the conversation that scopes history and pending approvals.
     This is side-effect only, the surface sends and the appended history turn.
     """

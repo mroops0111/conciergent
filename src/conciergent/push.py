@@ -6,8 +6,8 @@ import typing
 
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.chat_context import ScheduledChatContext
-from conciergent.config import ScheduleSettings
+from conciergent.chat_context import UnattendedChatContext
+from conciergent.config import PushSettings
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
@@ -20,24 +20,24 @@ from conciergent.turn import run_turn
 logger = logging.getLogger(__name__)
 
 
-class UnknownScheduleError(LookupError):
-    """No configured schedule has the name a firing asked for."""
+class UnknownPushError(LookupError):
+    """No configured push has the name a run asked for."""
 
 
-class FiringOutcome(enum.StrEnum):
-    """How a firing ended, judged by whether anything reached the chat, since that decides if a retry is safe."""
+class PushOutcome(enum.StrEnum):
+    """How a push ended, judged by whether anything reached the chat, since that decides if a retry is safe."""
 
     delivered = 'delivered'
     skipped = 'skipped'
-    # Nothing but the failure message reached the chat, so running the schedule again cannot repeat a reply.
+    # Nothing but the failure message reached the chat, so running the push again cannot repeat a reply.
     failed = 'failed'
 
 
-class ScheduleExecutor:
-    """Run one firing of a schedule as an unattended turn and push the reply into the schedule's target chat.
+class PushExecutor:
+    """Run a push once as an unattended turn and send the reply into the push's target chat.
 
-    When a schedule fires is up to whatever calls this,
-    such as cron or a Kubernetes CronJob running ``conciergent fire``.
+    When and how often a push runs is up to whatever calls this,
+    such as cron or a Kubernetes CronJob running ``conciergent push``.
     """
 
     def __init__(
@@ -55,46 +55,46 @@ class ScheduleExecutor:
         self._compactor = compactor
         self._history_ttl_seconds = history_ttl_seconds
 
-    async def fire(self, schedule: ScheduleSettings, fired_at: datetime.datetime) -> FiringOutcome:
-        """Run ``schedule`` as fired at ``fired_at``, pushing the failure message when it fails before replying."""
-        surface = self._surfaces[schedule.target.surface]
+    async def run(self, push: PushSettings, started_at: datetime.datetime) -> PushOutcome:
+        """Run ``push`` as started at ``started_at``, sending the failure message when it fails before replying."""
+        surface = self._surfaces[push.target.surface]
         delivery: _DeliveryRecorder | None = None
         try:
-            async with surface.push_target(schedule.target.to) as target:
+            async with surface.push_target(push.target.to) as target:
                 delivery = _DeliveryRecorder(target.surface)
                 try:
-                    await self._run_turn(schedule, fired_at, target.conversation, delivery)
+                    await self._run_turn(push, started_at, target.conversation, delivery)
                 except Exception:
-                    logger.exception('Schedule %s failed at %s', schedule.name, fired_at.isoformat())
+                    logger.exception('Push %s failed at %s', push.name, started_at.isoformat())
                     if delivery.delivered:
                         # The reply is out, so only a later step such as saving history failed.
-                        return FiringOutcome.delivered
-                    if schedule.failure_message:
-                        await target.surface.send_text(schedule.failure_message)
-                    return FiringOutcome.failed
-                outcome = FiringOutcome.delivered if delivery.delivered else FiringOutcome.skipped
+                        return PushOutcome.delivered
+                    if push.failure_message:
+                        await target.surface.send_text(push.failure_message)
+                    return PushOutcome.failed
+                outcome = PushOutcome.delivered if delivery.delivered else PushOutcome.skipped
         except Exception:
             # The push could not open, the failure message could not go out, or closing the push failed.
-            logger.exception('Schedule %s could not push to %s', schedule.name, schedule.target.to)
+            logger.exception('Push %s could not reach %s', push.name, push.target.to)
             # A reply already out still counts, or a retry would push it twice.
-            return FiringOutcome.delivered if delivery is not None and delivery.delivered else FiringOutcome.failed
+            return PushOutcome.delivered if delivery is not None and delivery.delivered else PushOutcome.failed
         return outcome
 
     async def _run_turn(
-        self, schedule: ScheduleSettings, fired_at: datetime.datetime, conversation: str, surface: ReplySurface
+        self, push: PushSettings, started_at: datetime.datetime, conversation: str, surface: ReplySurface
     ) -> None:
         # This is where the config meets the domain, so the context never sees the config's shape.
-        chat_context = ScheduledChatContext(
+        chat_context = UnattendedChatContext(
             conversation=conversation,
-            schedule_name=schedule.name,
-            fired_at=fired_at,
-            allows_skip=schedule.allow_skip,
-            runs_destructive_tools=schedule.allow_destructive,
+            push_name=push.name,
+            started_at=started_at,
+            allows_skip=push.allow_skip,
+            runs_destructive_tools=push.allow_destructive,
         )
         await run_turn(
-            schedule.prompt,
+            push.prompt,
             # The turn reaches no one's credentials, so this only labels it.
-            principal=f'schedule:{schedule.name}',
+            principal=f'push:{push.name}',
             chat_context=chat_context,
             runner=self._runner,
             surface=surface,

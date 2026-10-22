@@ -14,8 +14,8 @@ from conciergent.chat_context import (
     ChatContext,
     DirectChatContext,
     GroupChatContext,
-    ScheduledChatContext,
     TurnDeclinedError,
+    UnattendedChatContext,
 )
 from conciergent.store.message import MessageStore
 from tests.conftest import RecordingSurface, StubRunner
@@ -182,17 +182,17 @@ async def test_a_group_turn_is_dropped_quietly_while_group_chats_cannot_be_serve
     assert surface.calls == [('acknowledged', None)]
 
 
-async def test_a_scheduled_turn_that_cannot_run_raises_instead_of_dropping_quietly(message_store: MessageStore):
+async def test_an_unattended_turn_that_cannot_run_raises_instead_of_dropping_quietly(message_store: MessageStore):
     runner = StubRunner()
     runner.credential_free = False
     surface = RecordingSurface()
-    fired_at = datetime.datetime(2026, 10, 21, 21, tzinfo=datetime.UTC)
+    started_at = datetime.datetime(2026, 10, 21, 21, tzinfo=datetime.UTC)
 
     with pytest.raises(TurnDeclinedError):
         await run_turn(
             'remind',
-            principal='schedule:reminder',
-            chat_context=ScheduledChatContext('line:group:C1', schedule_name='reminder', fired_at=fired_at),
+            principal='push:reminder',
+            chat_context=UnattendedChatContext('line:group:C1', push_name='reminder', started_at=started_at),
             runner=runner.as_runner(),
             surface=surface,
             message_store=message_store,

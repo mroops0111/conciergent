@@ -68,9 +68,9 @@ gateway:
   #   - name: petstore
   #     spec: ./petstore.json
 
-# schedules: # prompts `conciergent fire <name>` runs from cron or a CronJob, pushing each reply into a chat (LINE only for now)
+# pushes: # prompts `conciergent push <name>` runs from cron or a CronJob, sending each reply into a chat (LINE only for now)
 #   - name: daily-digest
-#     timezone: Asia/Taipei # the zone the prompt header gives the firing time in
+#     timezone: Asia/Taipei # the zone the prompt header gives the start time in
 #     target:
 #       surface: line
 #       to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id

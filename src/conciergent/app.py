@@ -18,13 +18,13 @@ from conciergent.config import (
     AppConfig,
     GatewaySettings,
     LoggerSettings,
-    ScheduleSettings,
+    PushSettings,
     build_app_config,
     yaml_layer,
 )
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.scheduling import FiringOutcome, ScheduleExecutor, UnknownScheduleError
+from conciergent.push import PushExecutor, PushOutcome, UnknownPushError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface, Surface, SurfaceContext
@@ -48,7 +48,7 @@ class App:
         surfaces: collections.abc.Sequence[Surface] = (),
         runner: ChatRunner,
         compactor: HistorySummarizer | None = None,
-        schedules: collections.abc.Sequence[ScheduleSettings] = (),
+        pushes: collections.abc.Sequence[PushSettings] = (),
         gateway_settings: GatewaySettings | None = None,
         logger_settings: LoggerSettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
@@ -63,7 +63,7 @@ class App:
         self._runner = runner
         self._surfaces = list(surfaces)
         self._compactor = compactor
-        self._schedules = {schedule.name: schedule for schedule in schedules}
+        self._pushes = {push.name: push for push in pushes}
         self._gateway_settings = gateway_settings
         self._logger_settings = logger_settings
         self._approval_ttl_seconds = approval_ttl_seconds
@@ -116,7 +116,7 @@ class App:
             credential_store=credential_store,
             surfaces=surfaces,
             compactor=compactor,
-            schedules=config.schedules,
+            pushes=config.pushes,
             gateway_settings=config.gateway,
             logger_settings=config.logger,
             host=config.server.host,
@@ -202,30 +202,30 @@ class App:
         self._configure_process()
         uvicorn.run(self.build_asgi(), host=self.host, port=self.port, log_config=None)
 
-    def fire(self, name: str) -> FiringOutcome:
-        """Run the schedule called ``name`` once, now, in this process, and say how it ended.
+    def push(self, name: str) -> PushOutcome:
+        """Run the push called ``name`` once, now, in this process, and say how it ended.
 
         It serves nothing, so it runs beside a serving app, such as from cron or a Kubernetes CronJob.
         Tools from the embedded gateway are still dialed at ``server.url``, so that app must be up.
         """
-        schedule = self._schedules.get(name)
-        if schedule is None:
-            known = ', '.join(self._schedules) or 'none'
-            raise UnknownScheduleError(f'no schedule named {name!r}, the configured ones are: {known}')
+        push = self._pushes.get(name)
+        if push is None:
+            known = ', '.join(self._pushes) or 'none'
+            raise UnknownPushError(f'no push named {name!r}, the configured ones are: {known}')
         self._configure_process()
-        return asyncio.run(self._fire(schedule))
+        return asyncio.run(self._push(push))
 
-    async def _fire(self, schedule: ScheduleSettings) -> FiringOutcome:
+    async def _push(self, push: PushSettings) -> PushOutcome:
         # The stores are not checked up front, so an outage fails inside the turn, where the failure message goes out.
         # The serving app has already created the credential tables.
-        executor = ScheduleExecutor(
+        executor = PushExecutor(
             surfaces={surface.name: surface for surface in self._surfaces if isinstance(surface, PushSurface)},
             runner=self._runner,
             message_store=self._message_store,
             compactor=self._compactor,
             history_ttl_seconds=self._history_ttl_seconds,
         )
-        return await executor.fire(schedule, datetime.datetime.now(zoneinfo.ZoneInfo(schedule.timezone)))
+        return await executor.run(push, datetime.datetime.now(zoneinfo.ZoneInfo(push.timezone)))
 
     def _configure_process(self) -> None:
         # The process owns its output, which may be JSON logs, so pydantic-ai's first-run banner stays off.

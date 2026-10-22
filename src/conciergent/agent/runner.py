@@ -133,7 +133,7 @@ class ChatRunner:
             ToolOutput(Carousel, name='reply_carousel'),
             DeferredToolRequests,
         ]
-        # Each run passes its own spec, so only a turn that may end silently, such as a scheduled one, gets skip_reply.
+        # Each run passes its own spec, so only a turn that may end silently, such as a push, gets skip_reply.
         self._reply_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = output_type
         self._skippable_output_type: OutputSpec[Reply | DeferredToolRequests | SkippedReply] = [
             *output_type,
@@ -199,7 +199,7 @@ class ChatRunner:
     async def works_without_user_credentials(self) -> bool:
         """Report whether a turn holding no one's authorization can run, which needs every MCP server to allow it.
 
-        Group chats and schedules run such turns, since no single user owns them.
+        Group chats and pushes run such turns, since no single user owns them.
         A server that needs a user's token rules them out app-wide, rather than leaving some tools half-working.
         The verdict is cached once reached.
         An unreachable server pauses them until the retry interval passes.
@@ -216,13 +216,13 @@ class ChatRunner:
             ]
             if per_user:
                 logger.error(
-                    'Group chats and schedules are disabled, these MCP servers need a per-user authorization: %s',
+                    'Group chats and pushes are disabled, these MCP servers need a per-user authorization: %s',
                     ', '.join(per_user),
                 )
                 self._user_credentials_check_result = False
             elif undecided:
                 logger.warning(
-                    'Group chats and schedules are paused until these MCP servers can be checked: %s',
+                    'Group chats and pushes are paused until these MCP servers can be checked: %s',
                     ', '.join(undecided),
                 )
                 self._user_credentials_check_retry_at = time.monotonic() + self._probe_retry_seconds

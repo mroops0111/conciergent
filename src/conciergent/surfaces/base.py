@@ -41,7 +41,7 @@ class Surface(abc.ABC):
     adding one means implementing this and passing an instance to ``App``, never editing the assembly.
     """
 
-    # The platform's name, which a schedule's target names.
+    # The platform's name, which a push's target names.
     name: typing.ClassVar[ChatSurface]
 
     def __init__(self, *, group_chat_policy: GroupChatPolicy = GroupChatPolicy()) -> None:
@@ -63,10 +63,10 @@ class Surface(abc.ABC):
 
 
 class PushSurface(Surface):
-    """A platform that can also send a message nobody asked for, such as a scheduled reply.
+    """A platform that can also send a message nobody asked for, such as a push's reply.
 
     Pushing is a capability of its own, so a platform without it implements only ``Surface``,
-    and a schedule can target only a platform that implements this.
+    and a push can target only a platform that implements this.
     """
 
     @classmethod
