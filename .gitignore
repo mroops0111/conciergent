@@ -23,8 +23,8 @@ venv/
 *.tokens.json
 config/secrets/
 
-# Internal docs (planning notes live here; local-only, not published)
-docs/
+# Internal docs, linked in from project-docs
+.internal
 *.md
 !README.md
 

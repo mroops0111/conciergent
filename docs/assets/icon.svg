@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><style>
+.ink{fill:#1d1c1a} .square{fill:#1d1c1a}
+@media (prefers-color-scheme: dark){.ink{fill:#f2efe9} .square{fill:#f2efe9}}
+</style><g transform="translate(0,0) scale(1.0)"><rect class="square" width="100" height="100" rx="24"/><path fill="#c4902f" d="M45 33 a5 5 0 1 1 10 0 v4.6 A25 25 0 0 1 75 62 H25 A25 25 0 0 1 45 37.6 Z M20 66 H80 a3.5 3.5 0 0 1 0 7 H20 a3.5 3.5 0 0 1 0 -7 Z"/></g></svg>

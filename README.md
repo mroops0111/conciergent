@@ -1,21 +1,18 @@
-# Conciergent
+![Conciergent. Your team's tools in the chat it already uses, with each person signed in as themselves.](docs/assets/cover.svg)
 
 [![CI](https://github.com/mroops0111/conciergent/actions/workflows/ci.yml/badge.svg)](https://github.com/mroops0111/conciergent/actions/workflows/ci.yml)
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Give your [MCP](https://modelcontextprotocol.io/) tools a chat face. Connect Conciergent to any Model Context Protocol server and it becomes a Slack, LINE, or Discord bot that can actually *do* things, with per-user OAuth handled inside the conversation, an approval gate before destructive tools run, and one structured reply that renders natively on every surface.
+Conciergent puts your team's tools in the chat it already uses. Connect any [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server or OpenAPI spec, and it becomes a Slack, LINE, or Discord bot the whole team shares, while each person signs in to your tools as themselves inside the chat. The bot acts only with the permissions of whoever asked, and one YAML file sets it up, with no bot code to write.
 
 Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.com/mroops0111/openapi-mcp-gateway), which turns any REST API into MCP tools. Together they take one or more OpenAPI specs all the way to a chatbot your users can talk to.
 
-<p align="center">
-  <img src="architecture.png" alt="Conciergent architecture, layered top to bottom. Chat surfaces (Slack, LINE, Discord, and more) sit on top. An incoming message flows down into a surface- and agent-agnostic runtime that produces one structured reply (plain text, a Card, or a Carousel). The runtime hands each turn to an AI agent powered by Pydantic AI, which resolves to a normal reply, an in-chat OAuth authorization, or a human-in-the-loop confirmation. The agent calls MCP tools (an OpenAPI spec via the embedded openapi-mcp-gateway, or any MCP server) and stores messages in Redis and credentials in Postgres. The reply flows back up to each surface." width="600">
-</p>
-
-- **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
-- **In-Chat OAuth.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes the token. The user never leaves the conversation, and can ask to sign out at any time to revoke it.
+- **Each Person Signed in as Themselves.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes that user's own token. Everyone shares one bot, but each turn runs with the account of whoever asked, and anyone can ask to sign out at any time to revoke theirs.
 - **Human-in-the-Loop.** Any tool the server marks destructive pauses behind a Confirm / Cancel card before it runs.
+- **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
 - **Surface-Agnostic Rich Replies.** The agent emits one structured reply, and each surface renders it natively.
+- **Group Chats and Pushes.** The same bot can answer in a group chat, and can speak first when a scheduler runs `conciergent push`.
 
 ## Quick Start
 
@@ -63,16 +60,28 @@ uv add "conciergent[gateway]"
 gateway:
   enabled: true
   specs:
-    - name: petstore
-      spec: https://petstore3.swagger.io/api/v3/openapi.json
-      base_url: https://petstore3.swagger.io/api/v3
+    - name: github
+      spec: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json
+      base_url: https://api.github.com
+      policy:
+        allow: ["pulls/*", "issues/*", "git/delete-ref"]
+      auth:
+        type: oauth2
+        upstream:
+          authorization_url: https://github.com/login/oauth/authorize
+          token_url: https://github.com/login/oauth/access_token
+          client_id: ${GITHUB_CLIENT_ID}
+          client_secret: ${GITHUB_CLIENT_SECRET}
+          scopes: [repo]
     - name: internal
       spec: ./internal-api.json
 ```
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
-A spec entry takes openapi-mcp-gateway's per-server options, such as `exposure: dynamic` for a large spec, a `policy` filter, `auth`, and per-operation `operations` shaping. An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
+The `github` entry signs each user in to their own GitHub account. Register a GitHub OAuth app whose callback URL is `https://{your-public-url}/github/auth/callback`. The first time someone asks for a pull request, Conciergent shows them an Authorize card in the chat. Asking it to delete a branch calls `git/delete-ref`, a `DELETE`, so it then waits behind a Confirm / Cancel card.
+
+A spec entry takes openapi-mcp-gateway's per-server options, such as a `policy` filter, `auth`, per-operation `operations` shaping, and `exposure.style: dynamic` for a large spec. Dynamic exposure fronts the spec with meta-tools, so keep a spec static with a `policy` filter when its destructive tools should pause for a confirm.
 
 ### 3. Connect Your Chat App
 
@@ -361,6 +370,14 @@ The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, an
 - **`Carousel`** for one to four option cards the user picks between, plus a fallback card.
 
 A suggestion is the interactive primitive. Tapping one posts its prompt back to the agent as if the user had typed it. The field descriptions on these models are the agent's structured-output schema, so the model fills them in directly.
+
+![Conciergent reply model. One Card, with a header, a line of text, two bullets, and a button, is shown three ways. Slack renders it as an attachment with a side bar, LINE as a Flex bubble with a header band and a full-width button, and Discord as an embed with its button underneath.](docs/assets/reply.svg)
+
+## Architecture
+
+A message comes in through a surface, runs as one agent turn over your MCP tools, and goes back as one reply the surface renders natively.
+
+![Conciergent architecture. A chat user on Slack, LINE, or Discord sends a message to a surface, which verifies it and hands it to the turn. The turn loads history and pending approvals from Redis and runs the agent, built on Pydantic AI, which calls any MCP server over MCP and the embedded gateway in process, and the gateway calls your REST APIs over HTTP. Per-user MCP and bot tokens are kept in Postgres. The surface renders the result back to the user as a reply, an Authorize card for OAuth in the chat, or a Confirm card before a destructive tool. A scheduler can also start a turn with conciergent push, and manifest.yml is read at startup.](docs/assets/architecture.svg)
 
 ## Extending
 
