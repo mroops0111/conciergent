@@ -4,15 +4,15 @@
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Conciergent puts your team's tools in the chat it already uses. Connect any [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server or OpenAPI spec, and it becomes a Slack, LINE, or Discord bot the whole team shares, while each person signs in to your tools as themselves inside the chat. The bot acts only with the permissions of whoever asked, and one YAML file sets it up, with no bot code to write.
+Conciergent puts your team's tools in the chat it already uses. Connect any [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server or OpenAPI spec, and it becomes a Slack, LINE, or Discord bot the whole team shares. In a direct message, each person signs in to your tools as themselves, so the bot acts only with the permissions of whoever asked. One YAML file sets it up, with no bot code to write.
 
 Conciergent pairs with its sister project [openapi-mcp-gateway](https://github.com/mroops0111/openapi-mcp-gateway), which turns any REST API into MCP tools. Together they take one or more OpenAPI specs all the way to a chatbot your users can talk to.
 
-- **Each Person Signed in as Themselves.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes that user's own token. Everyone shares one bot, but each turn runs with the account of whoever asked, and anyone can ask to sign out at any time to revoke theirs.
+- **Each Person Signed in as Themselves.** When a tool needs authorization, Conciergent shows the link in the chat, then stores and refreshes that user's own token. Everyone shares one bot, but a direct-message turn runs with the account of whoever asked, and anyone can ask to sign out at any time to revoke theirs.
 - **Human-in-the-Loop.** Any tool the server marks destructive pauses behind a Confirm / Cancel card before it runs.
 - **Any MCP Server, or an OpenAPI Spec Directly.** Point Conciergent at an MCP URL, or set `gateway.enabled` and drop in a spec. It embeds openapi-mcp-gateway in-process, no second server to run.
 - **Surface-Agnostic Rich Replies.** The agent emits one structured reply, and each surface renders it natively.
-- **Group Chats and Pushes.** The same bot can answer in a group chat, and can speak first when a scheduler runs `conciergent push`.
+- **Group Chats and Pushes.** The same bot can answer in a group chat, and can speak first when a scheduler runs `conciergent push`. Neither runs a per-user sign-in, so both use only tools that work without one.
 
 ## Quick Start
 
@@ -59,6 +59,7 @@ uv add "conciergent[gateway]"
 ```yaml
 gateway:
   enabled: true
+  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0} # keeps the gateway's OAuth clients across restarts
   specs:
     - name: github
       spec: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json
@@ -79,7 +80,7 @@ gateway:
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
-The `github` entry signs each user in to their own GitHub account. Register a GitHub OAuth app whose callback URL is `https://{your-public-url}/github/auth/callback`. The first time someone asks for a pull request, Conciergent shows them an Authorize card in the chat. Asking it to delete a branch calls `git/delete-ref`, a `DELETE`, so it then waits behind a Confirm / Cancel card.
+The `github` entry signs each user in to their own GitHub account. Register a GitHub OAuth app whose callback URL is `https://{your-public-url}/github/auth/callback`. The first time someone asks for a pull request, Conciergent shows them an Authorize card in the chat. Asking it to delete a branch calls `git/delete-ref`, a `DELETE`, so it then waits behind a Confirm / Cancel card. Since each user signs in, this spec serves direct messages only, and the config fails validation if group chats are turned on while it is listed. See [Group Chats](#group-chats).
 
 A spec entry takes openapi-mcp-gateway's per-server options, such as a `policy` filter, `auth`, per-operation `operations` shaping, and `exposure.style: dynamic` for a large spec. Dynamic exposure fronts the spec with meta-tools, so keep a spec static with a `policy` filter when its destructive tools should pause for a confirm.
 
@@ -152,6 +153,12 @@ Secrets stay in the environment. `manifest.yml` reads the Slack, LINE, Discord, 
 
 Each release also publishes the app image to `ghcr.io/mroops0111/conciergent` for linux/amd64 and linux/arm64, tagged with the version and `latest`, with the `gateway` extra included. To use it from your own compose file, replace `build: .` in the `app` service with `image: ghcr.io/mroops0111/conciergent:<version>`, and keep `manifest.yml` mounted at `/home/app/manifest.yml`.
 
+## Architecture
+
+A message comes in through a surface, runs as one agent turn over your MCP tools, and goes back as one reply the surface renders natively.
+
+![Conciergent architecture. A chat user on Slack, LINE, or Discord sends a message to a surface, which verifies it and hands it to the turn. The turn loads history and pending approvals from Redis and runs the agent, built on Pydantic AI, which calls any MCP server over MCP and the embedded gateway in process, and the gateway calls your REST APIs over HTTP. Per-user MCP and bot tokens are kept in Postgres. The surface renders the result back to the user as a reply, an Authorize card for OAuth in the chat, or a Confirm card before a destructive tool. A scheduler can also start a turn with conciergent push, and manifest.yml is read at startup.](docs/assets/architecture.svg)
+
 ## Configuration
 
 Conciergent reads one `manifest.yml`, merged over the shipped defaults, so you set only what you change. `${VAR}` / `${VAR:-default}` resolve in any string field.
@@ -197,6 +204,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `store.credentials_url` | *(required)* | Postgres URL (any SQLAlchemy async engine). Holds credentials that survive a restart (MCP and bot tokens). |
 | `store.max_turns` | `10` | Recent turns kept in history. |
 | `gateway.enabled` | `false` | Embed openapi-mcp-gateway in-process. |
+| `gateway.redis_url` | *(required if enabled)* | Redis URL where the gateway keeps its OAuth client registrations across restarts. The app's own Redis works. |
 | `gateway.specs` | `[]` | `{name, spec, base_url}` entries, each mounted at `/{name}/mcp`. |
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
@@ -372,12 +380,6 @@ The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, an
 A suggestion is the interactive primitive. Tapping one posts its prompt back to the agent as if the user had typed it. The field descriptions on these models are the agent's structured-output schema, so the model fills them in directly.
 
 ![Conciergent reply model. One Card, with a header, a line of text, two bullets, and a button, is shown three ways. Slack renders it as an attachment with a side bar, LINE as a Flex bubble with a header band and a full-width button, and Discord as an embed with its button underneath.](docs/assets/reply.svg)
-
-## Architecture
-
-A message comes in through a surface, runs as one agent turn over your MCP tools, and goes back as one reply the surface renders natively.
-
-![Conciergent architecture. A chat user on Slack, LINE, or Discord sends a message to a surface, which verifies it and hands it to the turn. The turn loads history and pending approvals from Redis and runs the agent, built on Pydantic AI, which calls any MCP server over MCP and the embedded gateway in process, and the gateway calls your REST APIs over HTTP. Per-user MCP and bot tokens are kept in Postgres. The surface renders the result back to the user as a reply, an Authorize card for OAuth in the chat, or a Confirm card before a destructive tool. A scheduler can also start a turn with conciergent push, and manifest.yml is read at startup.](docs/assets/architecture.svg)
 
 ## Extending
 

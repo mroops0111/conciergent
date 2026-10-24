@@ -15,5 +15,5 @@ __pycache__
 .claude
 .cursor
 .vscode
-docs
+.internal
 manifest.yml
