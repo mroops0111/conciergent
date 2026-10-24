@@ -1,8 +1,12 @@
 ![Conciergent. Your team's tools in the chat it already uses, with each person signed in as themselves.](docs/assets/cover.svg)
 
-[![CI](https://github.com/mroops0111/conciergent/actions/workflows/ci.yml/badge.svg)](https://github.com/mroops0111/conciergent/actions/workflows/ci.yml)
-[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/mroops0111/conciergent/actions/workflows/ci.yml"><img src="https://github.com/mroops0111/conciergent/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/conciergent/"><img src="https://img.shields.io/pypi/v/conciergent.svg" alt="PyPI version"></a>
+  <a href="https://pepy.tech/projects/conciergent"><img src="https://static.pepy.tech/badge/conciergent/month" alt="PyPI downloads"></a>
+  <a href="https://pypi.org/project/conciergent/"><img src="https://img.shields.io/pypi/pyversions/conciergent.svg" alt="Python versions"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 Conciergent puts your team's tools in the chat it already uses. Connect any [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server or OpenAPI spec, and it becomes a Slack, LINE, or Discord bot the whole team shares. In a direct message, each person signs in to your tools as themselves, so the bot acts only with the permissions of whoever asked. One YAML file sets it up, with no bot code to write.
 
@@ -219,18 +223,9 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 
 Button labels, prompts, and greetings are not config. They live in a locale catalog, picked from each user's Slack, LINE, or Discord language. Set `locales_dir` to a directory of `{lang}.yml` files to rebrand or translate. [`examples/locales/en.yml`](examples/locales/en.yml) is the full English catalog to start from.
 
-## Group Chats
+### Group Chats
 
 Each surface can also answer in group chats, a LINE group, a Slack channel, or a Discord server channel. It is off by default, and once on the bot answers in any group chat it is added to, the same openness as its direct messages.
-
-### Requirement
-
-A group is shared by several people, so it never runs a per-user OAuth. Group chats are served only when every MCP tool works without a user's token.
-
-- **Embedded Gateway Specs**: a spec with no `auth`, a static `bearer` or `api_key`, or an `oauth2` spec with `flow: client_credentials` works in group chats. Any other `oauth2` spec fails config validation while group chats are on.
-- **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses group chats, and is probed again after `agent.mcp_probe_retry_seconds`.
-
-### Configuration
 
 Turn group chats on per surface.
 
@@ -245,7 +240,14 @@ surface:
       reply_trigger: mention # or every_message, to answer every message in the group chat
 ```
 
-### Behavior
+#### Requirement
+
+A group is shared by several people, so it never runs a per-user OAuth. Group chats are served only when every MCP tool works without a user's token.
+
+- **Embedded Gateway Specs**: a spec with no `auth`, a static `bearer` or `api_key`, or an `oauth2` spec with `flow: client_credentials` works in group chats. Any other `oauth2` spec fails config validation while group chats are on.
+- **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses group chats, and is probed again after `agent.mcp_probe_retry_seconds`.
+
+#### Behavior
 
 A group shares one conversation while every member keeps their own identity.
 
@@ -255,7 +257,7 @@ A group shares one conversation while every member keeps their own identity.
 - **Addressed Replies**: a text reply to a typed message shows who it answers, as a quote on LINE, a native reply on Discord, and a mention on Slack. Cards and replies to a button tap are not marked, since LINE cannot quote from a card and a tap has no message to answer.
 - **No Authorization**: a group turn never shows an authorize link and hides the sign-out tool, since a sign-out would clear the whole group's history.
 
-### Surface Setup
+#### Surface Setup
 
 Each platform needs a little more setup before the bot can read a group.
 
@@ -284,13 +286,11 @@ Each platform needs a little more setup before the bot can read a group.
 
 </details>
 
-## Pushes
+### Pushes
 
 The agent can also speak first. A push is a prompt that `conciergent push` runs with no incoming message, sending the agent's reply into a chat, such as a daily digest or a reminder drawn from your tools. Pushing is LINE only for now.
 
 conciergent has no scheduler of its own. When and how often a push runs is up to whatever runs the command, such as cron, a Kubernetes CronJob, or Cloud Scheduler, so timing, retries, and run history come from a tool built for them.
-
-### Configuration
 
 ```yaml
 pushes:
@@ -315,7 +315,7 @@ pushes:
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
 
-### Running
+#### Running
 
 ```bash
 conciergent push vaccine-reminder --config manifest.yml
@@ -360,7 +360,7 @@ spec:
               # Mount manifest.yml and set the env exactly as for the app's own Deployment.
 ```
 
-### Behavior
+#### Behavior
 
 - **Prompt Header**: the agent reads the prompt as `[Automated: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
 - **Shared History**: the prompt and the reply join the target chat's conversation, so a follow-up there has the reply as context. A skipped turn adds nothing.
