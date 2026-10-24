@@ -70,23 +70,13 @@ gateway:
       base_url: https://api.github.com
       policy:
         allow: ["pulls/*", "issues/*", "git/delete-ref"]
-      auth:
-        type: oauth2
-        upstream:
-          authorization_url: https://github.com/login/oauth/authorize
-          token_url: https://github.com/login/oauth/access_token
-          client_id: ${GITHUB_CLIENT_ID}
-          client_secret: ${GITHUB_CLIENT_SECRET}
-          scopes: [repo]
     - name: internal
       spec: ./internal-api.json
 ```
 
 Each spec is served at `/{name}/mcp` and wired into the agent for you, alongside anything already in `agent.mcp_servers`. A complete runnable config lives at [`examples/openapi-chat.yml`](examples/openapi-chat.yml).
 
-The `github` entry signs each user in to their own GitHub account. Register a GitHub OAuth app whose callback URL is `https://{your-public-url}/github/auth/callback`. The first time someone asks for a pull request, Conciergent shows them an Authorize card in the chat. Asking it to delete a branch calls `git/delete-ref`, a `DELETE`, so it then waits behind a Confirm / Cancel card. Since each user signs in, this spec serves direct messages only, and the config fails validation if group chats are turned on while it is listed. See [Group Chats](#group-chats).
-
-A spec entry takes openapi-mcp-gateway's per-server options, such as a `policy` filter, `auth`, per-operation `operations` shaping, and `exposure.style: dynamic` for a large spec. Dynamic exposure fronts the spec with meta-tools, so keep a spec static with a `policy` filter when its destructive tools should pause for a confirm.
+A spec entry takes [openapi-mcp-gateway's per-server options](https://github.com/mroops0111/openapi-mcp-gateway#configuration), such as a `policy` that picks the operations to expose and `auth`. An `oauth2` spec runs the same in-chat OAuth handoff, so each user authorizes their own account before its tools run.
 
 ### 3. Connect Your Chat App
 
