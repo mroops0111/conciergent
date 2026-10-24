@@ -63,7 +63,7 @@ uv add "conciergent[gateway]"
 ```yaml
 gateway:
   enabled: true
-  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0} # keeps the gateway's OAuth clients across restarts
+  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}  # keeps the gateway's OAuth clients across restarts
   specs:
     - name: github
       spec: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json
@@ -132,14 +132,14 @@ Two ways, depending on whether you already have Redis and Postgres.
 Against your own Redis and Postgres:
 
 ```bash
-createdb conciergent      # the database must exist, and Conciergent will create its tables on first run
+createdb conciergent  # the database must exist, and Conciergent will create its tables on first run
 uv run conciergent run
 ```
 
 Or with Docker, which brings up Redis, Postgres, and the app together and needs no uv:
 
 ```bash
-cp examples/openapi-chat.yml manifest.yml     # or use your own
+cp examples/openapi-chat.yml manifest.yml  # or use your own
 docker compose up
 ```
 
@@ -227,7 +227,7 @@ surface:
     channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
     group_chats:
       enabled: true
-      reply_trigger: mention # or every_message, to answer every message in the group chat
+      reply_trigger: mention  # or every_message, to answer every message in the group chat
 ```
 
 #### Requirement
@@ -288,7 +288,7 @@ pushes:
     timezone: Asia/Taipei
     target:
       surface: line
-      to: ${LINE_NOTIFY_TARGET} # a LINE user (U...), group (C...), or room (R...) id
+      to: ${LINE_NOTIFY_TARGET}  # a LINE user (U...), group (C...), or room (R...) id
     allow_skip: true
     failure_message: The reminder could not read its data today, please check the server.
     prompt: |
@@ -339,7 +339,7 @@ spec:
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
-      backoffLimit: 2 # exit 1 is the only failure, and safe to retry
+      backoffLimit: 2  # exit 1 is the only failure, and safe to retry
       template:
         spec:
           restartPolicy: Never
