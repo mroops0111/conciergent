@@ -1,4 +1,5 @@
 import asyncio
+import collections.abc
 import datetime
 import typing
 import zoneinfo
@@ -7,7 +8,14 @@ import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.auth import OAuthToken
 from mcp.types import ToolAnnotations
-from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelResponse,
+    RetryPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -15,9 +23,10 @@ from conciergent import Card, Carousel, PendingApproval, i18n
 from conciergent.agent import runner as runner_module
 from conciergent.agent.mcp.storage import OAuthTokenStorage
 from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
+from conciergent.chart import CREATE_CHART_TOOL_NAME, ChartCapability
 from conciergent.chat_context import DirectChatContext, GroupChatContext, UnattendedChatContext
 from conciergent.i18n.lang import Lang
-from conciergent.runtime import SkippedReply
+from conciergent.runtime import SkippedReply, TurnResult
 from conciergent.store.credential import CredentialStore
 from tests.conftest import RecordingSurface, destructive_server
 
@@ -34,7 +43,9 @@ _CANCEL = i18n.t('approval.cancel', None)
 _DIRECT = DirectChatContext(conversation=_PRINCIPAL)
 
 
-def _agent(*servers: MCPServer | str, model: TestModel | None = None, **options: typing.Any) -> ChatRunner:
+def _agent(
+    *servers: MCPServer | str, model: TestModel | FunctionModel | None = None, **options: typing.Any
+) -> ChatRunner:
     return ChatRunner(model=model or TestModel(), system_prompt=_SYSTEM_PROMPT, mcp_servers=list(servers), **options)
 
 
@@ -493,3 +504,111 @@ async def test_an_unattended_turn_allowed_destructive_tools_runs_them_unasked():
 
     assert not isinstance(result.output, PendingApproval)
     assert len(calls) == 1
+
+
+def _chart_spec() -> dict[str, typing.Any]:
+    return {
+        'data': {'values': [{'day': 'Mon', 'count': 3}, {'day': 'Tue', 'count': 5}]},
+        'mark': 'bar',
+        'encoding': {'x': {'field': 'day', 'type': 'nominal'}, 'y': {'field': 'count', 'type': 'quantitative'}},
+    }
+
+
+def _charting_model(*specs: typing.Any, hero_image_urls: collections.abc.Sequence[str] = ()) -> FunctionModel:
+    """A model that calls create_chart once per spec, then replies with a card showing the last returned URL.
+
+    ``hero_image_urls`` are the URLs its cards show first, one per reply, for a model that mistypes or makes one up.
+    """
+    remaining = list(specs)
+    wrong_urls = list(hero_image_urls)
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if remaining:
+            return ModelResponse(parts=[ToolCallPart(CREATE_CHART_TOOL_NAME, {'spec': remaining.pop(0)})])
+        returned = [
+            part.content
+            for message in messages
+            for part in message.parts
+            if isinstance(part, ToolReturnPart) and part.tool_name == CREATE_CHART_TOOL_NAME
+        ]
+        url = wrong_urls.pop(0) if wrong_urls else returned[-1]
+        card = {'header': 'Counts', 'hero_image_url': url, 'sections': [{'text': 'Tuesday was higher.'}]}
+        return ModelResponse(parts=[ToolCallPart('reply_card', card)])
+
+    return FunctionModel(respond)
+
+
+def _retries(result: TurnResult) -> list[RetryPromptPart]:
+    return [
+        part
+        for message in ModelMessagesTypeAdapter.validate_python(result.history)
+        for part in message.parts
+        if isinstance(part, RetryPromptPart)
+    ]
+
+
+async def test_a_created_chart_is_shown_as_the_card_hero_image(chart_publisher, chart_store):
+    agent = _agent(model=_charting_model(_chart_spec()), capabilities=[ChartCapability(chart_publisher)])
+
+    result = await agent.run('chart it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+
+    card = result.output
+    assert isinstance(card, Card)
+    assert card.hero_image_url is not None
+    prefix = 'https://bot.example.com/charts/'
+    assert card.hero_image_url.startswith(prefix) and card.hero_image_url.endswith('.png')
+    chart_id = card.hero_image_url.removeprefix(prefix).removesuffix('.png')
+    assert (await chart_store.get(chart_id) or b'').startswith(b'\x89PNG')
+
+
+async def test_a_refused_spec_is_retried_by_the_model(chart_publisher):
+    remote = {**_chart_spec(), 'data': {'url': 'https://example.com/data.json'}}
+    agent = _agent(model=_charting_model(remote, _chart_spec()), capabilities=[ChartCapability(chart_publisher)])
+
+    result = await agent.run('chart it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+
+    assert isinstance(result.output, Card)
+    assert result.output.hero_image_url is not None
+    retries = _retries(result)
+    assert len(retries) == 1 and 'data.values' in str(retries[0].content)
+
+
+async def test_a_chart_url_that_names_no_chart_sends_the_model_back(chart_publisher, chart_store):
+    made_up = 'https://bot.example.com/charts/made-up-chart-id-0123456789.png'
+    agent = _agent(
+        model=_charting_model(_chart_spec(), hero_image_urls=[made_up]), capabilities=[ChartCapability(chart_publisher)]
+    )
+
+    result = await agent.run('chart it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+
+    card = result.output
+    assert isinstance(card, Card)
+    assert card.hero_image_url is not None and card.hero_image_url != made_up
+    assert await chart_store.exists(card.hero_image_url.removeprefix('https://bot.example.com/charts/')[:-4])
+    retries = _retries(result)
+    assert len(retries) == 1 and CREATE_CHART_TOOL_NAME in str(retries[0].content)
+
+
+async def test_a_hero_image_from_elsewhere_is_left_alone(chart_publisher):
+    photo = 'https://images.example.com/template.png'
+    agent = _agent(model=_charting_model(hero_image_urls=[photo]), capabilities=[ChartCapability(chart_publisher)])
+
+    result = await agent.run('show it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+
+    assert isinstance(result.output, Card)
+    assert result.output.hero_image_url == photo
+    assert _retries(result) == []
+
+
+async def test_without_charts_the_tool_is_absent():
+    offered: list[list[str]] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append([tool.name for tool in info.function_tools])
+        return ModelResponse(parts=[ToolCallPart('reply_card', {'header': 'Counts', 'sections': [{'text': 'x'}]})])
+
+    agent = _agent(model=FunctionModel(respond))
+
+    await agent.run('chart it', principal=_PRINCIPAL, chat_context=_DIRECT, history=[], pending_approval=None)
+
+    assert offered and all(CREATE_CHART_TOOL_NAME not in names for names in offered)

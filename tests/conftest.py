@@ -9,10 +9,13 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from conciergent.agent.runner import ChatRunner
+from conciergent.chart import ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.chat_context import ChatContext, GroupChatContext
+from conciergent.defaults import defaults_layer
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, ReplySurface
 from conciergent.runtime import TurnResult
+from conciergent.store.chart import ChartStore, RedisChartStore
 from conciergent.store.credential import Base, CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -56,6 +59,22 @@ async def credential_store(credentials_url: str) -> typing.AsyncIterator[Credent
         yield CredentialStore(engine)
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
+    client = redis.asyncio.Redis.from_url(messages_url)
+    await client.flushdb()
+    try:
+        yield RedisChartStore(client, ttl_seconds=60)
+    finally:
+        await client.aclose()
+
+
+@pytest.fixture
+def chart_publisher(chart_store: ChartStore) -> ChartPublisher:
+    renderer = ChartRenderer(DefaultChartStyle(font=defaults_layer()['capabilities']['charts']['font']), max_rows=50)
+    return ChartPublisher(renderer, chart_store, base_url='https://bot.example.com')
 
 
 class RecordingSurface(ReplySurface):

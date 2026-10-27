@@ -148,6 +148,11 @@ class LineReplySurface(ReplySurface):
     def lang(self) -> Lang | None:
         return self._lang
 
+    @property
+    @typing.override
+    def accent_color(self) -> str | None:
+        return self._brand_color
+
     @typing.override
     async def send_text(self, text: str) -> None:
         message: dict[str, typing.Any] = {'type': 'text', 'text': text}

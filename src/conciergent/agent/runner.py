@@ -8,6 +8,7 @@ import typing
 
 import pydantic
 from pydantic_ai import Agent, RunContext, ToolOutput
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.mcp import MCPToolsetClient
 from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter, ToolCallPart
 from pydantic_ai.models import Model
@@ -15,6 +16,7 @@ from pydantic_ai.output import OutputSpec
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDefinition, ToolDenied
 
 from conciergent import i18n
+from conciergent.agent.deps import AgentDeps
 from conciergent.agent.mcp.client import ApprovalPredicate, build_toolset, needs_approval
 from conciergent.agent.mcp.probe import requires_user_authorization
 from conciergent.agent.mcp.storage import OAuthTokenStorage
@@ -58,18 +60,6 @@ _REVOKE_INSTRUCTION = (
 
 
 @dataclasses.dataclass
-class _AgentDeps:
-    """Per-turn context the agent's instructions and rendering read, carried through pydantic-ai deps."""
-
-    surface: ReplySurface | None
-    lang: Lang | None
-    principal: str
-    chat_context: ChatContext
-    # A tool run may set this, e.g. the sign-out tool, to have the turn clear the stored history instead of appending.
-    invalidate_history: bool = False
-
-
-@dataclasses.dataclass
 class _RunInputs:
     """The run_inputs for one ``self._agent.run`` call, whether a fresh turn or a resumed approval."""
 
@@ -100,12 +90,14 @@ class ChatRunner:
         known_user_authorization: collections.abc.Mapping[str, bool] | None = None,
         mcp_probe_timeout_seconds: float = DEFAULTS.agent.mcp_probe_timeout_seconds,
         mcp_probe_retry_seconds: float = DEFAULTS.agent.mcp_probe_retry_seconds,
+        capabilities: collections.abc.Sequence[AbstractCapability[AgentDeps]] = (),
     ) -> None:
         # The credential store only holds MCP OAuth tokens, which redirect_uri enables.
         # A public server needs neither.
         if mcp_servers and redirect_uri is not None and credential_store is None:
             raise ValueError('a credential store is required to persist the MCP OAuth tokens that redirect_uri enables')
         self._mcp_servers = list(mcp_servers)
+        self._capabilities = tuple(capabilities)
         self._credential_store = credential_store
         self._redirect_uri = redirect_uri
         # OAuth tokens exist only for URL servers reached with a redirect_uri and a store,
@@ -139,22 +131,24 @@ class ChatRunner:
             *output_type,
             ToolOutput(SkippedReply, name='skip_reply'),
         ]
-        self._agent: Agent[_AgentDeps, Reply | DeferredToolRequests] = Agent(
+        self._agent: Agent[AgentDeps, Reply | DeferredToolRequests] = Agent(
             model,
-            deps_type=_AgentDeps,
+            deps_type=AgentDeps,
             output_type=output_type,
             instructions=(system_prompt, _BASELINE_INSTRUCTIONS, _REPLY_FORMAT_INSTRUCTIONS),
             retries=3,
+            # Opt-in features such as charts, each bringing its own tools and reply hooks.
+            capabilities=list(self._capabilities),
         )
 
         @self._agent.instructions
-        def surface_formatting(ctx: RunContext[_AgentDeps]) -> str:
+        def surface_formatting(ctx: RunContext[AgentDeps]) -> str:
             # Each surface renders a different dialect, so its hint joins the system prompt per turn.
             surface = ctx.deps.surface
             return surface.text_formatting_instruction if surface is not None else ''
 
         @self._agent.instructions
-        def responding_language(ctx: RunContext[_AgentDeps]) -> str:
+        def responding_language(ctx: RunContext[AgentDeps]) -> str:
             # Follow the user's own message.
             # The resolved platform language only fills in when the message is unclear.
             lang = ctx.deps.lang
@@ -166,19 +160,19 @@ class ChatRunner:
             )
 
         @self._agent.instructions
-        def chat_kind(ctx: RunContext[_AgentDeps]) -> str:
+        def chat_kind(ctx: RunContext[AgentDeps]) -> str:
             # A group chat explains its speaker prefixes, a direct chat adds nothing.
             return ctx.deps.chat_context.instructions
 
         if self._oauth_servers:
 
             async def only_where_sign_out_is_allowed(
-                ctx: RunContext[_AgentDeps], tool_def: ToolDefinition
+                ctx: RunContext[AgentDeps], tool_def: ToolDefinition
             ) -> ToolDefinition | None:
                 return tool_def if ctx.deps.chat_context.allows_sign_out else None
 
             @self._agent.tool(name=REVOKE_TOOL_NAME, requires_approval=True, prepare=only_where_sign_out_is_allowed)
-            async def revoke_authorization(ctx: RunContext[_AgentDeps]) -> str:
+            async def revoke_authorization(ctx: RunContext[AgentDeps]) -> str:
                 """Sign the user out by revoking their authorization for every connected service.
 
                 Call this only when the user asks to sign out, log out, disconnect, switch accounts, or revoke access.
@@ -245,6 +239,11 @@ class ChatRunner:
         """The MCP servers this runner connects to, exposed for assembly-time introspection."""
         return tuple(self._mcp_servers)
 
+    @property
+    def capabilities(self) -> tuple[AbstractCapability[AgentDeps], ...]:
+        """The opt-in capabilities this runner's agent carries, exposed for assembly-time introspection."""
+        return self._capabilities
+
     async def bootstrap(self, principal: str, *, bridge: OAuthBridge | None = None) -> bool:
         """Open every MCP connection without running the agent, firing any pending OAuth flow now."""
         if not self._mcp_servers:
@@ -300,7 +299,7 @@ class ChatRunner:
             for server in self._mcp_servers
         ]
         lang = surface.lang if surface is not None else None
-        agent_deps = _AgentDeps(surface=surface, lang=lang, principal=principal, chat_context=chat_context)
+        agent_deps = AgentDeps(surface=surface, lang=lang, principal=principal, chat_context=chat_context)
         # Resume a parked approval when its state still decodes, otherwise run the input as a fresh turn.
         run_inputs = (
             self._resume(pending_approval, user_input=user_input, history=history, chat_context=chat_context)

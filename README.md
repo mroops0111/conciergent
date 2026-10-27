@@ -200,6 +200,10 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `gateway.enabled` | `false` | Embed openapi-mcp-gateway in-process. |
 | `gateway.redis_url` | *(required if enabled)* | Redis URL where the gateway keeps its OAuth client registrations across restarts. The app's own Redis works. |
 | `gateway.specs` | `[]` | `{name, spec, base_url}` entries, each mounted at `/{name}/mcp`. |
+| `capabilities.charts.enabled` | `false` | Give the agent its `create_chart` tool. See [Charts](#charts). |
+| `capabilities.charts.ttl_seconds` | `7776000` | How long a chart stays reachable (90 days). |
+| `capabilities.charts.max_rows` | `500` | Most rows a chart's inline data may carry. |
+| `capabilities.charts.font` · `font_directory` | *(Noto Sans CJK TC first)* · `null` | CSS font list for chart text, and an optional directory of font files to register. |
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
@@ -359,6 +363,27 @@ spec:
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
 - **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
+### Charts
+
+With charts on, the agent can answer with a chart. It writes a [Vega-Lite](https://vega.github.io/vega-lite/) spec from its tool results, and Conciergent renders it to a PNG shown as the card's hero image on every surface.
+
+```sh
+uv add "conciergent[charts]"
+```
+
+```yaml
+capabilities:
+  charts:
+    enabled: true
+server:
+  url: https://bot.example.com # charts are served from here
+```
+
+- **Hosting**: each chart is stored in the Redis `store.messages_url` and served from `<server.url>/charts/<id>.png` under an unguessable id. LINE only accepts public HTTPS image URLs, and the device showing the message fetches the image itself without LINE keeping a copy. So keep `server.url` public, and set `capabilities.charts.ttl_seconds` to how long older messages should still show their charts. When you expose only some routes through a tunnel, add `/charts/`.
+- **Style**: the agent chooses what to draw, and Conciergent sets the look. Every chart gets the same size, a white background, the surface's `brand_color` as its first color, and a colorblind-safe palette for the rest.
+- **Fonts**: a font the renderer cannot find draws no text at all. The Docker image ships Noto Sans CJK. Elsewhere, install a font that covers your users' scripts, or point `capabilities.charts.font_directory` at its files.
+- **Safety**: a spec must carry its rows inline. Any `url`, for remote data or an image, is refused, so the agent cannot make the server fetch an address.
+
 ## The Reply Model
 
 The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
@@ -402,6 +427,21 @@ class PushSurface(Surface):
     def push_target(self, to: str) -> contextlib.AbstractAsyncContextManager[PushTarget]:
         """Open a push to `to`, yielding the reply surface that sends it."""
 ```
+
+</details>
+
+<details>
+<summary><b>Add a Capability</b></summary>
+
+A capability is an opt-in agent feature, such as [charts](#charts). It is a [Pydantic AI capability](https://ai.pydantic.dev/capabilities/), so it brings its own tools and hooks to the agent, and it may also serve its own routes. The runner and the app only ever speak this interface, so a new feature changes neither.
+
+```python
+class Capability(AbstractCapability[AgentDeps], abc.ABC):
+    def build_routers(self) -> list[fastapi.APIRouter]:
+        """Return the routes this feature serves, none by default."""
+```
+
+Pass instances to both `ChatRunner(capabilities=...)` and `App(capabilities=...)`. To turn one on from YAML, subclass `AgentCapabilitySettings` with its `build()` and add it as a field of `CapabilitySettings`.
 
 </details>
 

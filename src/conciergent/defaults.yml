@@ -74,6 +74,20 @@ gateway:
   redis_url: ''
   specs: []
 
+# Opt-in agent features, each off by default.
+capabilities:
+  # Charts the agent draws with its create_chart tool, served from <server.url>/charts/<id>.png.
+  # Needs the extra conciergent[charts], and LINE needs server.url on public HTTPS.
+  charts:
+    enabled: false
+    # How long a chart stays reachable.
+    # LINE keeps no copy, so an expired chart shows as a broken image in older messages.
+    ttl_seconds: 7776000
+    # The most rows a chart's inline data may carry, so the model aggregates rather than copying raw records.
+    max_rows: 500
+    font: Noto Sans CJK TC, Noto Sans TC, PingFang TC, Microsoft JhengHei, sans-serif
+    font_directory: null
+
 conversation:
   approval_ttl_seconds: 600
   history_ttl_seconds: 604800
