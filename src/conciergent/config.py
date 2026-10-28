@@ -9,7 +9,7 @@ import zoneinfo
 import pydantic
 import yaml
 
-from conciergent.agent.capability import Capability, CapabilityContext
+from conciergent.agent.capability import Capability
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
@@ -300,7 +300,9 @@ class AgentCapabilitySettings(pydantic.BaseModel, abc.ABC):
     enabled: bool = False
 
     @abc.abstractmethod
-    def build(self, context: CapabilityContext) -> Capability: ...
+    def build(self, config: 'AppConfig') -> Capability:
+        """Build the capability, reading whatever else it needs from the whole ``config``."""
+        ...
 
 
 class ChartSettings(AgentCapabilitySettings):
@@ -320,18 +322,19 @@ class ChartSettings(AgentCapabilitySettings):
     font_directory: str | None = None
 
     @typing.override
-    def build(self, context: CapabilityContext) -> Capability:
-        if not context.base_url.startswith('https://'):
+    def build(self, config: 'AppConfig') -> Capability:
+        base_url = config.server.url
+        if not base_url.startswith('https://'):
             # LINE refuses an image URL that is not HTTPS, and Slack and Discord cannot reach a private address.
             _logger.warning(
                 'Charts are served from %s, which chat platforms cannot fetch unless it is public HTTPS',
-                context.base_url,
+                base_url,
             )
         renderer = ChartRenderer(
             DefaultChartStyle(font=self.font), font_directory=self.font_directory, max_rows=self.max_rows
         )
-        store = RedisChartStore.from_url(context.messages_url, ttl_seconds=self.ttl_seconds)
-        return ChartCapability(ChartPublisher(renderer, store, base_url=context.base_url))
+        store = RedisChartStore.from_url(config.store.messages_url, ttl_seconds=self.ttl_seconds)
+        return ChartCapability(ChartPublisher(renderer, store, base_url=base_url))
 
 
 class CapabilitySettings(pydantic.BaseModel):
@@ -342,8 +345,8 @@ class CapabilitySettings(pydantic.BaseModel):
     def all_settings(self) -> list[AgentCapabilitySettings]:
         return [value for value in vars(self).values() if isinstance(value, AgentCapabilitySettings)]
 
-    def enabled_capabilities(self, context: CapabilityContext) -> list[Capability]:
-        return [settings.build(context) for settings in self.all_settings() if settings.enabled]
+    def enabled_capabilities(self, config: 'AppConfig') -> list[Capability]:
+        return [settings.build(config) for settings in self.all_settings() if settings.enabled]
 
 
 class ConversationSettings(pydantic.BaseModel):

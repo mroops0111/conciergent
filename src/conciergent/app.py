@@ -12,7 +12,7 @@ import pydantic_ai
 import uvicorn
 
 from conciergent import i18n, logger
-from conciergent.agent.capability import Capability, CapabilityContext
+from conciergent.agent.capability import Capability
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.config import (
@@ -96,9 +96,7 @@ class App:
                 url = f'{config.server.url.rstrip("/")}/{spec.name}/mcp'
                 mcp_servers.append(url)
                 known_user_authorization[url] = spec.needs_user_authorization
-        capabilities = config.capabilities.enabled_capabilities(
-            CapabilityContext(base_url=config.server.url, messages_url=config.store.messages_url)
-        )
+        capabilities = config.capabilities.enabled_capabilities(config)
         runner = ChatRunner(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
