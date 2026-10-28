@@ -192,10 +192,10 @@ class ReplySurface(abc.ABC):
         return None
 
     @property
-    def accent_color(self) -> str | None:
-        """The surface's brand color, drawn first in a chart so it matches the surface's cards.
+    def brand_color(self) -> str | None:
+        """The color the surface draws its cards in, for anything outside the surface that should match them.
 
-        None leaves a chart in the default palette.
+        None when the surface has no brand color, which leaves such things in their own default colors.
         """
         return None
 

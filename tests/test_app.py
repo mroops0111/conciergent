@@ -14,7 +14,7 @@ from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, De
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
 from conciergent.push import PushOutcome, UnknownPushError
-from conciergent.store.chart import ChartStore, RedisChartStore
+from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
@@ -150,7 +150,7 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
 def _chart_capability(messages_url: str) -> ChartCapability:
     # A store of its own, since the test client serves on another event loop than the fixture's Redis client.
     renderer = ChartRenderer(DefaultChartStyle(font='sans-serif'), max_rows=10)
-    store = RedisChartStore.from_url(messages_url, ttl_seconds=600)
+    store = ChartStore.from_url(messages_url, ttl_seconds=600)
     return ChartCapability(ChartPublisher(renderer, store, base_url='https://bot.example.com'))
 
 

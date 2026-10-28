@@ -12,9 +12,9 @@ import pydantic_ai
 import uvicorn
 
 from conciergent import i18n, logger
-from conciergent.agent.capability import Capability
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
+from conciergent.capability import AppCapability
 from conciergent.config import (
     AppConfig,
     GatewaySettings,
@@ -55,7 +55,7 @@ class App:
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
-        capabilities: collections.abc.Sequence[Capability] = (),
+        capabilities: collections.abc.Sequence[AppCapability] = (),
     ) -> None:
         self.host = host
         self.port = port

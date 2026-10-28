@@ -45,8 +45,8 @@ def test_the_size_holds_whatever_the_spec_asks_for():
     assert _png_size(image) == (1040, 676)
 
 
-def test_the_accent_color_and_model_config_do_not_break_rendering():
-    image = _renderer().render(_spec(config={'background': 'black'}), accent_color='#586af2')
+def test_the_brand_color_and_model_config_do_not_break_rendering():
+    image = _renderer().render(_spec(config={'background': 'black'}), brand_color='#586af2')
 
     assert _png_size(image) == (1040, 676)
 

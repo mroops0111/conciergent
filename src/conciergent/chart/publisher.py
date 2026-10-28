@@ -28,10 +28,10 @@ class ChartPublisher:
     def store(self) -> ChartStore:
         return self._store
 
-    async def publish(self, spec: typing.Any, *, accent_color: str | None = None) -> str:
+    async def publish(self, spec: typing.Any, *, brand_color: str | None = None) -> str:
         """Render ``spec`` and return the new chart's public URL, raising ``ChartSpecError`` for a spec it refuses."""
         # Rendering runs a JavaScript engine for a noticeable fraction of a second, so it stays off the event loop.
-        image = await asyncio.to_thread(self._renderer.render, spec, accent_color=accent_color)
+        image = await asyncio.to_thread(self._renderer.render, spec, brand_color=brand_color)
         chart_id = await self._store.put(image)
         return self._url_prefix + chart_id + self._url_suffix
 

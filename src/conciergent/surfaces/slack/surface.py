@@ -116,7 +116,7 @@ class SlackReplySurface(ReplySurface):
 
     @property
     @typing.override
-    def accent_color(self) -> str | None:
+    def brand_color(self) -> str | None:
         return self._brand_color
 
     @typing.override

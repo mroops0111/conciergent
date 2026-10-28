@@ -23,8 +23,8 @@ class ChartRenderer:
         self._style = style
         self._max_rows = max_rows
 
-    def render(self, spec: typing.Any, *, accent_color: str | None = None) -> bytes:
-        """Return the PNG for ``spec``, drawn in ``accent_color`` first when one is given.
+    def render(self, spec: typing.Any, *, brand_color: str | None = None) -> bytes:
+        """Return the PNG for ``spec``, drawn in ``brand_color`` first when one is given.
 
         Raises ``ChartSpecError`` for a spec that is not inline data within the row limit,
         or that Vega-Lite cannot compile.
@@ -34,7 +34,7 @@ class ChartRenderer:
             return self._vl_convert.vegalite_to_png(
                 self._style.apply(copy.deepcopy(spec)),
                 scale=self._style.scale,
-                config=self._style.config(accent_color),
+                config=self._style.config(brand_color),
                 # Remote data is already refused, this blocks it a second time inside the renderer.
                 allowed_base_urls=[],
             )

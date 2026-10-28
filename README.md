@@ -436,12 +436,12 @@ class PushSurface(Surface):
 A capability is an opt-in agent feature, such as [charts](#charts). It is a [Pydantic AI capability](https://ai.pydantic.dev/capabilities/), so it brings its own tools and hooks to the agent, and it may also serve its own routes. The runner and the app only ever speak this interface, so a new feature changes neither.
 
 ```python
-class Capability(AbstractCapability[AgentDeps], abc.ABC):
+class AppCapability(AbstractCapability[AgentDeps], abc.ABC):
     def build_routers(self) -> list[fastapi.APIRouter]:
         """Return the routes this feature serves, none by default."""
 ```
 
-Pass instances to both `ChatRunner(capabilities=...)` and `App(capabilities=...)`. To turn one on from YAML, subclass `AgentCapabilitySettings` with its `build()` and add it as a field of `CapabilitySettings`.
+Subclass `AppCapability`, then pass instances to both `ChatRunner(capabilities=...)` and `App(capabilities=...)`. To turn one on from YAML, subclass `AppCapabilitySettings` with its `build()` and add it as a field of `CapabilitySettings`.
 
 </details>
 

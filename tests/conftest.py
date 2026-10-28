@@ -15,7 +15,7 @@ from conciergent.defaults import defaults_layer
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, ReplySurface
 from conciergent.runtime import TurnResult
-from conciergent.store.chart import ChartStore, RedisChartStore
+from conciergent.store.chart import ChartStore
 from conciergent.store.credential import Base, CredentialStore
 from conciergent.store.message import MessageStore
 
@@ -66,7 +66,7 @@ async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
     client = redis.asyncio.Redis.from_url(messages_url)
     await client.flushdb()
     try:
-        yield RedisChartStore(client, ttl_seconds=60)
+        yield ChartStore(client, ttl_seconds=60)
     finally:
         await client.aclose()
 

@@ -28,8 +28,8 @@ class ChartStyle(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def config(self, accent_color: str | None) -> dict[str, typing.Any]:
-        """The Vega-Lite config, drawing ``accent_color`` first when one is given."""
+    def config(self, brand_color: str | None) -> dict[str, typing.Any]:
+        """The Vega-Lite config, drawing ``brand_color`` first when one is given."""
         ...
 
 
@@ -76,8 +76,8 @@ class DefaultChartStyle(ChartStyle):
         }
 
     @typing.override
-    def config(self, accent_color: str | None) -> dict[str, typing.Any]:
-        categories = [accent_color, *_CATEGORY_COLORS[1:]] if accent_color else list(_CATEGORY_COLORS)
+    def config(self, brand_color: str | None) -> dict[str, typing.Any]:
+        categories = [brand_color, *_CATEGORY_COLORS[1:]] if brand_color else list(_CATEGORY_COLORS)
         text = {
             'labelFont': self._font,
             'titleFont': self._font,

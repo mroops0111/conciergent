@@ -9,12 +9,12 @@ import zoneinfo
 import pydantic
 import yaml
 
-from conciergent.agent.capability import Capability
+from conciergent.capability import AppCapability
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
-from conciergent.store.chart import RedisChartStore
+from conciergent.store.chart import ChartStore
 from conciergent.surfaces.base import PushSurface, Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
@@ -291,8 +291,8 @@ class GatewaySettings(pydantic.BaseModel):
         return self
 
 
-class AgentCapabilitySettings(pydantic.BaseModel, abc.ABC):
-    """What every opt-in agent feature's settings share, with the ``Capability`` they build.
+class AppCapabilitySettings(pydantic.BaseModel, abc.ABC):
+    """What every opt-in agent feature's settings share, with the ``AppCapability`` they build.
 
     A new feature subclasses this and gets a field on ``CapabilitySettings``, so neither the runner nor the app changes.
     """
@@ -300,12 +300,12 @@ class AgentCapabilitySettings(pydantic.BaseModel, abc.ABC):
     enabled: bool = False
 
     @abc.abstractmethod
-    def build(self, config: 'AppConfig') -> Capability:
+    def build(self, config: 'AppConfig') -> AppCapability:
         """Build the capability, reading whatever else it needs from the whole ``config``."""
         ...
 
 
-class ChartSettings(AgentCapabilitySettings):
+class ChartSettings(AppCapabilitySettings):
     """Charts the agent draws with its ``create_chart`` tool, off by default and needing the ``charts`` extra.
 
     Each chart is stored in the Redis ``store.messages_url`` and served from ``<server.url>/charts/<id>.png``.
@@ -322,7 +322,7 @@ class ChartSettings(AgentCapabilitySettings):
     font_directory: str | None = None
 
     @typing.override
-    def build(self, config: 'AppConfig') -> Capability:
+    def build(self, config: 'AppConfig') -> AppCapability:
         base_url = config.server.url
         if not base_url.startswith('https://'):
             # LINE refuses an image URL that is not HTTPS, and Slack and Discord cannot reach a private address.
@@ -333,7 +333,7 @@ class ChartSettings(AgentCapabilitySettings):
         renderer = ChartRenderer(
             DefaultChartStyle(font=self.font), font_directory=self.font_directory, max_rows=self.max_rows
         )
-        store = RedisChartStore.from_url(config.store.messages_url, ttl_seconds=self.ttl_seconds)
+        store = ChartStore.from_url(config.store.messages_url, ttl_seconds=self.ttl_seconds)
         return ChartCapability(ChartPublisher(renderer, store, base_url=base_url))
 
 
@@ -342,10 +342,10 @@ class CapabilitySettings(pydantic.BaseModel):
 
     charts: ChartSettings
 
-    def all_settings(self) -> list[AgentCapabilitySettings]:
-        return [value for value in vars(self).values() if isinstance(value, AgentCapabilitySettings)]
+    def all_settings(self) -> list[AppCapabilitySettings]:
+        return [value for value in vars(self).values() if isinstance(value, AppCapabilitySettings)]
 
-    def enabled_capabilities(self, config: 'AppConfig') -> list[Capability]:
+    def enabled_capabilities(self, config: 'AppConfig') -> list[AppCapability]:
         return [settings.build(config) for settings in self.all_settings() if settings.enabled]
 
 
