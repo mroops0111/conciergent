@@ -7,7 +7,7 @@ server:
   url: ''
 
 agent:
-  model: openai:gpt-4o-mini
+  model: openai:gpt-6-luna
   # Describe your assistant here, including its role, scope, and what its tools are for.
   # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
@@ -75,10 +75,10 @@ gateway:
   specs: []
 
 # Opt-in agent features, each off by default.
-capabilities:
+capability:
   # Charts the agent draws with its create_chart tool, served from <server.url>/charts/<id>.png.
   # Needs the extra conciergent[charts], and LINE needs server.url on public HTTPS.
-  charts:
+  chart:
     enabled: false
     # How long a chart stays reachable.
     # LINE keeps no copy, so an expired chart shows as a broken image in older messages.

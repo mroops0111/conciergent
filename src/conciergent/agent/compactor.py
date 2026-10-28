@@ -88,7 +88,7 @@ class HistorySummarizer:
 def resolve_input_token_limit(model: Model | str) -> int:
     """Return the model's context window in tokens, read from the bundled genai-prices metadata.
 
-    The model is a ``provider:model`` reference, for example ``openai:gpt-4o-mini``.
+    The model is a ``provider:model`` reference, for example ``openai:gpt-6-luna``.
     An unknown model falls back to a conservative window so compaction still runs,
     and an explicit config value overrides this.
     """

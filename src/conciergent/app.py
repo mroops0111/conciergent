@@ -96,7 +96,7 @@ class App:
                 url = f'{config.server.url.rstrip("/")}/{spec.name}/mcp'
                 mcp_servers.append(url)
                 known_user_authorization[url] = spec.needs_user_authorization
-        capabilities = config.capabilities.enabled_capabilities(config)
+        capabilities = config.capability.enabled_capabilities(config)
         runner = ChatRunner(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,

@@ -340,7 +340,7 @@ class ChartSettings(AppCapabilitySettings):
 class CapabilitySettings(pydantic.BaseModel):
     """Opt-in agent features, each off by default and bringing its own tools."""
 
-    charts: ChartSettings
+    chart: ChartSettings
 
     def all_settings(self) -> list[AppCapabilitySettings]:
         return [value for value in vars(self).values() if isinstance(value, AppCapabilitySettings)]
@@ -418,7 +418,7 @@ class AppConfig(pydantic.BaseModel):
     surface: SurfaceSettings
     store: StoreSettings
     gateway: GatewaySettings
-    capabilities: CapabilitySettings
+    capability: CapabilitySettings
     conversation: ConversationSettings
     logger: LoggerSettings
     pushes: list[PushSettings] = pydantic.Field(default_factory=list)

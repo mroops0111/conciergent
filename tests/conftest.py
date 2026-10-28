@@ -63,7 +63,7 @@ async def credential_store(credentials_url: str) -> typing.AsyncIterator[Credent
 
 # The public URL the chart fixtures serve charts from.
 CHART_BASE_URL = 'https://bot.example.com'
-CHART_FONT = defaults_layer()['capabilities']['charts']['font']
+CHART_FONT = defaults_layer()['capability']['chart']['font']
 
 
 def chart_spec(**overrides: typing.Any) -> dict[str, typing.Any]:

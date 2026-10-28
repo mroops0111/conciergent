@@ -182,7 +182,7 @@ def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
     config = _app_config(
         store_config,
         surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
-        capabilities={'charts': {'enabled': True, 'ttl_seconds': 3600}},
+        capability={'chart': {'enabled': True, 'ttl_seconds': 3600}},
         server={'url': CHART_BASE_URL},
     )
 
@@ -198,7 +198,7 @@ def test_charts_on_a_url_platforms_cannot_fetch_log_a_warning(store_config, capl
     config = _app_config(
         store_config,
         surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
-        capabilities={'charts': {'enabled': True}},
+        capability={'chart': {'enabled': True}},
         server={'url': 'http://localhost:8000'},
     )
 
