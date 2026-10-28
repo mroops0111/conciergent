@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import logging
 import typing
 
 import fastapi
@@ -18,7 +19,7 @@ from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
-from tests.conftest import StubRunner
+from tests.conftest import CHART_BASE_URL, StubRunner, chart_renderer
 from tests.push.conftest import RecordingPushSurface, push_settings
 
 
@@ -149,9 +150,8 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
 
 def _chart_capability(messages_url: str) -> ChartCapability:
     # A store of its own, since the test client serves on another event loop than the fixture's Redis client.
-    renderer = ChartRenderer(DefaultChartStyle(font='sans-serif'), max_rows=10)
     store = ChartStore.from_url(messages_url, ttl_seconds=600)
-    return ChartCapability(ChartPublisher(renderer, store, base_url='https://bot.example.com'))
+    return ChartCapability(ChartPublisher(chart_renderer(), store, base_url=CHART_BASE_URL))
 
 
 async def test_a_stored_chart_is_served_as_a_cacheable_png(stores, messages_url, chart_store: ChartStore):
@@ -183,7 +183,7 @@ def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
         store_config,
         surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
         capabilities={'charts': {'enabled': True, 'ttl_seconds': 3600}},
-        server={'url': 'https://bot.example.com'},
+        server={'url': CHART_BASE_URL},
     )
 
     app = App.from_app_config(config)
@@ -192,6 +192,20 @@ def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
     assert isinstance(capability, ChartCapability)
     assert app._runner.capabilities == (capability,)
     assert capability.publisher.store.ttl_seconds == 3600
+
+
+def test_charts_on_a_url_platforms_cannot_fetch_log_a_warning(store_config, caplog):
+    config = _app_config(
+        store_config,
+        surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
+        capabilities={'charts': {'enabled': True}},
+        server={'url': 'http://localhost:8000'},
+    )
+
+    with caplog.at_level(logging.WARNING, logger='conciergent.config'):
+        App.from_app_config(config)
+
+    assert any('public HTTPS' in record.getMessage() for record in caplog.records)
 
 
 def test_charts_are_off_by_default(store_config):

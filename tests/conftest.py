@@ -9,7 +9,7 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from conciergent.agent.runner import ChatRunner
-from conciergent.chart import ChartPublisher, ChartRenderer, DefaultChartStyle
+from conciergent.chart import ChartPublisher, ChartRenderer, ChartStyle, DefaultChartStyle
 from conciergent.chat_context import ChatContext, GroupChatContext
 from conciergent.defaults import defaults_layer
 from conciergent.i18n.lang import Lang
@@ -61,6 +61,28 @@ async def credential_store(credentials_url: str) -> typing.AsyncIterator[Credent
         await engine.dispose()
 
 
+# The public URL the chart fixtures serve charts from.
+CHART_BASE_URL = 'https://bot.example.com'
+CHART_FONT = defaults_layer()['capabilities']['charts']['font']
+
+
+def chart_spec(**overrides: typing.Any) -> dict[str, typing.Any]:
+    """A small Vega-Lite bar chart with inline rows, which ``overrides`` replace key by key."""
+    return {
+        'data': {'values': [{'day': 'Mon', 'count': 3}, {'day': 'Tue', 'count': 5}]},
+        'mark': 'bar',
+        'encoding': {
+            'x': {'field': 'day', 'type': 'nominal'},
+            'y': {'field': 'count', 'type': 'quantitative'},
+        },
+        **overrides,
+    }
+
+
+def chart_renderer(*, style: ChartStyle | None = None, max_rows: int = 100) -> ChartRenderer:
+    return ChartRenderer(style or DefaultChartStyle(font=CHART_FONT), max_rows=max_rows)
+
+
 @pytest.fixture
 async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
     client = redis.asyncio.Redis.from_url(messages_url)
@@ -73,8 +95,7 @@ async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
 
 @pytest.fixture
 def chart_publisher(chart_store: ChartStore) -> ChartPublisher:
-    renderer = ChartRenderer(DefaultChartStyle(font=defaults_layer()['capabilities']['charts']['font']), max_rows=50)
-    return ChartPublisher(renderer, chart_store, base_url='https://bot.example.com')
+    return ChartPublisher(chart_renderer(), chart_store, base_url=CHART_BASE_URL)
 
 
 class RecordingSurface(ReplySurface):
