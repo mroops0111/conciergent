@@ -7,7 +7,7 @@ server:
   url: ''
 
 agent:
-  model: openai:gpt-4o-mini
+  model: openai:gpt-6-luna
   # Describe your assistant here, including its role, scope, and what its tools are for.
   # Conciergent already handles prompt-injection safety, per-surface formatting, and replying in the user's language.
   system_prompt: |
@@ -73,6 +73,20 @@ gateway:
   enabled: false
   redis_url: ''
   specs: []
+
+# Opt-in agent features, each off by default.
+capability:
+  # Charts the agent draws with its create_chart tool, served from <server.url>/charts/<id>.png.
+  # Needs the extra conciergent[charts], and LINE needs server.url on public HTTPS.
+  chart:
+    enabled: false
+    # How long a chart stays reachable.
+    # LINE keeps no copy, so an expired chart shows as a broken image in older messages.
+    ttl_seconds: 7776000
+    # The most rows a chart's inline data may carry, so the model aggregates rather than copying raw records.
+    max_rows: 100
+    font: Noto Sans CJK TC, Noto Sans TC, PingFang TC, Microsoft JhengHei, sans-serif
+    font_directory: null
 
 conversation:
   approval_ttl_seconds: 600

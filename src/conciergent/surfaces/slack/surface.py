@@ -114,6 +114,11 @@ class SlackReplySurface(ReplySurface):
     def lang(self) -> Lang | None:
         return self._lang
 
+    @property
+    @typing.override
+    def brand_color(self) -> str | None:
+        return self._brand_color
+
     @typing.override
     async def send_text(self, text: str) -> None:
         await self._finalize_processing_if_active()

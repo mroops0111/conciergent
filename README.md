@@ -42,7 +42,7 @@ List any MCP server URL under `agent.mcp_servers`. The scaffolded `manifest.yml`
 ```yaml
 # manifest.yml
 agent:
-  model: openai:gpt-4o-mini
+  model: openai:gpt-6-luna
   system_prompt: |
     You are a helpful assistant. Use your tools to answer the user's requests.
   mcp_servers:
@@ -165,7 +165,7 @@ Three model providers ship in the box. Set `agent.model` to a `provider:model` s
 | Google Gemini | `google:<model>` | `GOOGLE_API_KEY` |
 | Anthropic Claude | `anthropic:<model>` | `ANTHROPIC_API_KEY` |
 
-The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works, so pick the current one from its docs.
+The shipped default is `openai:gpt-6-luna`. Any model the provider offers works, so pick the current one from its docs.
 
 <details>
 <summary><b>Config Reference</b></summary>
@@ -175,7 +175,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `server.host` | `127.0.0.1` | Bind address. Use `0.0.0.0` to accept connections from other hosts. |
 | `server.port` | `8000` | Bind port. |
 | `server.url` | *(from host/port)* | Public URL external services reach. Set this behind a tunnel or proxy. |
-| `agent.model` | `openai:gpt-4o-mini` | A `provider:model` string for one of the three providers above. |
+| `agent.model` | `openai:gpt-6-luna` | A `provider:model` string for one of the three providers above. |
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
 | `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
@@ -200,6 +200,7 @@ The shipped default is `openai:gpt-4o-mini`. Any model the provider offers works
 | `gateway.enabled` | `false` | Embed openapi-mcp-gateway in-process. |
 | `gateway.redis_url` | *(required if enabled)* | Redis URL where the gateway keeps its OAuth client registrations across restarts. The app's own Redis works. |
 | `gateway.specs` | `[]` | `{name, spec, base_url}` entries, each mounted at `/{name}/mcp`. |
+| `capability.chart.enabled` | `false` | Let the agent answer with a chart. See [Charts](#charts). |
 | `conversation.approval_ttl_seconds` | `600` | How long a pending approval waits. |
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
@@ -359,6 +360,23 @@ spec:
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
 - **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
+### Charts
+
+The agent can answer with a chart. It writes a [Vega-Lite](https://vega.github.io/vega-lite/) spec from its tool results, and the chart is shown as the card's hero image.
+
+```sh
+uv add "conciergent[charts]"
+```
+
+```yaml
+capability:
+  chart:
+    enabled: true
+```
+
+- **Hosting**: charts are served from `<server.url>/charts/`, which must be public HTTPS, since LINE fetches each image from the device and keeps no copy. A chart stays reachable for `capability.chart.ttl_seconds`, 90 days by default.
+- **Fonts**: the Docker image ships Noto Sans CJK. Elsewhere, set `capability.chart.font` to a font that covers your users' scripts, since a missing font draws no text at all.
+
 ## The Reply Model
 
 The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
@@ -406,6 +424,13 @@ class PushSurface(Surface):
 </details>
 
 <details>
+<summary><b>Add a Capability</b></summary>
+
+An opt-in agent feature, such as [charts](#charts), subclasses `AppCapability`, a [Pydantic AI capability](https://ai.pydantic.dev/capabilities/) that can also serve routes. Pass it to both `ChatRunner(capabilities=...)` and `App(capabilities=...)`. To turn it on from YAML, add an `AppCapabilitySettings` subclass as a field of `CapabilitySettings`.
+
+</details>
+
+<details>
 <summary><b>Use the Python API</b></summary>
 
 `App.from_config` is the YAML path. For full control, assemble `App` directly, which is the same object the CLI builds. `App.build_asgi()` returns the FastAPI app if you would rather bring your own server.
@@ -420,7 +445,7 @@ credential_store = CredentialStore.from_url('postgresql+asyncpg://localhost/conc
 
 app = App(
     runner=ChatRunner(
-        model='openai:gpt-4o-mini',
+        model='openai:gpt-6-luna',
         system_prompt='You are a helpful assistant.',
         mcp_servers=['http://localhost:9000/mcp'],
         credential_store=credential_store,

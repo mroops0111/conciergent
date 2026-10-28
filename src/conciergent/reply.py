@@ -104,7 +104,8 @@ class Card(pydantic.BaseModel):
         pydantic.Field(
             description=(
                 'Optional hero image rendered above the header. '
-                'Use for a single-entity card that has a thumbnail (a task detail, a template, a seal, etc.). '
+                'Use for a single-entity card that has a thumbnail (a task detail, a template, a seal, etc.), '
+                'or for an image a tool made for this answer, using the URL exactly as the tool returned it. '
                 'Skip for list cards.'
             ),
         ),
@@ -187,6 +188,14 @@ class ReplySurface(abc.ABC):
 
         The agent renders localized text and asks the model to reply in this language.
         None falls back to English and to the language of the user's own message.
+        """
+        return None
+
+    @property
+    def brand_color(self) -> str | None:
+        """The color the surface draws its cards in, for anything outside the surface that should match them.
+
+        None when the surface has no brand color, which leaves such things in their own default colors.
         """
         return None
 

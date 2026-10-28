@@ -1,4 +1,5 @@
 import abc
+import logging
 import os
 import pathlib
 import re
@@ -8,13 +9,19 @@ import zoneinfo
 import pydantic
 import yaml
 
+from conciergent.capability import AppCapability
+from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
+from conciergent.store.chart import ChartStore
 from conciergent.surfaces.base import PushSurface, Surface
 from conciergent.surfaces.discord.app import Discord
 from conciergent.surfaces.line.app import Line
 from conciergent.surfaces.slack.app import Slack
+
+
+_logger = logging.getLogger(__name__)
 
 
 class ServerSettings(pydantic.BaseModel):
@@ -284,6 +291,64 @@ class GatewaySettings(pydantic.BaseModel):
         return self
 
 
+class AppCapabilitySettings(pydantic.BaseModel, abc.ABC):
+    """What every opt-in agent feature's settings share, with the ``AppCapability`` they build.
+
+    A new feature subclasses this and gets a field on ``CapabilitySettings``, so neither the runner nor the app changes.
+    """
+
+    enabled: bool = False
+
+    @abc.abstractmethod
+    def build(self, config: 'AppConfig') -> AppCapability:
+        """Build the capability, reading whatever else it needs from the whole ``config``."""
+        ...
+
+
+class ChartSettings(AppCapabilitySettings):
+    """Charts the agent draws with its ``create_chart`` tool, off by default and needing the ``charts`` extra.
+
+    Each chart is stored in the Redis ``store.messages_url`` and served from ``<server.url>/charts/<id>.png``.
+    LINE fetches images over public HTTPS from each device that shows the message and keeps no copy,
+    so the chart has to stay reachable for as long as older messages should still show it.
+    """
+
+    ttl_seconds: typing.Annotated[int, pydantic.Field(gt=0)]
+    max_rows: typing.Annotated[int, pydantic.Field(gt=0)]
+    # A CSS font list.
+    # A font Vega-Lite cannot find draws no text at all, so keep one that covers the users' scripts.
+    font: typing.Annotated[str, pydantic.Field(min_length=1)]
+    # A directory of font files to register, for a host whose system fonts lack ``font``.
+    font_directory: str | None = None
+
+    @typing.override
+    def build(self, config: 'AppConfig') -> AppCapability:
+        base_url = config.server.url
+        if not base_url.startswith('https://'):
+            # LINE refuses an image URL that is not HTTPS, and Slack and Discord cannot reach a private address.
+            _logger.warning(
+                'Charts are served from %s, which chat platforms cannot fetch unless it is public HTTPS',
+                base_url,
+            )
+        renderer = ChartRenderer(
+            DefaultChartStyle(font=self.font), font_directory=self.font_directory, max_rows=self.max_rows
+        )
+        store = ChartStore.from_url(config.store.messages_url, ttl_seconds=self.ttl_seconds)
+        return ChartCapability(ChartPublisher(renderer, store, base_url=base_url))
+
+
+class CapabilitySettings(pydantic.BaseModel):
+    """Opt-in agent features, each off by default and bringing its own tools."""
+
+    chart: ChartSettings
+
+    def all_settings(self) -> list[AppCapabilitySettings]:
+        return [value for value in vars(self).values() if isinstance(value, AppCapabilitySettings)]
+
+    def enabled_capabilities(self, config: 'AppConfig') -> list[AppCapability]:
+        return [settings.build(config) for settings in self.all_settings() if settings.enabled]
+
+
 class ConversationSettings(pydantic.BaseModel):
     """How long conversation state lives, matching the reference defaults."""
 
@@ -353,6 +418,7 @@ class AppConfig(pydantic.BaseModel):
     surface: SurfaceSettings
     store: StoreSettings
     gateway: GatewaySettings
+    capability: CapabilitySettings
     conversation: ConversationSettings
     logger: LoggerSettings
     pushes: list[PushSettings] = pydantic.Field(default_factory=list)

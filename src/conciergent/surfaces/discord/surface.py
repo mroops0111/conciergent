@@ -97,6 +97,11 @@ class DiscordReplySurface(ReplySurface):
     def lang(self) -> Lang | None:
         return self._lang
 
+    @property
+    @typing.override
+    def brand_color(self) -> str | None:
+        return self._brand_color
+
     @typing.override
     async def send_text(self, text: str) -> None:
         payload = render.build_text_message(text, reply_to_message_id=self._reply_to_message_id)

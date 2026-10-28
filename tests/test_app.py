@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import logging
 import typing
 
 import fastapi
@@ -10,13 +11,15 @@ from mcp.shared.auth import AuthorizationCodeResult
 
 from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
+from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.i18n.lang import Lang
 from conciergent.push import PushOutcome, UnknownPushError
+from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
-from tests.conftest import StubRunner
+from tests.conftest import CHART_BASE_URL, StubRunner, chart_renderer
 from tests.push.conftest import RecordingPushSurface, push_settings
 
 
@@ -143,6 +146,89 @@ def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
 
     with pytest.raises(RuntimeError, match=r'conciergent\[gateway\]'):
         app.build_asgi()
+
+
+def _chart_capability(messages_url: str) -> ChartCapability:
+    # A store of its own, since the test client serves on another event loop than the fixture's Redis client.
+    store = ChartStore.from_url(messages_url, ttl_seconds=600)
+    return ChartCapability(ChartPublisher(chart_renderer(), store, base_url=CHART_BASE_URL))
+
+
+async def test_a_stored_chart_is_served_as_a_cacheable_png(stores, messages_url, chart_store: ChartStore):
+    image = b'\x89PNG\r\n\x1a\nimage'
+    chart_id = await chart_store.put(image)
+    client = _client(_silent_app(stores, capabilities=[_chart_capability(messages_url)]))
+
+    response = client.get(f'/charts/{chart_id}.png')
+
+    assert response.status_code == 200
+    assert response.content == image
+    assert response.headers['content-type'] == 'image/png'
+    assert response.headers['cache-control'] == 'public, max-age=600, immutable'
+
+
+async def test_an_unknown_chart_is_not_found(stores, messages_url, chart_store: ChartStore):
+    client = _client(_silent_app(stores, capabilities=[_chart_capability(messages_url)]))
+
+    assert client.get('/charts/missing-but-well-formed-id-0123.png').status_code == 404
+    assert client.get('/charts/short.png').status_code == 404
+
+
+def test_without_charts_the_route_is_absent(stores):
+    assert _client(_silent_app(stores)).get('/charts/missing-but-well-formed-id-0123.png').status_code == 404
+
+
+def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
+    config = _app_config(
+        store_config,
+        surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
+        capability={'chart': {'enabled': True, 'ttl_seconds': 3600}},
+        server={'url': CHART_BASE_URL},
+    )
+
+    app = App.from_app_config(config)
+
+    capability = app._capabilities[0]
+    assert isinstance(capability, ChartCapability)
+    assert app._runner.capabilities == (capability,)
+    assert capability.publisher.store.ttl_seconds == 3600
+
+
+def test_charts_on_a_url_platforms_cannot_fetch_log_a_warning(store_config, caplog):
+    config = _app_config(
+        store_config,
+        surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
+        capability={'chart': {'enabled': True}},
+        server={'url': 'http://localhost:8000'},
+    )
+
+    with caplog.at_level(logging.WARNING, logger='conciergent.config'):
+        App.from_app_config(config)
+
+    assert any('public HTTPS' in record.getMessage() for record in caplog.records)
+
+
+def test_charts_are_off_by_default(store_config):
+    config = _app_config(store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}})
+
+    app = App.from_app_config(config)
+
+    assert app._capabilities == []
+    assert app._runner.capabilities == ()
+
+
+def test_missing_charts_extra_raises_a_helpful_error(monkeypatch):
+    real_import = builtins.__import__
+
+    def no_charts(name, *args, **kwargs):
+        if name == 'vl_convert':
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', no_charts)
+
+    with pytest.raises(RuntimeError, match=r'conciergent\[charts\]'):
+        ChartRenderer(DefaultChartStyle(font='sans-serif'), max_rows=10)
 
 
 def test_a_custom_surface_mounts_without_touching_app(stores):

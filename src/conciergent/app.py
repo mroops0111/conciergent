@@ -14,6 +14,7 @@ import uvicorn
 from conciergent import i18n, logger
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
+from conciergent.capability import AppCapability
 from conciergent.config import (
     AppConfig,
     GatewaySettings,
@@ -54,6 +55,7 @@ class App:
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
+        capabilities: collections.abc.Sequence[AppCapability] = (),
     ) -> None:
         self.host = host
         self.port = port
@@ -69,6 +71,7 @@ class App:
         self._approval_ttl_seconds = approval_ttl_seconds
         self._history_ttl_seconds = history_ttl_seconds
         self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
+        self._capabilities = list(capabilities)
 
     @classmethod
     def from_config(cls, path: str) -> 'App':
@@ -93,6 +96,7 @@ class App:
                 url = f'{config.server.url.rstrip("/")}/{spec.name}/mcp'
                 mcp_servers.append(url)
                 known_user_authorization[url] = spec.needs_user_authorization
+        capabilities = config.capability.enabled_capabilities(config)
         runner = ChatRunner(
             model=config.agent.model,
             system_prompt=config.agent.system_prompt,
@@ -104,6 +108,7 @@ class App:
             mcp_probe_retry_seconds=config.agent.mcp_probe_retry_seconds,
             client_name=config.agent.client_name,
             known_user_authorization=known_user_authorization,
+            capabilities=capabilities,
         )
         # Compaction is always on, and the limit is auto-detected from the model unless the config overrides it.
         compactor = HistorySummarizer(config.agent.model, input_token_limit=config.agent.input_token_limit)
@@ -125,6 +130,7 @@ class App:
             approval_ttl_seconds=config.conversation.approval_ttl_seconds,
             history_ttl_seconds=config.conversation.history_ttl_seconds,
             oauth_wait_timeout_seconds=config.conversation.oauth_wait_timeout_seconds,
+            capabilities=capabilities,
         )
 
     def build_asgi(self) -> fastapi.FastAPI:
@@ -192,6 +198,9 @@ class App:
 
         for surface in self._surfaces:
             for router in surface.build_routers(context):
+                app.include_router(router)
+        for capability in self._capabilities:
+            for router in capability.build_routers():
                 app.include_router(router)
 
         return app
