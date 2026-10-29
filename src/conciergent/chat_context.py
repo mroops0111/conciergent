@@ -11,6 +11,7 @@ from conciergent.agent.mcp.tool_policy import (
     RunDestructiveToolPolicy,
 )
 from conciergent.reply import ReplySurface
+from conciergent.reply_format import FreeReplyFormat, ReplyFormat
 
 
 if typing.TYPE_CHECKING:
@@ -35,6 +36,8 @@ _WEEKDAYS = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
 _CONFIRM_DESTRUCTIVE_TOOL_POLICY = ConfirmDestructiveToolPolicy()
 _HIDE_DESTRUCTIVE_TOOL_POLICY = HideDestructiveToolPolicy()
 _RUN_DESTRUCTIVE_TOOL_POLICY = RunDestructiveToolPolicy()
+# The free format is stateless too, so every chat that does not declare a shape shares it.
+FREE_REPLY_FORMAT = FreeReplyFormat()
 
 
 class TurnDeclinedError(Exception):
@@ -101,6 +104,11 @@ class ChatContext(abc.ABC):
     def destructive_tool_policy(self) -> DestructiveToolPolicy:
         """How the turn treats a destructive tool, which by default someone in the chat confirms first."""
         return _CONFIRM_DESTRUCTIVE_TOOL_POLICY
+
+    @property
+    def reply_format(self) -> ReplyFormat:
+        """How the turn's reply is shaped, which by default the agent picks and lays out itself."""
+        return FREE_REPLY_FORMAT
 
 
 @dataclasses.dataclass(frozen=True)
@@ -200,6 +208,8 @@ class UnattendedChatContext(ChatContext):
     allows_skip: bool = False
     # Nobody can confirm a destructive tool, so it is left out unless the push opts into running it unasked.
     runs_destructive_tools: bool = False
+    # Stands in for the base class property of the same name, so a push can declare its card's shape.
+    reply_format: ReplyFormat = FREE_REPLY_FORMAT
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
