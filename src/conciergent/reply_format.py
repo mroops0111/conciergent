@@ -73,24 +73,25 @@ class _Shape(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid', frozen=True)
 
 
+def _check_pattern(pattern: str) -> str:
+    # Compile it with the same engine that checks the agent's value.
+    try:
+        pydantic.TypeAdapter(typing.Annotated[str, pydantic.Field(pattern=pattern)])
+    except pydantic_core.SchemaError as error:
+        raise ValueError(f'not a valid pattern: {pattern!r}') from error
+    return pattern
+
+
+# A regular expression a value the agent writes must match, or the agent is asked to write it again.
+Pattern = typing.Annotated[str, pydantic.AfterValidator(_check_pattern)]
+
+
 class PlaceholderShape(_Shape):
     """A gap in a displayed template, which the agent fills."""
 
     # What the agent writes in the gap, which is guidance only and never displayed.
     description: typing.Annotated[str, pydantic.Field(min_length=1)]
-    # A regular expression the filled value must match, or the agent is asked to write it again.
-    pattern: str | None = None
-
-    @pydantic.field_validator('pattern')
-    @classmethod
-    def _pattern_compiles(cls, pattern: str | None) -> str | None:
-        if pattern is not None:
-            # Compile it with the same engine that checks the agent's value.
-            try:
-                pydantic.TypeAdapter(typing.Annotated[str, pydantic.Field(pattern=pattern)])
-            except pydantic_core.SchemaError as error:
-                raise ValueError(f'not a valid pattern: {pattern!r}') from error
-        return pattern
+    pattern: Pattern | None = None
 
 
 def _check_placeholders(templates: dict[str, str | None], placeholders: dict[str, PlaceholderShape]) -> None:
@@ -144,6 +145,9 @@ class FactLabelShape(_Shape):
     """A fixed fact label, whose value the agent writes."""
 
     label: FactLabel
+    # What the agent writes as the value, when the label alone does not say, which is guidance only.
+    description: str | None = None
+    pattern: Pattern | None = None
     # An optional value the agent leaves out drops its row.
     required: bool = True
 
@@ -238,12 +242,15 @@ class SectionShape(_Shape):
         # Labels are free text, so each value gets a positional field that names its label.
         fields: dict[str, typing.Any] = {}
         for index, label in enumerate(self.labels or [], start=1):
-            note = '' if label.required else ' Leave it out when there is no value, which drops the row.'
-            description = f'The value shown beside the label "{label.label}", which is added for you.{note}'
+            parts = [f'The value shown beside the label "{label.label}", which is added for you.']
+            if label.description:
+                parts.append(label.description)
+            if not label.required:
+                parts.append('Leave it out when there is no value, which drops the row.')
             field_type = FactValue if label.required else _optional(FactValue)
             fields[f'value_{index}'] = (
                 field_type,
-                pydantic.Field(... if label.required else None, description=description),
+                pydantic.Field(... if label.required else None, pattern=label.pattern, description=' '.join(parts)),
             )
         return pydantic.create_model(
             f'{_class_name(self.name)}Facts', __doc__='One value per fixed label, in the order shown.', **fields

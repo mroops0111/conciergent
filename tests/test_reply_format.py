@@ -147,6 +147,7 @@ def test_the_output_schema_carries_the_declared_descriptions():
         # A placeholder's description is spelled out, so guidance never looks like displayed text.
         ({'placeholders': {'store': "The store's name."}}, 'valid dictionary or instance of PlaceholderShape'),
         ({'placeholders': {'store': {'description': 'Name.', 'pattern': '('}}}, 'not a valid pattern'),
+        ({'sections': [{'name': 'a', 'labels': [{'label': 'Orders', 'pattern': '('}]}]}, 'not a valid pattern'),
     ],
 )
 def test_a_broken_shape_is_rejected_when_the_config_loads(overrides: dict[str, typing.Any], message: str):
@@ -173,3 +174,21 @@ def test_a_placeholder_pattern_sends_a_value_in_another_format_back_to_the_agent
     with pytest.raises(pydantic.ValidationError, match='should match pattern'):
         tool_output.output.model_validate({**card, 'date': 'October 29'})
     assert _fill(reply_format, {**card, 'date': '10/29'}).cards[0].subtitle == '10/29'
+
+
+def test_a_label_carries_its_own_guidance_and_pattern():
+    labels = ['Orders', {'label': 'Last order', 'description': 'The time, as HH:MM.', 'pattern': r'^\d{2}:\d{2}$'}]
+    reply_format = _format(sections=[{'name': 'totals', 'title': 'Totals', 'labels': labels}])
+    (tool_output,) = reply_format.outputs
+    schema = tool_output.output.model_json_schema()['$defs']['TotalsFacts']['properties']['value_2']
+
+    assert (
+        schema['description']
+        == 'The value shown beside the label "Last order", which is added for you. The time, as HH:MM.'
+    )
+    with pytest.raises(pydantic.ValidationError, match='should match pattern'):
+        tool_output.output.model_validate(
+            {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': 'noon'}}}
+        )
+    reply = _fill(reply_format, {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '21:40'}}})
+    assert reply.cards[0].sections[0].facts[1] == Fact(label='Last order', value='21:40')

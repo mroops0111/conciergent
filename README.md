@@ -342,16 +342,16 @@ A key's role decides what its text is for:
 | Keys | Role |
 |---|---|
 | `header`, `subtitle`, `footnote`, a section's `title`, `labels` | Displayed text. It renders as written, and each `{placeholder}` in it is a gap the agent fills. |
-| `description`, under a section or a placeholder | Guidance for the agent, which is never displayed. |
+| `description`, under a section, a placeholder, or a label | Guidance for the agent, which is never displayed. |
 | `name`, `content`, `pattern`, `required`, `repeated` | Settings. |
 
 - **Placeholders**: each `{name}` in displayed text is declared under `placeholders` with a `description`, and optionally a `pattern`, a regular expression the value must match. A placeholder is a plain lowercase name, and `{{` or `}}` writes a literal brace. Card placeholders serve the header, subtitle, and footnote, while a section's own serve its title.
 - **Content**: a section's `content` is `text`, `bullets`, `facts`, or a list of them, such as `[text, facts]`, though never bullets with facts. `name` keys the section in the agent's output.
-- **Labels**: `labels` fixes a section's fact labels and their order, so the agent writes only the values, and the section holds facts without naming `content`. A label is required unless marked `required: false`, and an omitted value drops its row. Without `labels`, the agent writes each label and value.
+- **Labels**: `labels` fixes a section's fact labels and their order, so the agent writes only the values, and the section holds facts without naming `content`. A label is a plain string, or an object such as `{label: Last order, description: The time as HH:MM., pattern: '^\d{2}:\d{2}$', required: false}` when its value needs guidance or a format. A label is required unless marked `required: false`, and an omitted value drops its row. Without `labels`, the agent writes each label and value.
 - **Optional Sections**: `required: false` leaves a section out when the agent omits it.
 - **Repetition**: `repeated: true` on a section adds one section per item, each with its own title placeholders, within a card's 6 sections. On the card, it sends one card per item, at most 5, each its own message.
 
-The shape becomes the agent's only reply tool, `reply_card`, or `reply_cards` for a repeated card. Every field the agent fills carries its guidance and where it lands: a placeholder names the displayed text it fills, a section names its title, and a labelled value names its label. The fixed text never reaches the agent's output, so it renders the same every run. A value that breaks a `pattern`, a missing required value, or a filled card past a limit, such as a header over 40 characters, goes back to the agent to rewrite. A shape that uses an undeclared placeholder or repeats a section name fails the config.
+The shape becomes the agent's only reply tool, `reply_card`, or `reply_cards` for a repeated card. Every field the agent fills carries its guidance and where it lands: a placeholder names the displayed text it fills, a section names its title, and a labelled value names its label. Displayed text reaches the agent only as this context, so instructions belong in a `description`. The fixed text never reaches the agent's output, so it renders the same every run. A value that breaks a `pattern`, a missing required value, or a filled card past a limit, such as a header over 40 characters, goes back to the agent to rewrite. A shape that uses an undeclared placeholder or repeats a section name fails the config.
 
 #### Running
 
