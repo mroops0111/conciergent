@@ -1,6 +1,6 @@
 import typing
 
-from conciergent.reply import Card, Carousel, Link, Section, Suggestion
+from conciergent.reply import Card, Carousel, Fact, Link, Section, Suggestion
 from conciergent.surfaces.discord import render
 
 
@@ -16,6 +16,21 @@ def test_card_renders_an_embed_with_title_and_bulleted_description() -> None:
     assert embed['title'] == 'Tasks'
     assert 'Hello' in embed['description']
     assert '• a' in embed['description']
+
+
+def test_description_keeps_the_subtitle_titles_and_facts_in_section_order() -> None:
+    card = _card(
+        subtitle='Yesterday',
+        sections=[
+            Section(title='Totals', facts=[Fact(label='Orders', value='42')]),
+            Section(title='Anomalies', bullets=['#A1023 is negative']),
+        ],
+    )
+
+    embed = render.build_card_message(card)['embeds'][0]
+
+    assert embed['description'] == ('_Yesterday_\n\n**Totals**\nOrders: **42**\n\n**Anomalies**\n• #A1023 is negative')
+    assert 'fields' not in embed
 
 
 def test_links_become_link_buttons_without_a_custom_id() -> None:

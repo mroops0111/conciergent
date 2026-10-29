@@ -1,4 +1,4 @@
-from conciergent import Card, Link, Section, Suggestion
+from conciergent import Card, Fact, Link, Section, Suggestion
 from conciergent.surfaces.line import render
 
 
@@ -15,9 +15,11 @@ def _card() -> Card:
 def test_bubble_carries_header_body_and_bullets():
     bubble = render.build_card_bubble(_card())
 
+    assert bubble['header']['backgroundColor'] == render.BRAND_COLOR
     header_text = bubble['header']['contents'][0]
     assert header_text['text'] == 'Tasks'
-    assert header_text['color'] == render.BRAND_COLOR
+    assert header_text['color'] == render.HEADER_TEXT_COLOR
+    assert header_text['size'] == 'lg'
     body = bubble['body']['contents']
     assert body[0] == {'type': 'text', 'text': 'You have two tasks.', 'size': 'md', 'wrap': True}
     bullet_box = body[1]
@@ -30,9 +32,43 @@ def test_boxes_carry_reference_padding():
     bubble = render.build_card_bubble(_card())
 
     assert bubble['header']['paddingStart'] == 'xl'
-    assert bubble['body']['paddingTop'] == 'md'
+    assert bubble['body']['paddingTop'] == 'lg'
     assert bubble['footer']['flex'] == 0
     assert bubble['footer']['paddingBottom'] == 'lg'
+
+
+def test_subtitle_renders_under_the_header():
+    card = Card(header='Daily digest', subtitle='Yesterday, all stores', sections=[Section(text='Quiet day.')])
+
+    header = render.build_card_bubble(card)['header']['contents']
+
+    assert [node['text'] for node in header] == ['Daily digest', 'Yesterday, all stores']
+    assert header[1]['size'] == 'sm'
+
+
+def test_sections_are_separated_and_titled():
+    card = Card(
+        header='Daily digest',
+        sections=[Section(title='Totals', text='Steady.'), Section(title='Anomalies', bullets=['#A1023 is negative'])],
+    )
+
+    body = render.build_card_bubble(card)['body']['contents']
+
+    assert [node['type'] for node in body] == ['text', 'text', 'separator', 'text', 'box']
+    assert body[0] == {'type': 'text', 'text': 'Totals', 'size': 'md', 'weight': 'bold', 'wrap': True}
+    assert body[2]['margin'] == 'lg'
+    assert body[3]['text'] == 'Anomalies'
+
+
+def test_facts_put_the_label_left_and_the_value_at_the_end():
+    card = Card(header='Totals', sections=[Section(facts=[Fact(label='Orders', value='42')])])
+
+    facts_box = render.build_card_bubble(card)['body']['contents'][0]
+    label, value = facts_box['contents'][0]['contents']
+
+    assert facts_box['contents'][0]['layout'] == 'horizontal'
+    assert (label['text'], label['color'], label['flex']) == ('Orders', render.FACT_LABEL_COLOR, 0)
+    assert (value['text'], value['align']) == ('42', 'end')
 
 
 def test_footnote_is_separated_and_muted():

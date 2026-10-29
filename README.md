@@ -382,7 +382,7 @@ capability:
 The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
 
 - **`str`** for plain text.
-- **`Card`** for a header, up to six text sections, an optional hero image, a footnote, up to five link buttons, and up to three suggestion quick-replies.
+- **`Card`** for a header with an optional subtitle, up to six sections, an optional hero image, a footnote, up to five link buttons, and up to three suggestion quick-replies. A section has an optional title, text, and either bullets or facts, which are label and value pairs such as counts and amounts.
 - **`Carousel`** for one to four option cards the user picks between, plus a fallback card.
 
 A suggestion is the interactive primitive. Tapping one posts its prompt back to the agent as if the user had typed it. The field descriptions on these models are the agent's structured-output schema, so the model fills them in directly.

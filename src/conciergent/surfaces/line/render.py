@@ -1,7 +1,7 @@
 import typing
 
 from conciergent.defaults import DEFAULTS
-from conciergent.reply import Card, Link, Suggestion
+from conciergent.reply import Card, Fact, Link, Section, Suggestion
 
 
 BRAND_COLOR = DEFAULTS.surface.line.brand_color
@@ -16,6 +16,12 @@ TEXT_FORMATTING_INSTRUCTION = (
 
 # Mid-gray for bullet list items inside a card body, slightly darker than the body text for gentle hierarchy.
 BULLET_TEXT_COLOR = '#555555'
+
+# Gray for a fact's label, so the value beside it stands out.
+FACT_LABEL_COLOR = '#888888'
+
+# White for the header's text, which sits on the brand color.
+HEADER_TEXT_COLOR = '#FFFFFF'
 
 # Light gray for the footnote line at the bottom of a card, subtle enough to recede behind the body.
 FOOTNOTE_COLOR = '#888888'
@@ -46,7 +52,7 @@ def build_card_bubble(
     bubble: dict[str, typing.Any] = {
         'type': 'bubble',
         'size': 'kilo',
-        'header': _build_header(card.header, brand_color=brand_color),
+        'header': _build_header(card.header, card.subtitle, brand_color=brand_color),
         'body': _build_body(card, has_footer=has_footer),
     }
     if card.hero_image_url:
@@ -107,41 +113,31 @@ def alt_text(card: Card) -> str:
     return card.header[:ALT_TEXT_MAX_LENGTH]
 
 
-def _build_header(header: str, *, brand_color: str) -> dict[str, typing.Any]:
+def _build_header(header: str, subtitle: str | None, *, brand_color: str) -> dict[str, typing.Any]:
+    contents: list[dict[str, typing.Any]] = [
+        {'type': 'text', 'text': header, 'size': 'lg', 'weight': 'bold', 'color': HEADER_TEXT_COLOR, 'wrap': True}
+    ]
+    if subtitle:
+        contents.append({'type': 'text', 'text': subtitle, 'size': 'sm', 'color': HEADER_TEXT_COLOR, 'wrap': True})
     return {
         'type': 'box',
         'layout': 'vertical',
-        'paddingTop': 'xl',
-        'paddingBottom': 'sm',
+        'spacing': 'xs',
+        'backgroundColor': brand_color,
+        'paddingTop': 'lg',
+        'paddingBottom': 'lg',
         'paddingStart': 'xl',
         'paddingEnd': 'xl',
-        'contents': [{'type': 'text', 'text': header, 'size': 'xs', 'weight': 'bold', 'color': brand_color}],
+        'contents': contents,
     }
 
 
 def _build_body(card: Card, *, has_footer: bool) -> dict[str, typing.Any]:
     contents: list[dict[str, typing.Any]] = []
-    for section in card.sections:
-        if section.text:
-            contents.append({'type': 'text', 'text': section.text, 'size': 'md', 'wrap': True})
-        if section.bullets:
-            contents.append(
-                {
-                    'type': 'box',
-                    'layout': 'vertical',
-                    'spacing': 'sm',
-                    'contents': [
-                        {
-                            'type': 'text',
-                            'text': f'• {item.lstrip("•·▸-* ").strip()}',
-                            'size': 'sm',
-                            'wrap': True,
-                            'color': BULLET_TEXT_COLOR,
-                        }
-                        for item in section.bullets
-                    ],
-                }
-            )
+    for index, section in enumerate(card.sections):
+        if index:
+            contents.append({'type': 'separator', 'margin': 'lg'})
+        contents.extend(_build_section(section))
     if card.footnote:
         contents.append({'type': 'separator', 'margin': 'md'})
         contents.append(
@@ -158,11 +154,60 @@ def _build_body(card: Card, *, has_footer: bool) -> dict[str, typing.Any]:
         'type': 'box',
         'layout': 'vertical',
         'spacing': 'lg',
-        'paddingTop': 'md',
+        'paddingTop': 'lg',
         'paddingBottom': 'sm' if has_footer else 'xl',
         'paddingStart': 'xl',
         'paddingEnd': 'xl',
         'contents': contents,
+    }
+
+
+def _build_section(section: Section) -> list[dict[str, typing.Any]]:
+    contents: list[dict[str, typing.Any]] = []
+    if section.title:
+        contents.append({'type': 'text', 'text': section.title, 'size': 'md', 'weight': 'bold', 'wrap': True})
+    if section.text:
+        contents.append({'type': 'text', 'text': section.text, 'size': 'md', 'wrap': True})
+    if section.bullets:
+        contents.append(
+            {
+                'type': 'box',
+                'layout': 'vertical',
+                'spacing': 'sm',
+                'contents': [
+                    {
+                        'type': 'text',
+                        'text': f'• {item.lstrip("•·▸-* ").strip()}',
+                        'size': 'sm',
+                        'wrap': True,
+                        'color': BULLET_TEXT_COLOR,
+                    }
+                    for item in section.bullets
+                ],
+            }
+        )
+    if section.facts:
+        contents.append(
+            {
+                'type': 'box',
+                'layout': 'vertical',
+                'spacing': 'sm',
+                'contents': [_build_fact(fact) for fact in section.facts],
+            }
+        )
+    return contents
+
+
+def _build_fact(fact: Fact) -> dict[str, typing.Any]:
+    # The label keeps its own width and the value takes the rest, aligned to the end, so values line up.
+    return {
+        'type': 'box',
+        'layout': 'horizontal',
+        'spacing': 'md',
+        'contents': [
+            {'type': 'text', 'text': fact.label, 'size': 'sm', 'color': FACT_LABEL_COLOR, 'flex': 0},
+            {'type': 'text', 'text': fact.value, 'size': 'sm', 'weight': 'bold', 'align': 'end', 'wrap': True},
+        ],
     }
 
 

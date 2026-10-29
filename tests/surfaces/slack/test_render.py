@@ -1,4 +1,4 @@
-from conciergent import Card, Link, Section, Suggestion
+from conciergent import Card, Fact, Link, Section, Suggestion
 from conciergent.surfaces.slack import render
 
 
@@ -27,6 +27,24 @@ def test_section_bullets_render_as_a_list():
 
     assert blocks[0]['text']['text'] == 'You have two tasks.'
     assert blocks[1]['text']['text'] == '• Review NDA\n• Sign lease'
+
+
+def test_sections_are_divided_titled_and_carry_facts_as_fields():
+    card = Card(
+        header='Daily digest',
+        subtitle='Yesterday',
+        sections=[
+            Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Revenue', value='$12,300')]),
+            Section(text='Nothing unusual.'),
+        ],
+    )
+
+    blocks = render.build_card_blocks(card, scope='open')
+
+    assert [block['type'] for block in blocks] == ['context', 'section', 'section', 'divider', 'section']
+    assert blocks[0]['elements'][0]['text'] == 'Yesterday'
+    assert blocks[1]['text']['text'] == '*Totals*'
+    assert [field['text'] for field in blocks[2]['fields']] == ['*Orders*\n42', '*Revenue*\n$12,300']
 
 
 def test_footnote_precedes_the_action_buttons():

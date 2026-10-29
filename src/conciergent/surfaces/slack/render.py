@@ -44,9 +44,13 @@ def build_card_blocks(
     blocks: list[dict[str, typing.Any]] = []
     if include_header:
         blocks.append(_build_markdown_section(f'*{card.header[:_HEADER_MAX]}*'))
+    if card.subtitle:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': card.subtitle}]})
     if card.hero_image_url:
         blocks.append({'type': 'image', 'image_url': card.hero_image_url, 'alt_text': card.header[:_HEADER_MAX]})
-    for section in card.sections:
+    for index, section in enumerate(card.sections):
+        if index:
+            blocks.append({'type': 'divider'})
         blocks.extend(_section_blocks(section))
     if card.footnote:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': card.footnote}]})
@@ -119,11 +123,17 @@ def parse_suggestion_scope(action_id: str) -> Scope | None:
 
 def _section_blocks(section: Section) -> list[dict[str, typing.Any]]:
     blocks: list[dict[str, typing.Any]] = []
+    if section.title:
+        blocks.append(_build_markdown_section(f'*{section.title}*'))
     if section.text:
         blocks.append(_build_markdown_section(section.text))
     if section.bullets:
         bullets = '\n'.join(f'• {item.lstrip("•·▸-* ").strip()}' for item in section.bullets)
         blocks.append(_build_markdown_section(bullets))
+    if section.facts:
+        # Slack lays section fields out in two columns, which lines the values up like a table.
+        fields = [{'type': 'mrkdwn', 'text': f'*{fact.label}*\n{fact.value}'} for fact in section.facts]
+        blocks.append({'type': 'section', 'fields': fields})
     return blocks
 
 

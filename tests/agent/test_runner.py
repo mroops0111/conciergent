@@ -67,7 +67,9 @@ async def test_destructive_tool_defers_before_running():
 
     assert isinstance(result.output, PendingApproval)
     assert len(result.output.state['tool_call_ids']) == 1
-    assert 'delete_it' in result.output.card.sections[0].text
+    body = result.output.card.sections[0].text
+    assert body is not None
+    assert 'delete_it' in body
     assert calls == []  # the tool must not run before approval
 
 

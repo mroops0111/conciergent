@@ -6,17 +6,48 @@ import pydantic
 from conciergent.i18n.lang import Lang
 
 
-class Section(pydantic.BaseModel):
-    """A block of body text within a card, with an optional bulleted list."""
+class Fact(pydantic.BaseModel):
+    """A label paired with its value, such as a count or an amount, rendered so the values line up."""
 
-    text: typing.Annotated[
+    label: typing.Annotated[
         str,
+        pydantic.Field(
+            min_length=1,
+            max_length=20,
+            description='What the value measures, at most 20 characters, e.g. "Orders" or "Revenue".',
+        ),
+    ]
+    value: typing.Annotated[
+        str,
+        pydantic.Field(
+            min_length=1,
+            max_length=30,
+            description='The value alone, at most 30 characters, e.g. "42" or "$12,300". Do not repeat the label.',
+        ),
+    ]
+
+
+class Section(pydantic.BaseModel):
+    """A block of a card's body, with an optional title, text, and either a bulleted list or a set of facts."""
+
+    title: typing.Annotated[
+        str | None,
+        pydantic.Field(
+            max_length=40,
+            description=(
+                'Optional short heading for the section, at most 40 characters, e.g. "Totals". '
+                'Use it when a card has several sections that each cover a different topic.'
+            ),
+        ),
+    ] = None
+    text: typing.Annotated[
+        str | None,
         pydantic.Field(
             min_length=1,
             max_length=100,
             description='One paragraph of plain text, at most 100 characters. No markdown.',
         ),
-    ]
+    ] = None
     bullets: list[str] = pydantic.Field(
         default_factory=list,
         max_length=10,
@@ -27,11 +58,21 @@ class Section(pydantic.BaseModel):
             'Do not prefix items with `•`, `-`, `*`, or any other bullet character.'
         ),
     )
+    facts: list[Fact] = pydantic.Field(
+        default_factory=list,
+        max_length=10,
+        description=(
+            'Label and value pairs, such as counts and amounts, rendered so the values line up. '
+            'Use instead of bullets when every item is a figure with a label.'
+        ),
+    )
 
     @pydantic.model_validator(mode='after')
-    def _require_text_or_bullets(self) -> typing.Self:
-        if not self.text and not self.bullets:
-            raise ValueError('a section must have `text`, and optionally `bullets`')
+    def _require_content(self) -> typing.Self:
+        if not self.text and not self.bullets and not self.facts:
+            raise ValueError('a section must have `text`, `bullets`, or `facts`')
+        if self.bullets and self.facts:
+            raise ValueError('a section has either `bullets` or `facts`, not both')
         return self
 
 
@@ -84,7 +125,10 @@ class Suggestion(pydantic.BaseModel):
 
 
 class Card(pydantic.BaseModel):
-    """A rich reply with a header, text sections, an optional hero image, and optional links and suggestions."""
+    """A rich reply with a header and body sections.
+
+    It may also carry a subtitle, a hero image, links, and suggestions.
+    """
 
     header: typing.Annotated[
         str,
@@ -99,6 +143,16 @@ class Card(pydantic.BaseModel):
             ),
         ),
     ]
+    subtitle: typing.Annotated[
+        str | None,
+        pydantic.Field(
+            max_length=60,
+            description=(
+                'Optional one line under the header, at most 60 characters, '
+                'giving the period or scope the card covers, e.g. "Yesterday, all stores".'
+            ),
+        ),
+    ] = None
     hero_image_url: typing.Annotated[
         str | None,
         pydantic.Field(

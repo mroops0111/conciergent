@@ -1,7 +1,7 @@
 import pydantic
 import pytest
 
-from conciergent import Card, Carousel, Section, Suggestion
+from conciergent import Card, Carousel, Fact, Section, Suggestion
 
 
 def test_card_defaults():
@@ -56,3 +56,18 @@ def test_card_requires_a_header_and_a_section():
         Card.model_validate({'sections': [{'text': 'b'}]})
     with pytest.raises(pydantic.ValidationError):
         Card.model_validate({'header': 'Hi'})
+
+
+def test_section_needs_text_bullets_or_facts():
+    with pytest.raises(pydantic.ValidationError):
+        Section(title='Totals')
+
+    section = Section(facts=[Fact(label='Orders', value='42')])
+
+    assert section.text is None
+
+
+def test_section_rejects_bullets_and_facts_together():
+    # Each renders as its own list, so a section holding both would have no defined order.
+    with pytest.raises(pydantic.ValidationError):
+        Section(bullets=['a'], facts=[Fact(label='Orders', value='42')])
