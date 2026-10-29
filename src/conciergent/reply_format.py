@@ -3,6 +3,7 @@ import string
 import typing
 
 import pydantic
+import pydantic_core
 from pydantic_ai import ToolOutput
 
 from conciergent.reply import (
@@ -67,18 +68,54 @@ def _template_names(template: str) -> set[str]:
     return names
 
 
-def _check_placeholders(templates: list[str | None], placeholders: dict[str, str]) -> None:
-    used = set[str]().union(*(_template_names(template) for template in templates if template))
+class _Shape(pydantic.BaseModel):
+    # A misspelled key is an error, not a shape that silently renders otherwise.
+    model_config = pydantic.ConfigDict(extra='forbid', frozen=True)
+
+
+class PlaceholderShape(_Shape):
+    """A gap in a displayed template, which the agent fills."""
+
+    # What the agent writes in the gap, which is guidance only and never displayed.
+    description: typing.Annotated[str, pydantic.Field(min_length=1)]
+    # A regular expression the filled value must match, or the agent is asked to write it again.
+    pattern: str | None = None
+
+    @pydantic.field_validator('pattern')
+    @classmethod
+    def _pattern_compiles(cls, pattern: str | None) -> str | None:
+        if pattern is not None:
+            # Compile it with the same engine that checks the agent's value.
+            try:
+                pydantic.TypeAdapter(typing.Annotated[str, pydantic.Field(pattern=pattern)])
+            except pydantic_core.SchemaError as error:
+                raise ValueError(f'not a valid pattern: {pattern!r}') from error
+        return pattern
+
+
+def _check_placeholders(templates: dict[str, str | None], placeholders: dict[str, PlaceholderShape]) -> None:
+    used = set[str]().union(*(_template_names(template) for template in templates.values() if template))
     if undeclared := used - placeholders.keys():
-        raise ValueError(f'placeholders {sorted(undeclared)} are used but not described under `placeholders`')
+        raise ValueError(f'placeholders {sorted(undeclared)} are used but not declared under `placeholders`')
     if unused := placeholders.keys() - used:
-        raise ValueError(f'placeholders {sorted(unused)} are described but no template uses them')
+        raise ValueError(f'placeholders {sorted(unused)} are declared but no template uses them')
 
 
-def _placeholder_fields(placeholders: dict[str, str]) -> dict[str, typing.Any]:
-    return {
-        name: (str, pydantic.Field(min_length=1, description=description)) for name, description in placeholders.items()
-    }
+def _placeholder_fields(
+    templates: dict[str, str | None], placeholders: dict[str, PlaceholderShape]
+) -> dict[str, typing.Any]:
+    """Return a field per placeholder, telling the agent which displayed text the value goes into."""
+    fields: dict[str, typing.Any] = {}
+    for name, placeholder in placeholders.items():
+        used_in = {
+            where: template for where, template in templates.items() if template and name in _template_names(template)
+        }
+        uses = ' and '.join(f'the {where} "{template}"' for where, template in used_in.items())
+        description = f'{placeholder.description} It fills {{{name}}} in {uses}.'
+        if any(template != f'{{{name}}}' for template in used_in.values()):
+            description += ' The rest of that text is added for you, so write only this part.'
+        fields[name] = (str, pydantic.Field(min_length=1, pattern=placeholder.pattern, description=description))
+    return fields
 
 
 def _optional(field_type: typing.Any) -> typing.Any:
@@ -103,11 +140,6 @@ def _assembling_model(
     return pydantic.create_model(name, __doc__=doc, __validators__=typing.cast(typing.Any, validators), **fields)
 
 
-class _Shape(pydantic.BaseModel):
-    # A misspelled key is an error, not a shape that silently renders otherwise.
-    model_config = pydantic.ConfigDict(extra='forbid', frozen=True)
-
-
 class FactLabelShape(_Shape):
     """A fixed fact label, whose value the agent writes."""
 
@@ -121,8 +153,9 @@ class SectionShape(_Shape):
 
     name: FieldName
     title: str | None = None
-    placeholders: dict[FieldName, str] = pydantic.Field(default_factory=dict)
-    content: typing.Annotated[list[ContentKind], pydantic.Field(min_length=1)]
+    placeholders: dict[FieldName, PlaceholderShape] = pydantic.Field(default_factory=dict)
+    # Optional when labels are set, since fixed labels always hold facts.
+    content: list[ContentKind] | None = None
     labels: list[FactLabelShape] | None = None
     description: str | None = None
     required: bool = True
@@ -144,49 +177,77 @@ class SectionShape(_Shape):
 
     @pydantic.model_validator(mode='after')
     def _check(self) -> typing.Self:
-        if len(set(self.content)) != len(self.content):
-            raise ValueError(f'section {self.name!r} lists the same content twice')
-        if 'bullets' in self.content and 'facts' in self.content:
+        if self.content is None and self.labels is None:
+            raise ValueError(f'section {self.name!r} needs `content`, or `labels` for a section of facts')
+        kinds = self.kinds
+        if not kinds or len(set(kinds)) != len(kinds):
+            raise ValueError(f'section {self.name!r} lists each kind of content once')
+        if 'bullets' in kinds and 'facts' in kinds:
             raise ValueError(f'section {self.name!r} holds either bullets or facts, not both')
         if self.labels is not None:
-            if 'facts' not in self.content:
+            if 'facts' not in kinds:
                 raise ValueError(f'section {self.name!r} has labels, which need facts in its content')
             labels = [label.label for label in self.labels]
             if not labels or len(set(labels)) != len(labels):
                 raise ValueError(f'section {self.name!r} needs at least one label, each named once')
         if reserved := self.placeholders.keys() & {'text', 'bullets', 'facts'}:
             raise ValueError(f'section {self.name!r} cannot name a placeholder {sorted(reserved)}')
-        _check_placeholders([self.title], self.placeholders)
+        _check_placeholders({'section title': self.title}, self.placeholders)
         return self
+
+    @property
+    def kinds(self) -> list[ContentKind]:
+        """The content the section holds, which fixed labels make facts when ``content`` is left out."""
+        return self.content if self.content is not None else ['facts']
 
     def output_model(self) -> type[pydantic.BaseModel]:
         """The model the agent fills for one instance of this section."""
         # One kind of content is required, while with several the agent fills any of them.
-        single = len(self.content) == 1
-        fields = _placeholder_fields(self.placeholders)
-        if 'text' in self.content:
+        single = len(self.kinds) == 1
+        fields = _placeholder_fields({'section title': self.title}, self.placeholders)
+        if 'text' in self.kinds:
             fields['text'] = (SectionText, ...) if single else (_optional(SectionText), None)
-        if 'bullets' in self.content:
+        if 'bullets' in self.kinds:
             fields['bullets'] = (BulletList, pydantic.Field(min_length=1)) if single else (BulletList, [])
-        if 'facts' in self.content:
+        if 'facts' in self.kinds:
             if self.labels is not None:
                 fields['facts'] = (self._labelled_facts_model(), ...)
             else:
                 fields['facts'] = (FactList, pydantic.Field(min_length=1)) if single else (FactList, [])
-        return _assembling_model(f'{_class_name(self.name)}Section', self.assemble, doc=self.description, **fields)
+        return _assembling_model(f'{_class_name(self.name)}Section', self.assemble, doc=self._guidance(), **fields)
+
+    def _guidance(self) -> str:
+        """Tell the agent where the section shows and what to write, since its title and order are set for it."""
+        if self.title is None:
+            parts = [f'The "{self.name}" section, shown without a title.']
+        elif self.placeholders:
+            parts = [f'A section titled "{self.title}", with its placeholders filled from the fields here.']
+        else:
+            parts = [f'The section titled "{self.title}". The title is added for you.']
+        if self.repeated:
+            parts.append(
+                'Give one item per thing it lists.' if self.required else 'Give one item per thing it lists, or none.'
+            )
+        elif not self.required:
+            parts.append('Leave it out when there is nothing for it.')
+        if self.description:
+            parts.append(self.description)
+        return ' '.join(parts)
 
     def _labelled_facts_model(self) -> type[pydantic.BaseModel]:
         # Labels are free text, so each value gets a positional field that names its label.
         fields: dict[str, typing.Any] = {}
         for index, label in enumerate(self.labels or [], start=1):
             note = '' if label.required else ' Leave it out when there is no value, which drops the row.'
-            description = f'The value for "{label.label}", at most 30 characters.{note}'
+            description = f'The value shown beside the label "{label.label}", which is added for you.{note}'
             field_type = FactValue if label.required else _optional(FactValue)
             fields[f'value_{index}'] = (
                 field_type,
                 pydantic.Field(... if label.required else None, description=description),
             )
-        return pydantic.create_model(f'{_class_name(self.name)}Facts', **fields)
+        return pydantic.create_model(
+            f'{_class_name(self.name)}Facts', __doc__='One value per fixed label, in the order shown.', **fields
+        )
 
     def assemble(self, output: pydantic.BaseModel) -> Section:
         values = dict(output)
@@ -206,7 +267,7 @@ class CardShape(_Shape):
     header: typing.Annotated[str, pydantic.Field(min_length=1)]
     subtitle: str | None = None
     footnote: str | None = None
-    placeholders: dict[FieldName, str] = pydantic.Field(default_factory=dict)
+    placeholders: dict[FieldName, PlaceholderShape] = pydantic.Field(default_factory=dict)
     sections: typing.Annotated[list[SectionShape], pydantic.Field(min_length=1, max_length=6)]
     # Send one card per item the agent finds, such as one per store.
     repeated: bool = False
@@ -218,25 +279,35 @@ class CardShape(_Shape):
             raise ValueError('each section needs its own name')
         if clashing := self.placeholders.keys() & set(names):
             raise ValueError(f'{sorted(clashing)} name both a placeholder and a section')
-        _check_placeholders([self.header, self.subtitle, self.footnote], self.placeholders)
+        _check_placeholders(self._templates(), self.placeholders)
         return self
+
+    def _templates(self) -> dict[str, str | None]:
+        return {'header': self.header, 'subtitle': self.subtitle, 'footnote': self.footnote}
 
     def output_model(self) -> type[pydantic.BaseModel]:
         """The model the agent fills for one card."""
-        fields = _placeholder_fields(self.placeholders)
+        fields = _placeholder_fields(self._templates(), self.placeholders)
         for section in self.sections:
             section_model = section.output_model()
             if section.repeated:
                 minimum = 1 if section.required else 0
                 fields[section.name] = (
                     list[section_model],
-                    pydantic.Field([] if minimum == 0 else ..., min_length=minimum, description=section.description),
+                    pydantic.Field([] if minimum == 0 else ..., min_length=minimum),
                 )
             elif section.required:
-                fields[section.name] = (section_model, pydantic.Field(description=section.description))
+                fields[section.name] = (section_model, ...)
             else:
-                fields[section.name] = (section_model | None, pydantic.Field(None, description=section.description))
-        return _assembling_model('ShapedCard', self.assemble, **fields)
+                fields[section.name] = (_optional(section_model), None)
+        return _assembling_model('ShapedCard', self.assemble, doc=self._guidance(), **fields)
+
+    def _guidance(self) -> str:
+        return (
+            f'A card headed "{self.header}". '
+            'Fill only these fields: the headings, titles, labels, and fixed text are added around them in a set order, '
+            'so never write them into a field.'
+        )
 
     def assemble(self, output: pydantic.BaseModel) -> Card:
         values = dict(output)
@@ -306,18 +377,22 @@ class CardReplyFormat(ReplyFormat):
         self._shape = shape
         card_model = shape.output_model()
         if shape.repeated:
-            self._output = pydantic.create_model(
-                'ShapedCards', cards=(list[card_model], pydantic.Field(min_length=1, max_length=_MAX_CARDS))
+            cards = pydantic.Field(
+                min_length=1, max_length=_MAX_CARDS, description=f'One card per item, at most {_MAX_CARDS}.'
             )
+            self._output = pydantic.create_model('ShapedCards', cards=(list[card_model], cards))
             self._tool_name = _CARDS_TOOL_NAME
+            self._description = f'Send the reply as one card per item, at most {_MAX_CARDS}, each its own message.'
         else:
             self._output = card_model
             self._tool_name = _CARD_TOOL_NAME
+            self._description = 'Send the reply as one card.'
+        self._description += ' Fill only the fields, since the layout and every fixed text are set for you.'
 
     @property
     @typing.override
     def outputs(self) -> list[typing.Any]:
-        return [ToolOutput(self._output, name=self._tool_name)]
+        return [ToolOutput(self._output, name=self._tool_name, description=self._description)]
 
     @property
     @typing.override

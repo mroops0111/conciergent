@@ -76,7 +76,7 @@ def test_a_repeated_section_adds_one_section_per_item_with_its_own_title():
         {
             'name': 'tasks',
             'title': '{task}',
-            'placeholders': {'task': "The task's name."},
+            'placeholders': {'task': {'description': "The task's name."}},
             'content': ['text', 'facts'],
             'repeated': True,
         }
@@ -117,17 +117,23 @@ def test_the_output_schema_carries_the_declared_descriptions():
 
     schema = tool_output.output.model_json_schema()
 
-    assert schema['properties']['store']['description'] == "The store's name."
+    assert schema['properties']['store']['description'] == (
+        'The store\'s name. It fills {store} in the header "{store} · Daily summary". '
+        'The rest of that text is added for you, so write only this part.'
+    )
     # A section's description travels on its own definition, which the property refers to.
-    assert schema['$defs']['NotesSection']['description'] == 'Anything worth a second look.'
+    assert schema['$defs']['NotesSection']['description'] == (
+        'The "notes" section, shown without a title. Anything worth a second look.'
+    )
     assert tool_output.name == 'reply_card'
+    assert tool_output.description is not None and 'fixed text are set for you' in tool_output.description
 
 
 @pytest.mark.parametrize(
     ('overrides', 'message'),
     [
-        ({'header': '{city} · Daily summary'}, r"placeholders \['city'\] are used but not described"),
-        ({'header': 'Daily summary'}, r"placeholders \['store'\] are described but no template uses them"),
+        ({'header': '{city} · Daily summary'}, r"placeholders \['city'\] are used but not declared"),
+        ({'header': 'Daily summary'}, r"placeholders \['store'\] are declared but no template uses them"),
         ({'header': '{store.name}'}, 'write a placeholder as a plain name'),
         ({'sections': [{'name': 'json', 'content': 'text'}]}, "'json' is reserved"),
         ({'sections': [{'name': 'Totals', 'content': 'text'}]}, 'should match pattern'),
@@ -137,8 +143,33 @@ def test_the_output_schema_carries_the_declared_descriptions():
         ({'sections': [{'name': 'a', 'content': 'text', 'labels': ['Orders']}]}, 'need facts in its content'),
         ({'sections': [{'name': 'a', 'content': 'facts', 'labels': ['Orders', 'Orders']}]}, 'each named once'),
         ({'sections': [{'name': 'a', 'content': 'text', 'colour': 'red'}]}, 'Extra inputs are not permitted'),
+        ({'sections': [{'name': 'a', 'title': 'A'}]}, 'needs `content`, or `labels`'),
+        # A placeholder's description is spelled out, so guidance never looks like displayed text.
+        ({'placeholders': {'store': "The store's name."}}, 'valid dictionary or instance of PlaceholderShape'),
+        ({'placeholders': {'store': {'description': 'Name.', 'pattern': '('}}}, 'not a valid pattern'),
     ],
 )
 def test_a_broken_shape_is_rejected_when_the_config_loads(overrides: dict[str, typing.Any], message: str):
     with pytest.raises(pydantic.ValidationError, match=message):
         CardShape.model_validate(card_shape(**overrides))
+
+
+def test_fixed_labels_hold_facts_without_naming_the_content():
+    (section,) = CardShape.model_validate(card_shape()).sections[:1]
+
+    assert section.content is None
+    assert section.kinds == ['facts']
+
+
+def test_a_placeholder_pattern_sends_a_value_in_another_format_back_to_the_agent():
+    placeholders = {
+        'store': {'description': "The store's name."},
+        'date': {'description': 'The day.', 'pattern': r'^\d{1,2}/\d{1,2}$'},
+    }
+    reply_format = _format(subtitle='{date}', placeholders=placeholders)
+    (tool_output,) = reply_format.outputs
+    card = {'store': 'Taipei', 'totals': {'facts': {'value_1': '42'}}}
+
+    with pytest.raises(pydantic.ValidationError, match='should match pattern'):
+        tool_output.output.model_validate({**card, 'date': 'October 29'})
+    assert _fill(reply_format, {**card, 'date': '10/29'}).cards[0].subtitle == '10/29'

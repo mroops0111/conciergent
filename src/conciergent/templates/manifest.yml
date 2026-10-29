@@ -83,7 +83,7 @@ gateway:
 #     #   card:
 #     #     header: Daily summary
 #     #     sections:
-#     #       - {name: totals, title: Totals, content: facts}
+#     #       - {name: totals, title: Totals, labels: [Orders, Revenue]}
 
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision

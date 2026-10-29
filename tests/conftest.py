@@ -133,14 +133,9 @@ def card_shape(**overrides: typing.Any) -> dict[str, typing.Any]:
     """
     return {
         'header': '{store} · Daily summary',
-        'placeholders': {'store': "The store's name."},
+        'placeholders': {'store': {'description': "The store's name."}},
         'sections': [
-            {
-                'name': 'totals',
-                'title': 'Totals',
-                'content': 'facts',
-                'labels': ['Orders', {'label': 'Refunds', 'required': False}],
-            },
+            {'name': 'totals', 'title': 'Totals', 'labels': ['Orders', {'label': 'Refunds', 'required': False}]},
             {'name': 'anomalies', 'title': 'Anomalies', 'content': 'bullets', 'required': False},
         ],
         **overrides,
