@@ -305,53 +305,39 @@ pushes:
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
-| `reply.card` | *(none)* | A declared card shape the agent fills, so every run lays out the same way. See [Reply Shape](#reply-shape). |
+| `reply.card` | *(none)* | A fixed card layout the agent fills. See [Reply Shape](#reply-shape). |
 
 #### Reply Shape
 
-Without `reply`, the agent picks between text and a card and lays the card out itself, so the layout can drift from run to run. `reply.card` declares the card instead. The agent fills only its fields, and conciergent assembles the card in the declared order, so the turn cannot end in plain text, another order, or an extra section.
+`reply.card` fixes a push's card layout, so it stays the same every run. The agent fills only the gaps, and conciergent assembles the card in the declared order.
 
 ```yaml
-pushes:
-  - name: daily-digest
-    # name, timezone, target, and prompt as above
-    reply:
-      card:
-        repeated: true  # one card per store, at most 5
-        header: '{store} · Daily summary'
-        subtitle: '{date}'
-        placeholders:
-          store:
-            description: The store's name.
-          date:
-            description: The day summarized, as M/D.
-            pattern: '^\d{1,2}/\d{1,2}$'
-        sections:
-          - name: totals
-            title: Totals
-            labels: [Orders, Revenue, {label: Refunds, required: false}]
-          - name: anomalies
-            title: Anomalies
-            content: bullets
-            description: Anything unusual, one bullet each.
-            required: false
+reply:
+  card:
+    repeated: true                    # one card per store, at most 5
+    header: '{store} · Daily summary'
+    placeholders:
+      store: {description: The store's name.}
+    sections:
+      - name: totals
+        title: Totals
+        labels: [Orders, {label: Refunds, required: false}]  # the agent writes only the values
+      - name: anomalies
+        title: Anomalies
+        content: bullets              # text, bullets, facts, or a list such as [text, facts]
+        description: Anything unusual, one bullet each.
+        required: false               # left out when the agent has nothing for it
 ```
-
-A key's role decides what its text is for:
 
 | Keys | Role |
 |---|---|
-| `header`, `subtitle`, `footnote`, a section's `title`, `labels` | Displayed text. It renders as written, and each `{placeholder}` in it is a gap the agent fills. |
-| `description`, under a section, a placeholder, or a label | Guidance for the agent, which is never displayed. |
-| `name`, `content`, `pattern`, `required`, `repeated` | Settings. |
+| `header`, `subtitle`, `footnote`, `title`, `labels` | Displayed as written. Each `{placeholder}` is a gap the agent fills. |
+| `description` | Guidance for the agent, never displayed. |
+| `pattern` | A regular expression a placeholder or label value must match. |
 
-- **Placeholders**: each `{name}` in displayed text is declared under `placeholders` with a `description`, and optionally a `pattern`, a regular expression the value must match. A placeholder is a plain lowercase name, and `{{` or `}}` writes a literal brace. Card placeholders serve the header, subtitle, and footnote, while a section's own serve its title.
-- **Content**: a section's `content` is `text`, `bullets`, `facts`, or a list of them, such as `[text, facts]`, though never bullets with facts. `name` keys the section in the agent's output.
-- **Labels**: `labels` fixes a section's fact labels and their order, so the agent writes only the values, and the section holds facts without naming `content`. A label is a plain string, or an object such as `{label: Last order, description: The time as HH:MM., pattern: '^\d{2}:\d{2}$', required: false}` when its value needs guidance or a format. A label is required unless marked `required: false`, and an omitted value drops its row. Without `labels`, the agent writes each label and value.
-- **Optional Sections**: `required: false` leaves a section out when the agent omits it.
-- **Repetition**: `repeated: true` on a section adds one section per item, each with its own title placeholders, within a card's 6 sections. On the card, it sends one card per item, at most 5, each its own message.
-
-The shape becomes the agent's only reply tool, `reply_card`, or `reply_cards` for a repeated card. Every field the agent fills carries its guidance and where it lands: a placeholder names the displayed text it fills, a section names its title, and a labelled value names its label. Displayed text reaches the agent only as this context, so instructions belong in a `description`. The fixed text never reaches the agent's output, so it renders the same every run. A value that breaks a `pattern`, a missing required value, or a filled card past a limit, such as a header over 40 characters, goes back to the agent to rewrite. A shape that uses an undeclared placeholder or repeats a section name fails the config.
+- **Repetition**: `repeated: true` on a section adds one section per item, each with its own title placeholders.
+- **Retries**: a value off its `pattern`, a missing required value, or a card past a limit, such as a header over 40 characters, goes back to the agent to rewrite.
+- **Config Checks**: a shape that uses an undeclared placeholder or repeats a section name fails the config.
 
 #### Running
 
