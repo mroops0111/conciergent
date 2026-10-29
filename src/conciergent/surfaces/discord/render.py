@@ -26,8 +26,10 @@ _STYLE_SECONDARY = 2
 _STYLE_DANGER = 4
 _STYLE_LINK = 5
 
-# Discord caps an embed title at 256 characters, a footer at 2048, a button label at 80, and a custom_id at 100.
+# Discord caps an embed title at 256 characters, a description at 4096, a footer at 2048,
+# a button label at 80, and a custom_id at 100.
 _TITLE_MAX = 256
+_DESCRIPTION_MAX = 4096
 _FOOTER_MAX = 2048
 _LABEL_MAX = 80
 _BUTTONS_PER_ROW = 5
@@ -103,7 +105,7 @@ def _description(card: Card) -> str:
     if card.subtitle:
         blocks.append(f'_{card.subtitle}_')
     blocks.extend(_section_text(section) for section in card.sections)
-    return '\n\n'.join(blocks)
+    return '\n\n'.join(blocks)[:_DESCRIPTION_MAX]
 
 
 def _section_text(section: Section) -> str:
@@ -112,7 +114,7 @@ def _section_text(section: Section) -> str:
         lines.append(f'**{section.title}**')
     if section.text:
         lines.append(section.text)
-    lines.extend(f'• {item.lstrip("•·▸-* ").strip()}' for item in section.bullets)
+    lines.extend(f'• {item}' for item in section.bullets)
     lines.extend(f'{fact.label}: **{fact.value}**' for fact in section.facts)
     return '\n'.join(lines)
 

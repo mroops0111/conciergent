@@ -1,9 +1,14 @@
 import abc
+import re
 import typing
 
 import pydantic
 
 from conciergent.i18n.lang import Lang
+
+
+# A bullet marker the model may write at the start of an item.
+_BULLET_MARKER = re.compile(r'^\s*(?:[•·▸]\s*|[-*]\s+)')
 
 
 class Fact(pydantic.BaseModel):
@@ -66,6 +71,13 @@ class Section(pydantic.BaseModel):
             'Use instead of bullets when every item is a figure with a label.'
         ),
     )
+
+    @pydantic.field_validator('bullets')
+    @classmethod
+    def _strip_bullet_markers(cls, bullets: list[str]) -> list[str]:
+        # Surfaces add their own marker, so one the model wrote anyway is dropped.
+        # A dash or an asterisk counts only before a space, so a value like "-5%" keeps its sign.
+        return [_BULLET_MARKER.sub('', item).strip() for item in bullets]
 
     @pydantic.model_validator(mode='after')
     def _require_content(self) -> typing.Self:

@@ -1,7 +1,9 @@
+import typing
+
 import pydantic
 import pytest
 
-from conciergent import Card, Carousel, Fact, Section, Suggestion
+from conciergent import Card, Carousel, Section, Suggestion
 
 
 def test_card_defaults():
@@ -58,16 +60,47 @@ def test_card_requires_a_header_and_a_section():
         Card.model_validate({'header': 'Hi'})
 
 
-def test_section_needs_text_bullets_or_facts():
+_ORDERS = {'label': 'Orders', 'value': '42'}
+
+
+@pytest.mark.parametrize(
+    'fields',
+    [
+        {'text': 'Steady.'},
+        {'bullets': ['a']},
+        {'facts': [_ORDERS]},
+        {'title': 'Totals', 'text': 'Steady.', 'facts': [_ORDERS]},
+    ],
+)
+def test_section_accepts_text_bullets_or_facts(fields: dict[str, typing.Any]):
+    Section.model_validate(fields)
+
+
+@pytest.mark.parametrize(
+    'fields',
+    [
+        # A title alone has no content.
+        {'title': 'Totals'},
+        # Each renders as its own list, so a section holding both would have no defined order.
+        {'bullets': ['a'], 'facts': [_ORDERS]},
+    ],
+)
+def test_section_rejects_no_content_or_bullets_with_facts(fields: dict[str, typing.Any]):
     with pytest.raises(pydantic.ValidationError):
-        Section(title='Totals')
-
-    section = Section(facts=[Fact(label='Orders', value='42')])
-
-    assert section.text is None
+        Section.model_validate(fields)
 
 
-def test_section_rejects_bullets_and_facts_together():
-    # Each renders as its own list, so a section holding both would have no defined order.
-    with pytest.raises(pydantic.ValidationError):
-        Section(bullets=['a'], facts=[Fact(label='Orders', value='42')])
+@pytest.mark.parametrize(
+    ('item', 'expected'),
+    [
+        ('• Review NDA', 'Review NDA'),
+        ('- Review NDA', 'Review NDA'),
+        ('* Review NDA', 'Review NDA'),
+        ('▸Review NDA', 'Review NDA'),
+        # A dash or asterisk with no space after it is part of the content, such as a negative figure.
+        ('-5% vs last week', '-5% vs last week'),
+        ('*est.* total', '*est.* total'),
+    ],
+)
+def test_bullet_markers_are_dropped_but_signs_are_kept(item: str, expected: str):
+    assert Section(bullets=[item]).bullets == [expected]

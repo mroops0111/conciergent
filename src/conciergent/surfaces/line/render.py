@@ -177,7 +177,7 @@ def _build_section(section: Section) -> list[dict[str, typing.Any]]:
                 'contents': [
                     {
                         'type': 'text',
-                        'text': f'• {item.lstrip("•·▸-* ").strip()}',
+                        'text': f'• {item}',
                         'size': 'sm',
                         'wrap': True,
                         'color': BULLET_TEXT_COLOR,
@@ -199,14 +199,23 @@ def _build_section(section: Section) -> list[dict[str, typing.Any]]:
 
 
 def _build_fact(fact: Fact) -> dict[str, typing.Any]:
-    # The label keeps its own width and the value takes the rest, aligned to the end, so values line up.
+    # The label and the value split the width evenly and each wraps, so a long label never squeezes the value out.
+    # The value aligns to the end, so values line up down the section.
     return {
         'type': 'box',
         'layout': 'horizontal',
         'spacing': 'md',
         'contents': [
-            {'type': 'text', 'text': fact.label, 'size': 'sm', 'color': FACT_LABEL_COLOR, 'flex': 0},
-            {'type': 'text', 'text': fact.value, 'size': 'sm', 'weight': 'bold', 'align': 'end', 'wrap': True},
+            {'type': 'text', 'text': fact.label, 'size': 'sm', 'color': FACT_LABEL_COLOR, 'flex': 1, 'wrap': True},
+            {
+                'type': 'text',
+                'text': fact.value,
+                'size': 'sm',
+                'weight': 'bold',
+                'align': 'end',
+                'flex': 1,
+                'wrap': True,
+            },
         ],
     }
 

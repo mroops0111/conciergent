@@ -1,17 +1,10 @@
-import typing
-
-from conciergent.reply import Card, Carousel, Fact, Link, Section, Suggestion
+from conciergent.reply import Carousel, Link, Section, Suggestion
 from conciergent.surfaces.discord import render
-
-
-def _card(**overrides: typing.Any) -> Card:
-    fields: dict[str, typing.Any] = {'header': 'Tasks', 'sections': [Section(text='Body')]}
-    fields.update(overrides)
-    return Card(**fields)
+from tests.conftest import digest_card, make_card
 
 
 def test_card_renders_an_embed_with_title_and_bulleted_description() -> None:
-    message = render.build_card_message(_card(sections=[Section(text='Hello', bullets=['a', 'b'])]))
+    message = render.build_card_message(make_card(sections=[Section(text='Hello', bullets=['a', 'b'])]))
     embed = message['embeds'][0]
     assert embed['title'] == 'Tasks'
     assert 'Hello' in embed['description']
@@ -19,22 +12,24 @@ def test_card_renders_an_embed_with_title_and_bulleted_description() -> None:
 
 
 def test_description_keeps_the_subtitle_titles_and_facts_in_section_order() -> None:
-    card = _card(
-        subtitle='Yesterday',
-        sections=[
-            Section(title='Totals', facts=[Fact(label='Orders', value='42')]),
-            Section(title='Anomalies', bullets=['#A1023 is negative']),
-        ],
+    embed = render.build_card_message(digest_card())['embeds'][0]
+
+    assert embed['description'] == (
+        '_Yesterday_\n\n**Totals**\nOrders: **42**\nRevenue: **$12,300**\n\n**Anomalies**\n• #A1023 is negative'
     )
-
-    embed = render.build_card_message(card)['embeds'][0]
-
-    assert embed['description'] == ('_Yesterday_\n\n**Totals**\nOrders: **42**\n\n**Anomalies**\n• #A1023 is negative')
     assert 'fields' not in embed
 
 
+def test_description_is_capped_at_the_discord_limit() -> None:
+    sections = [Section(text='x' * 100, bullets=['y' * 1000] * 10) for _ in range(6)]
+
+    embed = render.build_card_message(make_card(sections=sections))['embeds'][0]
+
+    assert len(embed['description']) == 4096
+
+
 def test_links_become_link_buttons_without_a_custom_id() -> None:
-    message = render.build_card_message(_card(links=[Link(label='Open', url='https://example.com')]))
+    message = render.build_card_message(make_card(links=[Link(label='Open', url='https://example.com')]))
     button = message['components'][0]['components'][0]
     assert button['style'] == 5
     assert button['url'] == 'https://example.com'
@@ -42,14 +37,14 @@ def test_links_become_link_buttons_without_a_custom_id() -> None:
 
 
 def test_suggestion_custom_id_round_trips_a_prompt_containing_a_colon() -> None:
-    message = render.build_card_message(_card(suggestions=[Suggestion(label='More', prompt='Show more: NDA')]))
+    message = render.build_card_message(make_card(suggestions=[Suggestion(label='More', prompt='Show more: NDA')]))
     button = message['components'][0]['components'][0]
     parsed = render.parse_suggestion(button['custom_id'])
     assert parsed == ('open', 'Show more: NDA')
 
 
 def test_destructive_card_uses_the_destructive_color_and_a_danger_button() -> None:
-    card = _card(
+    card = make_card(
         suggestions=[Suggestion(label='Confirm', prompt='confirm'), Suggestion(label='Cancel', prompt='cancel')]
     )
     message = render.build_card_message(card, destructive=True)
@@ -63,10 +58,10 @@ def test_destructive_card_uses_the_destructive_color_and_a_danger_button() -> No
 def test_carousel_renders_one_embed_per_card_in_order() -> None:
     carousel = Carousel(
         options=[
-            _card(header='A', suggestions=[Suggestion(label='A', prompt='pick A')]),
-            _card(header='B', suggestions=[Suggestion(label='B', prompt='pick B')]),
+            make_card(header='A', suggestions=[Suggestion(label='A', prompt='pick A')]),
+            make_card(header='B', suggestions=[Suggestion(label='B', prompt='pick B')]),
         ],
-        fallback=_card(header='None fit'),
+        fallback=make_card(header='None fit'),
     )
     message = render.build_carousel_message([*carousel.options, carousel.fallback])
     assert [embed['title'] for embed in message['embeds']] == ['A', 'B', 'None fit']
