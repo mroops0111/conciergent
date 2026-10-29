@@ -79,6 +79,11 @@ gateway:
 #     # allow_skip: false # let the agent end with skip_reply and send nothing
 #     # allow_destructive: false # unsafe: run destructive tools without a confirmation
 #     # failure_message: null # text pushed as-is when the turn fails
+#     # reply: # declare the reply card's shape, see the README's Reply Shape
+#     #   card:
+#     #     header: Daily summary
+#     #     sections:
+#     #       - {name: totals, title: Totals, content: facts}
 
 # conversation:
 #   approval_ttl_seconds: 600 # how long a pending approval waits for a decision

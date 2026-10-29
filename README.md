@@ -305,6 +305,42 @@ pushes:
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
+| `reply.card` | *(none)* | A declared card shape the agent fills, so every run lays out the same way. See [Reply Shape](#reply-shape). |
+
+#### Reply Shape
+
+Without `reply`, the agent picks between text and a card and lays the card out itself, so the layout can drift from run to run. `reply.card` declares the card instead. The agent fills only its fields, and conciergent assembles the card in the declared order, so the turn cannot end in plain text, another order, or an extra section.
+
+```yaml
+pushes:
+  - name: daily-digest
+    # name, timezone, target, and prompt as above
+    reply:
+      card:
+        repeated: true  # one card per store, at most 5
+        header: '{store} · Daily summary'
+        subtitle: '{date}'
+        placeholders:
+          store: The store's name.
+          date: The day summarized, as M/D.
+        sections:
+          - name: totals
+            title: Totals
+            content: facts
+            labels: [Orders, Revenue, {label: Refunds, required: false}]
+          - name: anomalies
+            title: Anomalies
+            content: bullets
+            description: Anything unusual, one bullet each.
+            required: false
+```
+
+- **Templates**: `header`, `subtitle`, `footnote`, and a section's `title` mix fixed text with `{placeholder}` fields. Fixed text renders as is, and each placeholder is a field the agent fills, described under `placeholders`.
+- **Content**: a section's `content` is `text`, `bullets`, `facts`, or a list of them, such as `[text, facts]`, though never bullets with facts. Its `description` tells the agent what to write.
+- **Labels**: `labels` fixes a facts section's labels and their order, so the agent writes only the values. A label is required unless marked `required: false`, and an omitted value drops its row. Without `labels`, the agent writes each label and value.
+- **Optional Sections**: `required: false` leaves a section out when the agent omits it.
+- **Repetition**: `repeated: true` on a section adds one section per item, each with its own title placeholders, within a card's 6 sections. On the card, it sends one card per item, at most 5, each its own message.
+- **Limits**: a filled header over 40 characters, or any other card limit the filled card breaks, goes back to the agent to rewrite. A shape that names an undeclared placeholder or repeats a section name fails the config.
 
 #### Running
 
@@ -358,7 +394,7 @@ spec:
 - **Authorization**: the turn holds no one's authorization, so every tool must work without a user's token, the same [requirement](#requirement) as group chats. A per-user gateway spec fails the config, which `push` reports with exit 2. Another MCP server that needs a user's token is found when the turn starts, which fails the push with exit 1 and pushes `failure_message`.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
-- **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
+- **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Each card of a repeated card is its own message. Use `allow_skip` for prompts that often have nothing to say.
 
 ### Charts
 

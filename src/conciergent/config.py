@@ -14,6 +14,7 @@ from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, De
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
+from conciergent.reply_format import CardShape
 from conciergent.store.chart import ChartStore
 from conciergent.surfaces.base import PushSurface, Surface
 from conciergent.surfaces.discord.app import Discord
@@ -369,6 +370,14 @@ class PushTargetSettings(pydantic.BaseModel):
     to: typing.Annotated[str, pydantic.Field(min_length=1)]
 
 
+class PushReplySettings(pydantic.BaseModel):
+    """The shape a push's reply takes, instead of the agent picking a reply and laying it out itself."""
+
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    card: CardShape
+
+
 class PushSettings(pydantic.BaseModel):
     """A prompt the agent runs on demand from ``conciergent push``, sending its reply into a chat nobody spoke in.
 
@@ -391,6 +400,9 @@ class PushSettings(pydantic.BaseModel):
     allow_destructive: bool = False
     # Text pushed as-is when the turn fails, such as when an MCP server is down, so a failure is not silent.
     failure_message: str | None = None
+    # A declared card shape the agent fills, so every run lays out the same way.
+    # Without it, the agent picks and lays out the reply itself.
+    reply: PushReplySettings | None = None
 
     @pydantic.field_validator('timezone')
     @classmethod

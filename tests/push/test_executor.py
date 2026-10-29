@@ -7,10 +7,11 @@ import pytest
 from conciergent.agent.mcp.tool_policy import HideDestructiveToolPolicy, RunDestructiveToolPolicy
 from conciergent.chat_context import UnattendedChatContext
 from conciergent.push import PushOutcome
+from conciergent.reply_format import CardReplyFormat, FreeReplyFormat
 from conciergent.runtime import SkippedReply
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushTarget
-from tests.conftest import StubRunner
+from tests.conftest import StubRunner, card_shape
 from tests.push.conftest import STARTED_AT, RecordingPushSurface, executor, push_settings
 
 
@@ -173,3 +174,21 @@ async def test_a_push_never_takes_an_approval_waiting_in_the_users_direct_chat(m
 
     assert runner.calls[0]['pending_approval'] is None
     assert await message_store.take_approval('line:U1') == {'pending': 'delete'}
+
+
+async def test_a_push_with_a_declared_shape_runs_with_its_card_format(message_store: MessageStore):
+    runner = StubRunner()
+
+    await executor(message_store, runner=runner).run(push_settings(reply={'card': card_shape()}), STARTED_AT)
+
+    reply_format = runner.calls[0]['chat_context'].reply_format
+    assert isinstance(reply_format, CardReplyFormat)
+    assert reply_format.outputs[0].name == 'reply_card'
+
+
+async def test_a_push_without_a_shape_lets_the_agent_pick_its_reply(message_store: MessageStore):
+    runner = StubRunner()
+
+    await executor(message_store, runner=runner).run(push_settings(), STARTED_AT)
+
+    assert isinstance(runner.calls[0]['chat_context'].reply_format, FreeReplyFormat)

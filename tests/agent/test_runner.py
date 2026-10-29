@@ -26,9 +26,11 @@ from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.chart import CREATE_CHART_TOOL_NAME, ChartCapability, ChartPublisher
 from conciergent.chat_context import DirectChatContext, GroupChatContext, UnattendedChatContext
 from conciergent.i18n.lang import Lang
+from conciergent.reply import CardSequence
+from conciergent.reply_format import CardReplyFormat, CardShape
 from conciergent.runtime import SkippedReply, TurnResult
 from conciergent.store.credential import CredentialStore
-from tests.conftest import CHART_BASE_URL, RecordingSurface, chart_spec, destructive_server
+from tests.conftest import CHART_BASE_URL, RecordingSurface, card_shape, chart_spec, destructive_server
 
 
 _PRINCIPAL = 'p'
@@ -631,3 +633,30 @@ async def test_with_charts_the_tool_is_offered(chart_publisher: ChartPublisher):
     parameters = model.last_model_request_parameters
     assert parameters is not None
     assert CREATE_CHART_TOOL_NAME in {tool.name for tool in parameters.function_tools}
+
+
+async def test_a_shaped_turn_offers_only_its_card_and_retries_one_that_breaks_the_shape():
+    offered: list[tuple[list[str], bool]] = []
+    store_names = iter(['x' * 30, 'Taipei'])
+
+    def fill(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        offered.append(([tool.name for tool in info.output_tools], info.allow_text_output))
+        output = {'store': next(store_names), 'totals': {'facts': {'value_1': '42'}}}
+        return ModelResponse(parts=[ToolCallPart('reply_card', output)])
+
+    agent = ChatRunner(model=FunctionModel(fill), system_prompt=_SYSTEM_PROMPT)
+    reply_format = CardReplyFormat(CardShape.model_validate(card_shape()))
+
+    result = await agent.run(
+        'summarize',
+        principal=_PRINCIPAL,
+        history=[],
+        pending_approval=None,
+        chat_context=_unattended(reply_format=reply_format),
+    )
+
+    assert isinstance(result.output, CardSequence)
+    assert [card.header for card in result.output.cards] == ['Taipei · Daily summary']
+    # The first header ran past 40 characters, so the agent was asked again.
+    assert len(offered) == 2
+    assert offered[0] == (['reply_card'], False)

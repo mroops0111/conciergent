@@ -5,6 +5,7 @@ import pytest
 
 from conciergent import (
     Card,
+    CardSequence,
     Carousel,
     PendingApproval,
     Section,
@@ -72,6 +73,14 @@ async def test_carousel_reply_is_dispatched_with_fallback_last(message_store: Me
     surface = await _drive_turn(Carousel(options=[option], fallback=fallback), message_store)
 
     assert ('carousel', [option, fallback]) in surface.calls
+
+
+async def test_a_card_sequence_sends_each_card_in_order(message_store: MessageStore):
+    cards = [Card(header='a', sections=[Section(text='a')]), Card(header='b', sections=[Section(text='b')])]
+
+    surface = await _drive_turn(CardSequence(cards=cards), message_store)
+
+    assert [payload[0] for kind, payload in surface.calls if kind == 'card'] == cards
 
 
 async def test_history_is_persisted(message_store: MessageStore):

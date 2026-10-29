@@ -126,6 +126,27 @@ def digest_card() -> Card:
     )
 
 
+def card_shape(**overrides: typing.Any) -> dict[str, typing.Any]:
+    """A card shape as a manifest declares it, which ``overrides`` replace key by key.
+
+    It has a templated header, a facts section with a required and an optional label, and an optional bullets section.
+    """
+    return {
+        'header': '{store} · Daily summary',
+        'placeholders': {'store': "The store's name."},
+        'sections': [
+            {
+                'name': 'totals',
+                'title': 'Totals',
+                'content': 'facts',
+                'labels': ['Orders', {'label': 'Refunds', 'required': False}],
+            },
+            {'name': 'anomalies', 'title': 'Anomalies', 'content': 'bullets', 'required': False},
+        ],
+        **overrides,
+    }
+
+
 class RecordingSurface(ReplySurface):
     """A reply surface that records every call, in an optional language, for asserting on what a turn sent."""
 
