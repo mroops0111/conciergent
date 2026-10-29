@@ -1,19 +1,10 @@
-from conciergent import Card, Link, Section, Suggestion
+from conciergent import Suggestion
 from conciergent.surfaces.slack import render
-
-
-def _card() -> Card:
-    return Card(
-        header='Tasks',
-        sections=[Section(text='You have two tasks.', bullets=['Review NDA', 'Sign lease'])],
-        links=[Link(label='Open', url='https://example.com/tasks')],
-        suggestions=[Suggestion(label='List more', prompt='List more tasks')],
-        footnote='Active only',
-    )
+from tests.conftest import digest_card, make_card, tasks_card
 
 
 def test_card_payload_carries_header_as_preamble_and_color_stripe():
-    payload = render.build_card_payload(_card())
+    payload = render.build_card_payload(tasks_card())
 
     assert payload['text'] == 'Tasks'
     attachment = payload['attachments'][0]
@@ -23,14 +14,25 @@ def test_card_payload_carries_header_as_preamble_and_color_stripe():
 
 
 def test_section_bullets_render_as_a_list():
-    blocks = render.build_card_blocks(_card(), scope='open')
+    blocks = render.build_card_blocks(tasks_card(), scope='open')
 
     assert blocks[0]['text']['text'] == 'You have two tasks.'
     assert blocks[1]['text']['text'] == '• Review NDA\n• Sign lease'
 
 
+def test_sections_are_divided_titled_and_carry_facts_as_fields():
+    blocks = render.build_card_blocks(digest_card(), scope='open')
+
+    kinds = [block['type'] for block in blocks]
+    assert kinds == ['context', 'section', 'section', 'divider', 'section', 'section']
+    assert blocks[0]['elements'][0]['text'] == 'Yesterday'
+    assert blocks[1]['text']['text'] == '*Totals*'
+    assert [field['text'] for field in blocks[2]['fields']] == ['Orders\n*42*', 'Revenue\n*$12,300*']
+    assert blocks[4]['text']['text'] == '*Anomalies*'
+
+
 def test_footnote_precedes_the_action_buttons():
-    kinds = [block['type'] for block in render.build_card_blocks(_card(), scope='open')]
+    kinds = [block['type'] for block in render.build_card_blocks(tasks_card(), scope='open')]
 
     assert kinds.index('context') < kinds.index('actions')
 
@@ -38,15 +40,14 @@ def test_footnote_precedes_the_action_buttons():
 def test_hero_image_renders_above_sections():
     header = 'Seal'
     hero_image_url = 'https://example.com/seal.png'
-    card = Card(header=header, sections=[Section(text='ready')], hero_image_url=hero_image_url)
 
-    blocks = render.build_card_blocks(card, scope='open')
+    blocks = render.build_card_blocks(make_card(header=header, hero_image_url=hero_image_url), scope='open')
 
     assert blocks[0] == {'type': 'image', 'image_url': hero_image_url, 'alt_text': header}
 
 
 def test_first_link_is_primary():
-    blocks = render.build_card_blocks(_card(), scope='open')
+    blocks = render.build_card_blocks(tasks_card(), scope='open')
 
     link_block = next(block for block in blocks if block.get('elements') and 'url' in block['elements'][0])
     assert link_block['elements'][0]['style'] == 'primary'
@@ -54,11 +55,7 @@ def test_first_link_is_primary():
 
 
 def test_destructive_card_uses_danger_styling_and_exclusive_scope():
-    card = Card(
-        header='Confirm',
-        sections=[Section(text='Delete this?')],
-        suggestions=[Suggestion(label='Yes', prompt='Yes'), Suggestion(label='No', prompt='No')],
-    )
+    card = make_card(suggestions=[Suggestion(label='Yes', prompt='Yes'), Suggestion(label='No', prompt='No')])
 
     payload = render.build_card_payload(card, destructive=True)
 
@@ -71,9 +68,7 @@ def test_destructive_card_uses_danger_styling_and_exclusive_scope():
 
 
 def test_carousel_collapses_cards_with_dividers_and_titles():
-    cards = [Card(header='A', sections=[Section(text='a')]), Card(header='B', sections=[Section(text='b')])]
-
-    payload = render.build_carousel_payload(cards)
+    payload = render.build_carousel_payload([make_card(header='A'), make_card(header='B')])
 
     blocks = payload['attachments'][0]['blocks']
     assert [block['type'] for block in blocks] == ['section', 'section', 'divider', 'section', 'section']

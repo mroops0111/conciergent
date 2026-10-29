@@ -2,7 +2,7 @@ from conciergent.app import App
 from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
 from conciergent.config import AppConfig
 from conciergent.identity import ChatSurface, make_principal, parse_principal
-from conciergent.reply import Card, Carousel, Link, Reply, ReplySurface, Section, Suggestion
+from conciergent.reply import Card, Carousel, Fact, Link, Reply, ReplySurface, Section, Suggestion
 from conciergent.runtime import OAuthBridge, PendingApproval, StatefulOAuthBridge, TurnResult
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
@@ -18,6 +18,7 @@ __all__ = [
     'ChatSurface',
     'CredentialStore',
     'DirectChatContext',
+    'Fact',
     'GroupChatContext',
     'Link',
     'MessageStore',

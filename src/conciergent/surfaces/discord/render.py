@@ -26,8 +26,10 @@ _STYLE_SECONDARY = 2
 _STYLE_DANGER = 4
 _STYLE_LINK = 5
 
-# Discord caps an embed title at 256 characters, a footer at 2048, a button label at 80, and a custom_id at 100.
+# Discord caps an embed title at 256 characters, a description at 4096, a footer at 2048,
+# a button label at 80, and a custom_id at 100.
 _TITLE_MAX = 256
+_DESCRIPTION_MAX = 4096
 _FOOTER_MAX = 2048
 _LABEL_MAX = 80
 _BUTTONS_PER_ROW = 5
@@ -86,7 +88,7 @@ def parse_suggestion(custom_id: str) -> tuple[Scope, str] | None:
 
 def _build_embed(card: Card, color: str) -> dict[str, typing.Any]:
     embed: dict[str, typing.Any] = {'title': card.header[:_TITLE_MAX], 'color': _color_int(color)}
-    description = _description(card.sections)
+    description = _description(card)
     if description:
         embed['description'] = description
     if card.hero_image_url:
@@ -96,14 +98,25 @@ def _build_embed(card: Card, color: str) -> dict[str, typing.Any]:
     return embed
 
 
-def _description(sections: list[Section]) -> str:
+def _description(card: Card) -> str:
+    # Facts stay in the description rather than in embed fields,
+    # because Discord places every field after the description, which would break the section order.
     blocks: list[str] = []
-    for section in sections:
-        if section.text:
-            blocks.append(section.text)
-        if section.bullets:
-            blocks.append('\n'.join(f'• {item.lstrip("•·▸-* ").strip()}' for item in section.bullets))
-    return '\n\n'.join(blocks)
+    if card.subtitle:
+        blocks.append(f'_{card.subtitle}_')
+    blocks.extend(_section_text(section) for section in card.sections)
+    return '\n\n'.join(blocks)[:_DESCRIPTION_MAX]
+
+
+def _section_text(section: Section) -> str:
+    lines: list[str] = []
+    if section.title:
+        lines.append(f'**{section.title}**')
+    if section.text:
+        lines.append(section.text)
+    lines.extend(f'• {item}' for item in section.bullets)
+    lines.extend(f'{fact.label}: **{fact.value}**' for fact in section.facts)
+    return '\n'.join(lines)
 
 
 def _card_buttons(card: Card, *, scope: Scope, card_index: int, destructive: bool) -> list[dict[str, typing.Any]]:

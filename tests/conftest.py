@@ -13,7 +13,7 @@ from conciergent.chart import ChartPublisher, ChartRenderer, ChartStyle, Default
 from conciergent.chat_context import ChatContext, GroupChatContext
 from conciergent.defaults import defaults_layer
 from conciergent.i18n.lang import Lang
-from conciergent.reply import Card, ReplySurface
+from conciergent.reply import Card, Fact, Link, ReplySurface, Section, Suggestion
 from conciergent.runtime import TurnResult
 from conciergent.store.chart import ChartStore
 from conciergent.store.credential import Base, CredentialStore
@@ -96,6 +96,34 @@ async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
 @pytest.fixture
 def chart_publisher(chart_store: ChartStore) -> ChartPublisher:
     return ChartPublisher(chart_renderer(), chart_store, base_url=CHART_BASE_URL)
+
+
+def make_card(**overrides: typing.Any) -> Card:
+    """A card with one line of text, which ``overrides`` replace field by field."""
+    fields: dict[str, typing.Any] = {'header': 'Tasks', 'sections': [Section(text='Body')], **overrides}
+    return Card(**fields)
+
+
+def tasks_card() -> Card:
+    """A card with text, bullets, two links, a suggestion, and a footnote, for checking where each part lands."""
+    return make_card(
+        sections=[Section(text='You have two tasks.', bullets=['Review NDA', 'Sign lease'])],
+        links=[Link(label='Open', url='https://example.com/tasks'), Link(label='Docs', url='https://example.com/docs')],
+        suggestions=[Suggestion(label='More', prompt='List more tasks')],
+        footnote='Active only',
+    )
+
+
+def digest_card() -> Card:
+    """A report card with a subtitle, a titled section of facts, and a titled section of bullets."""
+    return make_card(
+        header='Daily digest',
+        subtitle='Yesterday',
+        sections=[
+            Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Revenue', value='$12,300')]),
+            Section(title='Anomalies', bullets=['#A1023 is negative']),
+        ],
+    )
 
 
 class RecordingSurface(ReplySurface):

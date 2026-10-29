@@ -1,23 +1,16 @@
-from conciergent import Card, Link, Section, Suggestion
+from conciergent import Link, Section, Suggestion
 from conciergent.surfaces.line import render
-
-
-def _card() -> Card:
-    return Card(
-        header='Tasks',
-        sections=[Section(text='You have two tasks.', bullets=['Review NDA', 'Sign lease'])],
-        links=[Link(label='Open', url='https://example.com/tasks'), Link(label='Docs', url='https://example.com/docs')],
-        suggestions=[Suggestion(label='More', prompt='List more tasks')],
-        footnote='Active only',
-    )
+from tests.conftest import digest_card, make_card, tasks_card
 
 
 def test_bubble_carries_header_body_and_bullets():
-    bubble = render.build_card_bubble(_card())
+    bubble = render.build_card_bubble(tasks_card())
 
+    assert bubble['header']['backgroundColor'] == render.BRAND_COLOR
     header_text = bubble['header']['contents'][0]
     assert header_text['text'] == 'Tasks'
-    assert header_text['color'] == render.BRAND_COLOR
+    assert header_text['color'] == render.HEADER_TEXT_COLOR
+    assert header_text['size'] == 'lg'
     body = bubble['body']['contents']
     assert body[0] == {'type': 'text', 'text': 'You have two tasks.', 'size': 'md', 'wrap': True}
     bullet_box = body[1]
@@ -27,16 +20,41 @@ def test_bubble_carries_header_body_and_bullets():
 
 
 def test_boxes_carry_reference_padding():
-    bubble = render.build_card_bubble(_card())
+    bubble = render.build_card_bubble(tasks_card())
 
     assert bubble['header']['paddingStart'] == 'xl'
-    assert bubble['body']['paddingTop'] == 'md'
+    assert bubble['body']['paddingTop'] == 'lg'
     assert bubble['footer']['flex'] == 0
     assert bubble['footer']['paddingBottom'] == 'lg'
 
 
+def test_subtitle_renders_under_the_header():
+    header = render.build_card_bubble(digest_card())['header']['contents']
+
+    assert [node['text'] for node in header] == ['Daily digest', 'Yesterday']
+    assert header[1]['size'] == 'sm'
+
+
+def test_sections_are_separated_and_titled():
+    body = render.build_card_bubble(digest_card())['body']['contents']
+
+    assert [node['type'] for node in body] == ['text', 'box', 'separator', 'text', 'box']
+    assert body[0] == {'type': 'text', 'text': 'Totals', 'size': 'md', 'weight': 'bold', 'wrap': True}
+    assert body[2]['margin'] == 'lg'
+    assert body[3]['text'] == 'Anomalies'
+
+
+def test_facts_split_the_width_and_align_the_value_to_the_end():
+    facts_box = render.build_card_bubble(digest_card())['body']['contents'][1]
+    label, value = facts_box['contents'][0]['contents']
+
+    assert facts_box['contents'][0]['layout'] == 'horizontal'
+    assert (label['text'], label['color'], label['flex'], label['wrap']) == ('Orders', render.FACT_LABEL_COLOR, 1, True)
+    assert (value['text'], value['align'], value['flex'], value['wrap']) == ('42', 'end', 1, True)
+
+
 def test_footnote_is_separated_and_muted():
-    contents = render.build_card_bubble(_card())['body']['contents']
+    contents = render.build_card_bubble(tasks_card())['body']['contents']
 
     assert contents[-2]['type'] == 'separator'
     assert contents[-1]['size'] == 'xxs'
@@ -44,7 +62,7 @@ def test_footnote_is_separated_and_muted():
 
 
 def test_first_link_is_primary_brand_button():
-    footer = render.build_card_bubble(_card())['footer']['contents']
+    footer = render.build_card_bubble(tasks_card())['footer']['contents']
 
     assert footer[0]['style'] == 'primary'
     assert footer[0]['color'] == render.BRAND_COLOR
@@ -53,12 +71,14 @@ def test_first_link_is_primary_brand_button():
 
 
 def test_chip_placement_keeps_suggestions_out_of_the_footer():
-    bubble = render.build_card_bubble(_card(), suggestion_placement='chip')
+    card = tasks_card()
+
+    bubble = render.build_card_bubble(card, suggestion_placement='chip')
 
     labels = [button['action'].get('label') for button in bubble['footer']['contents']]
     assert 'More' not in labels
 
-    quick_reply = render.build_quick_reply(_card().suggestions)
+    quick_reply = render.build_quick_reply(card.suggestions)
     assert quick_reply[0]['action'] == {
         'type': 'postback',
         'label': 'More',
@@ -68,11 +88,7 @@ def test_chip_placement_keeps_suggestions_out_of_the_footer():
 
 
 def test_destructive_placement_emphasizes_the_first_suggestion():
-    card = Card(
-        header='Confirm',
-        sections=[Section(text='Delete this?')],
-        suggestions=[Suggestion(label='Yes', prompt='Yes'), Suggestion(label='No', prompt='No')],
-    )
+    card = make_card(suggestions=[Suggestion(label='Yes', prompt='Yes'), Suggestion(label='No', prompt='No')])
 
     footer = render.build_card_bubble(card, suggestion_placement='destructive_button')['footer']['contents']
 
@@ -82,10 +98,7 @@ def test_destructive_placement_emphasizes_the_first_suggestion():
 
 
 def test_carousel_renders_bubbles_with_button_suggestions():
-    cards = [
-        Card(header='A', sections=[Section(text='a')], suggestions=[Suggestion(label='Pick', prompt='Pick A')]),
-        Card(header='B', sections=[Section(text='b')]),
-    ]
+    cards = [make_card(header='A', suggestions=[Suggestion(label='Pick', prompt='Pick A')]), make_card(header='B')]
 
     carousel = render.build_carousel(cards)
 
@@ -96,9 +109,8 @@ def test_carousel_renders_bubbles_with_button_suggestions():
 
 def test_hero_image_renders_above_the_bubble():
     hero_image_url = 'https://example.com/seal.png'
-    card = Card(header='Seal', sections=[Section(text='ready')], hero_image_url=hero_image_url)
 
-    bubble = render.build_card_bubble(card)
+    bubble = render.build_card_bubble(make_card(hero_image_url=hero_image_url))
 
     assert bubble['hero'] == {
         'type': 'image',
@@ -116,13 +128,12 @@ def test_labels_are_not_truncated():
     chips = render.build_quick_reply([Suggestion(label=long_label, prompt='p')])
     assert chips[0]['action']['label'] == long_label
 
-    card = Card(header='H', sections=[Section(text='b')], links=[Link(label=long_label, url='https://example.com')])
+    card = make_card(links=[Link(label=long_label, url='https://example.com')])
     footer = render.build_card_bubble(card, suggestion_placement='button')['footer']['contents']
     assert footer[0]['action']['label'] == long_label
 
 
 def test_alt_text_uses_the_header():
     header = 'x' * 40
-    card = Card(header=header, sections=[Section(text='b')])
 
-    assert render.alt_text(card) == header
+    assert render.alt_text(make_card(header=header, sections=[Section(text='b')])) == header
