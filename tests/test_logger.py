@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 import typing
 
 import anyio
@@ -57,3 +58,31 @@ def test_json_formatter_emits_one_object_per_line() -> None:
     assert payload['level'] == 'INFO'
     assert payload['logger'] == 'conciergent.x'
     assert payload['message'] == 'hello world'
+
+
+def test_json_formatter_keeps_the_traceback_and_its_cause() -> None:
+    try:
+        try:
+            raise ValueError('totals.facts.value_1 Field required')
+        except ValueError as cause:
+            raise RuntimeError('Exceeded maximum output retries') from cause
+    except RuntimeError:
+        record = logging.LogRecord('conciergent.push', logging.ERROR, __file__, 1, 'Push failed', None, sys.exc_info())
+
+    payload = json.loads(logger.JsonFormatter().format(record))
+
+    assert payload['exception'].startswith('Traceback')
+    assert 'RuntimeError: Exceeded maximum output retries' in payload['exception']
+    assert 'ValueError: totals.facts.value_1 Field required' in payload['exception']
+    assert 'stack' not in payload
+
+
+def test_json_formatter_keeps_the_stack_and_leaves_out_an_empty_exception() -> None:
+    record = logging.LogRecord(
+        'conciergent.x', logging.INFO, __file__, 1, 'msg', None, None, sinfo='Stack (most recent call last):'
+    )
+
+    payload = json.loads(logger.JsonFormatter().format(record))
+
+    assert payload['stack'] == 'Stack (most recent call last):'
+    assert 'exception' not in payload
