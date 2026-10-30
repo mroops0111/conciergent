@@ -63,7 +63,8 @@ uv add "conciergent[gateway]"
 ```yaml
 gateway:
   enabled: true
-  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}  # keeps the gateway's OAuth clients across restarts
+  # Keeps the gateway's OAuth clients across restarts.
+  redis_url: ${CONCIERGENT_MESSAGES_URL:-redis://localhost:6379/0}
   specs:
     - name: github
       spec: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json
@@ -132,14 +133,16 @@ Two ways, depending on whether you already have Redis and Postgres.
 Against your own Redis and Postgres:
 
 ```bash
-createdb conciergent  # the database must exist, and Conciergent will create its tables on first run
+# The database must exist, and Conciergent creates its tables on first run.
+createdb conciergent
 uv run conciergent run
 ```
 
 Or with Docker, which brings up Redis, Postgres, and the app together and needs no uv:
 
 ```bash
-cp examples/openapi-chat.yml manifest.yml  # or use your own
+# Start from an example, or bring your own manifest.
+cp examples/openapi-chat.yml manifest.yml
 docker compose up
 ```
 
@@ -228,17 +231,23 @@ surface:
     channel_access_token: ${LINE_CHANNEL_ACCESS_TOKEN}
     group_chats:
       enabled: true
-      reply_trigger: mention  # or every_message, to answer every message in the group chat
+      # Set every_message to answer every message in the group chat.
+      reply_trigger: mention
 ```
 
-#### Requirement
+<a name="requirement"></a>
+<details>
+<summary><b>Requirement</b></summary>
 
 A group is shared by several people, so it never runs a per-user OAuth. Group chats are served only when every MCP tool works without a user's token.
 
 - **Embedded Gateway Specs**: a spec with no `auth`, a static `bearer` or `api_key`, or an `oauth2` spec with `flow: client_credentials` works in group chats. Any other `oauth2` spec fails config validation while group chats are on.
 - **Other MCP Servers**: Conciergent sends each one an unauthenticated `initialize` at startup. A `401` or `403` means it needs a user's token, which turns group chats off and logs an error. An unreachable server pauses group chats, and is probed again after `agent.mcp_probe_retry_seconds`.
 
-#### Behavior
+</details>
+
+<details>
+<summary><b>Behavior</b></summary>
 
 A group shares one conversation while every member keeps their own identity.
 
@@ -247,6 +256,8 @@ A group shares one conversation while every member keeps their own identity.
 - **Approvals**: a confirmation belongs to the member whose request parked it. Only they can confirm or cancel it, and other members' messages leave it waiting. Another member's tap on it is ignored on every surface.
 - **Addressed Replies**: a text reply to a typed message shows who it answers, as a quote on LINE, a native reply on Discord, and a mention on Slack. Cards and replies to a button tap are not marked, since LINE cannot quote from a card and a tap has no message to answer.
 - **No Authorization**: a group turn never shows an authorize link and hides the sign-out tool, since a sign-out would clear the whole group's history.
+
+</details>
 
 #### Surface Setup
 
@@ -289,7 +300,8 @@ pushes:
     timezone: Asia/Taipei
     target:
       surface: line
-      to: ${LINE_NOTIFY_TARGET}  # a LINE user (U...), group (C...), or room (R...) id
+      # A LINE user (U...), group (C...), or room (R...) id.
+      to: ${LINE_NOTIFY_TARGET}
     allow_skip: true
     failure_message: The reminder could not read its data today, please check the server.
     prompt: |
@@ -305,6 +317,45 @@ pushes:
 | `allow_skip` | `false` | Lets the agent end with `skip_reply` and send nothing, for a prompt that only sometimes has news. |
 | `allow_destructive` | `false` | Runs destructive tools without a confirmation. Unsafe, since nobody is present to confirm. |
 | `failure_message` | *(none)* | Text pushed as-is when the turn fails, so an outage is not silent. |
+| `reply.card` | *(none)* | A fixed card layout the agent fills. See [Reply Shape](#reply-shape). |
+
+<a name="reply-shape"></a>
+<details>
+<summary><b>Reply Shape</b></summary>
+
+`reply.card` fixes a push's card layout, so it stays the same every run. The agent fills only the gaps, and conciergent assembles the card in the declared order.
+
+```yaml
+reply:
+  card:
+    header: 'Daily summary for {store}'
+    placeholders:
+      store: {description: The store's name.}
+    sections:
+      - name: totals
+        title: Totals
+        # Fixed labels, so the agent writes only the values.
+        labels: [Orders, {label: Refunds, required: false}]
+      - name: anomalies
+        title: Anomalies
+        # Text, bullets, facts, or a list such as [text, facts].
+        content: bullets
+        description: Anything unusual, one bullet each.
+        # Left out when the agent has nothing for it.
+        required: false
+```
+
+| Keys | Role |
+|---|---|
+| `header`, `subtitle`, `footnote`, `title`, `labels` | Displayed as written. Each `{placeholder}` is a gap the agent fills. |
+| `description` | Guidance for the agent, never displayed. |
+| `pattern` | A regular expression a placeholder or label value must match. |
+
+- **Repetition**: `repeated: true` on a section adds one section per item, each with its own title placeholders.
+- **Retries**: a value off its `pattern`, a missing required value, or a card past a limit, such as a header over 40 characters, goes back to the agent to rewrite.
+- **Config Checks**: a shape that uses an undeclared placeholder or repeats a section name fails the config.
+
+</details>
 
 #### Running
 
@@ -319,6 +370,9 @@ The command runs the push once and exits, serving nothing, so it can run beside 
 | `0` | The reply was pushed, or the agent called `skip_reply`. A later step such as saving history may still have failed, which is logged. | No |
 | `1` | The push failed before any reply was pushed, and `failure_message` was pushed when set. | Safe, though a retry that fails again pushes `failure_message` again |
 | `2` | The config or the push name is invalid. | No |
+
+<details>
+<summary><b>Scheduling Examples</b></summary>
 
 With cron on the host, where `CRON_TZ` sets the zone the times are read in:
 
@@ -340,7 +394,8 @@ spec:
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
-      backoffLimit: 2  # exit 1 is the only failure, and safe to retry
+      # Exit 1 is the only failure, and it is safe to retry.
+      backoffLimit: 2
       template:
         spec:
           restartPolicy: Never
@@ -351,7 +406,10 @@ spec:
               # Mount manifest.yml and set the env exactly as for the app's own Deployment.
 ```
 
-#### Behavior
+</details>
+
+<details>
+<summary><b>Behavior</b></summary>
 
 - **Prompt Header**: the agent reads the prompt as `[Automated: <name>, <time> <timezone>, <weekday>] <prompt>`, so it knows what started the turn and what day it is.
 - **Shared History**: the prompt and the reply join the target chat's conversation, so a follow-up there has the reply as context. A skipped turn adds nothing.
@@ -359,6 +417,8 @@ spec:
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
 - **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
+
+</details>
 
 ### Charts
 

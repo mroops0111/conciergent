@@ -11,25 +11,63 @@ from conciergent.i18n.lang import Lang
 _BULLET_MARKER = re.compile(r'^\s*(?:[•·▸]\s*|[-*]\s+)')
 
 
+# The field types below carry their limits and their guidance for the agent,
+# so a card shape a push declares reuses them instead of restating them.
+FactLabel = typing.Annotated[
+    str,
+    pydantic.Field(
+        min_length=1,
+        max_length=20,
+        description='What the value measures, at most 20 characters, e.g. "Orders" or "Revenue".',
+    ),
+]
+FactValue = typing.Annotated[
+    str,
+    pydantic.Field(
+        min_length=1,
+        max_length=30,
+        description='The value alone, at most 30 characters, e.g. "42" or "$12,300". Do not repeat the label.',
+    ),
+]
+SectionText = typing.Annotated[
+    str,
+    pydantic.Field(
+        min_length=1,
+        max_length=100,
+        description='One paragraph of plain text, at most 100 characters. No markdown.',
+    ),
+]
+BulletList = typing.Annotated[
+    list[str],
+    pydantic.Field(
+        max_length=10,
+        description=(
+            'A list of items. Each item should be a single short statement. '
+            'Provide only the item content. '
+            'The renderer adds the bullet marker. '
+            'Do not prefix items with `•`, `-`, `*`, or any other bullet character.'
+        ),
+    ),
+]
+
+
 class Fact(pydantic.BaseModel):
     """A label paired with its value, such as a count or an amount, rendered so the values line up."""
 
-    label: typing.Annotated[
-        str,
-        pydantic.Field(
-            min_length=1,
-            max_length=20,
-            description='What the value measures, at most 20 characters, e.g. "Orders" or "Revenue".',
+    label: FactLabel
+    value: FactValue
+
+
+FactList = typing.Annotated[
+    list[Fact],
+    pydantic.Field(
+        max_length=10,
+        description=(
+            'Label and value pairs, such as counts and amounts, rendered so the values line up. '
+            'Use instead of bullets when every item is a figure with a label.'
         ),
-    ]
-    value: typing.Annotated[
-        str,
-        pydantic.Field(
-            min_length=1,
-            max_length=30,
-            description='The value alone, at most 30 characters, e.g. "42" or "$12,300". Do not repeat the label.',
-        ),
-    ]
+    ),
+]
 
 
 class Section(pydantic.BaseModel):
@@ -45,32 +83,9 @@ class Section(pydantic.BaseModel):
             ),
         ),
     ] = None
-    text: typing.Annotated[
-        str | None,
-        pydantic.Field(
-            min_length=1,
-            max_length=100,
-            description='One paragraph of plain text, at most 100 characters. No markdown.',
-        ),
-    ] = None
-    bullets: list[str] = pydantic.Field(
-        default_factory=list,
-        max_length=10,
-        description=(
-            'A list of items. Each item should be a single short statement. '
-            'Provide only the item content. '
-            'The renderer adds the bullet marker. '
-            'Do not prefix items with `•`, `-`, `*`, or any other bullet character.'
-        ),
-    )
-    facts: list[Fact] = pydantic.Field(
-        default_factory=list,
-        max_length=10,
-        description=(
-            'Label and value pairs, such as counts and amounts, rendered so the values line up. '
-            'Use instead of bullets when every item is a figure with a label.'
-        ),
-    )
+    text: SectionText | None = None
+    bullets: BulletList = pydantic.Field(default_factory=list)
+    facts: FactList = pydantic.Field(default_factory=list)
 
     @pydantic.field_validator('bullets')
     @classmethod

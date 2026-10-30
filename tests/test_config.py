@@ -8,6 +8,7 @@ import yaml
 from conciergent.config import GatewaySpec, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
+from tests.conftest import card_shape
 
 
 _STORE = {'messages_url': 'redis://localhost:6379/0', 'credentials_url': 'postgresql+asyncpg://localhost/db'}
@@ -253,6 +254,14 @@ def test_a_push_target_resolves_from_the_environment(
 def test_a_malformed_push_is_rejected(overrides: dict[str, typing.Any], message: str):
     with pytest.raises(ValueError, match=message):
         build_app_config(_pushes_config(_push(**overrides)))
+
+
+def test_a_push_reply_shape_parses_and_a_broken_one_fails_the_config():
+    (push,) = build_app_config(_pushes_config(_push(reply={'card': card_shape()}))).pushes
+
+    assert push.reply is not None and push.reply.card.header == 'Daily summary for {store}'
+    with pytest.raises(ValueError, match="placeholders \\['city'\\] are used"):
+        build_app_config(_pushes_config(_push(reply={'card': card_shape(header='{city}')})))
 
 
 def test_push_names_must_be_unique():

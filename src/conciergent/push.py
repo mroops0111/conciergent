@@ -6,12 +6,13 @@ import typing
 
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
-from conciergent.chat_context import UnattendedChatContext
+from conciergent.chat_context import FREE_REPLY_FORMAT, UnattendedChatContext
 from conciergent.config import PushSettings
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
 from conciergent.reply import Card, ReplySurface
+from conciergent.reply_format import CardReplyFormat
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface
 from conciergent.turn import run_turn
@@ -84,12 +85,14 @@ class PushExecutor:
         self, push: PushSettings, started_at: datetime.datetime, conversation: str, surface: ReplySurface
     ) -> None:
         # This is where the config meets the domain, so the context never sees the config's shape.
+        reply_format = CardReplyFormat(push.reply.card) if push.reply is not None else FREE_REPLY_FORMAT
         chat_context = UnattendedChatContext(
             conversation=conversation,
             push_name=push.name,
             started_at=started_at,
             allows_skip=push.allow_skip,
             runs_destructive_tools=push.allow_destructive,
+            reply_format=reply_format,
         )
         await run_turn(
             push.prompt,
