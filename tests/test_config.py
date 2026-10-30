@@ -5,7 +5,7 @@ import typing
 import pytest
 import yaml
 
-from conciergent.config import GatewaySpec, build_app_config, yaml_layer
+from conciergent.config import GatewaySpec, ServerSettings, build_app_config, yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
 from tests.conftest import card_shape
@@ -55,6 +55,27 @@ def test_env_references_resolve(
     assert config.surface.slack.enabled is True
     assert config.surface.slack.signing_secret == 'sek'
     assert config.surface.slack.bot_token == 'fallback-token'
+
+
+@pytest.mark.parametrize(
+    ('host', 'internal_url'),
+    [
+        ('127.0.0.1', 'http://127.0.0.1:8000'),
+        ('0.0.0.0', 'http://127.0.0.1:8000'),
+        ('::', 'http://[::1]:8000'),
+        ('10.0.0.5', 'http://10.0.0.5:8000'),
+    ],
+)
+def test_internal_url_defaults_to_a_loopback_on_the_bind_port(host: str, internal_url: str):
+    server = ServerSettings(host=host, port=8000, url='https://public.example.com')
+
+    assert server.internal_url == internal_url
+
+
+def test_internal_url_keeps_a_configured_value():
+    server = ServerSettings(host='0.0.0.0', port=8000, internal_url='http://conciergent:8000')
+
+    assert server.internal_url == 'http://conciergent:8000'
 
 
 def test_later_layers_win(write_config: collections.abc.Callable[[dict[str, typing.Any]], pathlib.Path]):
