@@ -1,6 +1,6 @@
 [project]
 name = "conciergent"
-version = "0.5.0"
+version = "0.6.0"
 description = "Put your team's MCP tools or OpenAPI specs in Slack, LINE, or Discord, as one bot where each person signs in as themselves and confirms before anything destructive runs."
 authors = [
     {name = "Yun-Tai Yang"},
