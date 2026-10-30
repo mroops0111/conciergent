@@ -1,13 +1,22 @@
 import asyncio
 import builtins
+import contextlib
+import json
 import logging
+import socket
+import threading
+import time
 import typing
 
 import fastapi
 import fastapi.testclient
+import pydantic_ai
 import pytest
+import uvicorn
 import yaml
 from mcp.shared.auth import AuthorizationCodeResult
+from pydantic_ai.mcp import MCPToolset
+from pydantic_ai.models.test import TestModel
 
 from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
@@ -123,9 +132,97 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
     app = App.from_app_config(config)
 
     assert isinstance(app._runner, ChatRunner)
-    assert app._runner.mcp_servers == (mcp_server, 'https://example.com/petstore/mcp')
+    # The spec is served by this same app, so the agent reaches it over loopback rather than the public URL.
+    assert app._runner.mcp_servers == (mcp_server, 'http://127.0.0.1:8000/petstore/mcp')
     # The config already knows the spec needs no user's token, so only the external server is left to probe.
-    assert app._runner._known_user_authorization == {'https://example.com/petstore/mcp': False}
+    assert app._runner._known_user_authorization == {'http://127.0.0.1:8000/petstore/mcp': False}
+
+
+def test_a_per_user_oauth_spec_is_reached_at_the_public_url(store_config):
+    config = _app_config(
+        store_config,
+        surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
+        gateway={
+            'enabled': True,
+            'redis_url': 'redis://localhost:6379/0',
+            'specs': [
+                {'name': 'petstore', 'spec': './petstore.json', 'auth': {'type': 'bearer', 'token': 't'}},
+                {'name': 'calendar', 'spec': './calendar.json', 'auth': {'type': 'oauth2'}},
+            ],
+        },
+        server={'url': 'https://example.com', 'internal_url': 'http://conciergent:8000'},
+    )
+
+    app = App.from_app_config(config)
+
+    # The OAuth discovery metadata names the public URL as the resource, so a per-user spec keeps it.
+    assert app._runner.mcp_servers == ('http://conciergent:8000/petstore/mcp', 'https://example.com/calendar/mcp')
+
+
+def test_a_bearer_spec_works_when_the_public_url_is_unreachable(store_config, messages_url, tmp_path):
+    upstream = fastapi.FastAPI()
+    authorizations: list[str | None] = []
+
+    @upstream.get('/pets', operation_id='listPets')
+    def list_pets(authorization: str | None = fastapi.Header(default=None)) -> list[dict[str, str]]:
+        authorizations.append(authorization)
+        return [{'name': 'Rex'}]
+
+    spec = tmp_path / 'pets.json'
+    spec.write_text(json.dumps(upstream.openapi()))
+    with _serving(upstream, _free_port()) as upstream_url:
+        port = _free_port()
+        config = _app_config(
+            store_config,
+            surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
+            gateway={
+                'enabled': True,
+                'redis_url': messages_url,
+                'specs': [
+                    {
+                        'name': 'pets',
+                        'spec': str(spec),
+                        'base_url': upstream_url,
+                        'auth': {'type': 'bearer', 'token': 'upstream-token'},
+                    }
+                ],
+            },
+            # A tunnel that routes only the chat webhook, so the public URL never reaches /pets/mcp.
+            server={'host': '127.0.0.1', 'port': port, 'url': 'https://unreachable.invalid'},
+        )
+        app = App.from_app_config(config)
+        with _serving(app.build_asgi(), port):
+            (server,) = app._runner.mcp_servers
+            agent = pydantic_ai.Agent(TestModel(), toolsets=[MCPToolset(server)])
+
+            result = agent.run_sync('list the pets')
+
+    assert 'Rex' in result.output
+    assert authorizations == ['Bearer upstream-token']
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        return probe.getsockname()[1]
+
+
+@contextlib.contextmanager
+def _serving(asgi: fastapi.FastAPI, port: int) -> typing.Iterator[str]:
+    """Serve ``asgi`` on ``port`` in a background thread until the block exits, yielding its URL."""
+    server = uvicorn.Server(uvicorn.Config(asgi, host='127.0.0.1', port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started:
+            if time.monotonic() > deadline or not thread.is_alive():
+                raise RuntimeError(f'the test server on port {port} did not start')
+            time.sleep(0.05)
+        yield f'http://127.0.0.1:{port}'
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)
 
 
 def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):

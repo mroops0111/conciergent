@@ -26,17 +26,28 @@ _logger = logging.getLogger(__name__)
 
 
 class ServerSettings(pydantic.BaseModel):
-    """Where the webhook app listens, and the public URL external services reach it at."""
+    """Where the webhook app listens, the public URL external services reach, and the URL the agent reaches it at."""
 
     host: str
     port: int
     url: str = ''
+    internal_url: str = ''
 
     @pydantic.model_validator(mode='after')
     def _default_url(self) -> typing.Self:
         if not self.url:
             host = 'localhost' if self.host == '0.0.0.0' else self.host
             self.url = f'http://{host}:{self.port}'
+        return self
+
+    @pydantic.model_validator(mode='after')
+    def _default_internal_url(self) -> typing.Self:
+        if not self.internal_url:
+            # A wildcard bind accepts loopback connections, so the agent stays off the tunnel or proxy.
+            host = {'': '127.0.0.1', '0.0.0.0': '127.0.0.1', '::': '::1'}.get(self.host, self.host)
+            if ':' in host:
+                host = f'[{host}]'
+            self.internal_url = f'http://{host}:{self.port}'
         return self
 
 

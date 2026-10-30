@@ -17,6 +17,7 @@ server:
   host: ${CONCIERGENT_HOST:-127.0.0.1} # docker compose sets this to 0.0.0.0
   port: 8000
   # url: https://your-public-url # the public URL external services reach; defaults from host/port, set behind a tunnel or proxy
+  # internal_url: http://127.0.0.1:8000 # where the agent reaches the embedded gateway; defaults from host/port
 
 agent:
   model: openai:gpt-6-luna # or any google: or anthropic: model

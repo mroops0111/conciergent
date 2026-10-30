@@ -91,9 +91,13 @@ class App:
         # The config already says which embedded specs need a per-user authorization, so only other servers are probed.
         known_user_authorization: dict[str, bool] = {}
         if config.gateway.enabled:
-            # Each embedded spec is served by this same process, so the agent dials back into itself.
+            # Each embedded spec is served by this same app, so the agent dials back into it at the internal URL,
+            # which needs no public route to the MCP endpoint.
+            # A per-user oauth2 spec keeps the public URL, since its OAuth discovery metadata names that URL
+            # as the resource and issuer, and its stored tokens are keyed by it.
             for spec in config.gateway.specs:
-                url = f'{config.server.url.rstrip("/")}/{spec.name}/mcp'
+                base_url = config.server.url if spec.needs_user_authorization else config.server.internal_url
+                url = f'{base_url.rstrip("/")}/{spec.name}/mcp'
                 mcp_servers.append(url)
                 known_user_authorization[url] = spec.needs_user_authorization
         capabilities = config.capability.enabled_capabilities(config)
@@ -215,7 +219,7 @@ class App:
         """Run the push called ``name`` once, now, in this process, and say how it ended.
 
         It serves nothing, so it runs beside a serving app, such as from cron or a Kubernetes CronJob.
-        Tools from the embedded gateway are still dialed at ``server.url``, so that app must be up.
+        Tools from the embedded gateway are still dialed at ``server.internal_url``, so that app must be up.
         """
         push = self._pushes.get(name)
         if push is None:

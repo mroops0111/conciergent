@@ -178,6 +178,7 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `server.host` | `127.0.0.1` | Bind address. Use `0.0.0.0` to accept connections from other hosts. |
 | `server.port` | `8000` | Bind port. |
 | `server.url` | *(from host/port)* | Public URL external services reach. Set this behind a tunnel or proxy. |
+| `server.internal_url` | *(loopback from host/port)* | Where the agent reaches the embedded gateway, so `/{name}/mcp` needs no public route. A per-user `oauth2` spec is still reached at `server.url`. Set this when `push` runs outside the app's host or container. |
 | `agent.model` | `openai:gpt-6-luna` | A `provider:model` string for one of the three providers above. |
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
@@ -363,7 +364,7 @@ reply:
 conciergent push vaccine-reminder --config manifest.yml
 ```
 
-The command runs the push once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.url`, so the app must be up.
+The command runs the push once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.internal_url`, so the app must be up and reachable there.
 
 | Exit | Meaning | Retry |
 |---|---|---|
@@ -404,6 +405,7 @@ spec:
               image: ghcr.io/mroops0111/conciergent:<version>
               args: ["push", "vaccine-reminder", "--config", "/home/app/manifest.yml"]
               # Mount manifest.yml and set the env exactly as for the app's own Deployment.
+              # The app runs in another pod, so point server.internal_url at its Service, such as http://conciergent:8000.
 ```
 
 </details>
