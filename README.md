@@ -328,7 +328,7 @@ pushes:
 ```yaml
 reply:
   card:
-    header: '{store} · Daily summary'
+    header: 'Daily summary for {store}'
     placeholders:
       store: {description: The store's name.}
     sections:

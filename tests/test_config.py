@@ -259,7 +259,7 @@ def test_a_malformed_push_is_rejected(overrides: dict[str, typing.Any], message:
 def test_a_push_reply_shape_parses_and_a_broken_one_fails_the_config():
     (push,) = build_app_config(_pushes_config(_push(reply={'card': card_shape()}))).pushes
 
-    assert push.reply is not None and push.reply.card.header == '{store} · Daily summary'
+    assert push.reply is not None and push.reply.card.header == 'Daily summary for {store}'
     with pytest.raises(ValueError, match="placeholders \\['city'\\] are used"):
         build_app_config(_pushes_config(_push(reply={'card': card_shape(header='{city}')})))
 

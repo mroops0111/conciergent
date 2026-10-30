@@ -655,7 +655,7 @@ async def test_a_shaped_turn_offers_only_its_card_and_retries_one_that_breaks_th
     )
 
     assert isinstance(result.output, Card)
-    assert result.output.header == 'Taipei · Daily summary'
+    assert result.output.header == 'Daily summary for Taipei'
     # The first header ran past 40 characters, so the agent was asked again.
     assert len(offered) == 2
     assert offered[0] == (['reply_card'], False)

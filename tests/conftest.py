@@ -132,7 +132,7 @@ def card_shape(**overrides: typing.Any) -> dict[str, typing.Any]:
     It has a templated header, a facts section with a required and an optional label, and an optional bullets section.
     """
     return {
-        'header': '{store} · Daily summary',
+        'header': 'Daily summary for {store}',
         'placeholders': {'store': {'description': "The store's name."}},
         'sections': [
             {'name': 'totals', 'title': 'Totals', 'labels': ['Orders', {'label': 'Refunds', 'required': False}]},

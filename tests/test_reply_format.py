@@ -36,7 +36,7 @@ def test_a_shaped_card_fills_its_templates_in_the_declared_order():
     card = _fill(_format(), {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '3'}}})
 
     assert card == Card(
-        header='Taipei · Daily summary',
+        header='Daily summary for Taipei',
         sections=[Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Refunds', value='3')])],
     )
 
@@ -101,7 +101,7 @@ def test_the_output_schema_carries_the_declared_descriptions():
     schema = tool_output.output.model_json_schema()
 
     assert schema['properties']['store']['description'] == (
-        'The store\'s name. It fills {store} in the header "{store} · Daily summary". '
+        'The store\'s name. It fills {store} in the header "Daily summary for {store}". '
         'The rest of that text is added for you, so write only this part.'
     )
     # A section's description travels on its own definition, which the property refers to.
@@ -115,7 +115,7 @@ def test_the_output_schema_carries_the_declared_descriptions():
 @pytest.mark.parametrize(
     ('overrides', 'message'),
     [
-        ({'header': '{city} · Daily summary'}, r"placeholders \['city'\] are used but not declared"),
+        ({'header': 'Daily summary for {city}'}, r"placeholders \['city'\] are used but not declared"),
         ({'header': 'Daily summary'}, r"placeholders \['store'\] are declared but no template uses them"),
         ({'header': '{store.name}'}, 'write a placeholder as a plain name'),
         ({'sections': [{'name': 'json', 'content': 'text'}]}, "'json' is reserved"),
