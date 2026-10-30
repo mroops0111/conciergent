@@ -91,10 +91,10 @@ class App:
         # The config already says which embedded specs need a per-user authorization, so only other servers are probed.
         known_user_authorization: dict[str, bool] = {}
         if config.gateway.enabled:
-            # Each embedded spec is served by this same app, so the agent dials back into it at the internal URL,
-            # which needs no public route to the MCP endpoint.
-            # A per-user oauth2 spec keeps the public URL, since its OAuth discovery metadata names that URL
-            # as the resource and issuer, and its stored tokens are keyed by it.
+            # Each embedded spec is served by this same app, so the agent dials back in at the internal URL.
+            # That way the MCP endpoint needs no public route.
+            # A per-user oauth2 spec keeps the public URL, since its discovery metadata names it as resource and issuer,
+            # and its stored tokens are keyed by it.
             for spec in config.gateway.specs:
                 base_url = config.server.url if spec.needs_user_authorization else config.server.internal_url
                 url = f'{base_url.rstrip("/")}/{spec.name}/mcp'
