@@ -39,19 +39,21 @@ def iso_time(record: logging.LogRecord) -> str:
 
 
 class JsonFormatter(logging.Formatter):
-    """Emit one JSON object per log line (time, level, logger, message)."""
+    """Emit one JSON object per log line, with the traceback and stack when the record carries them."""
 
     @typing.override
     def format(self, record: logging.LogRecord) -> str:
-        return json.dumps(
-            {
-                'time': iso_time(record),
-                'level': record.levelname,
-                'logger': record.name,
-                'message': record.getMessage(),
-            },
-            ensure_ascii=False,
-        )
+        payload = {
+            'time': iso_time(record),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+        }
+        if record.exc_info:
+            payload['exception'] = self.formatException(record.exc_info)
+        if record.stack_info:
+            payload['stack'] = self.formatStack(record.stack_info)
+        return json.dumps(payload, ensure_ascii=False)
 
 
 class TextFormatter(logging.Formatter):
