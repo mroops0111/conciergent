@@ -5,7 +5,7 @@ from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ChatContext
 from conciergent.defaults import DEFAULTS
-from conciergent.reply import Card, CardSequence, Carousel, ReplySurface
+from conciergent.reply import Card, Carousel, ReplySurface
 from conciergent.runtime import OAuthBridge, PendingApproval, SkippedReply
 from conciergent.store.message import MessageStore
 
@@ -80,9 +80,6 @@ async def run_turn(
             await surface.send_carousel([*options, fallback])
         case Card() as card:
             await surface.send_card(card)
-        case CardSequence(cards=cards):
-            for card in cards:
-                await surface.send_card(card)
         case str() as text:
             await surface.send_text(text)
         case unhandled:

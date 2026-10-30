@@ -26,7 +26,6 @@ from conciergent.agent.runner import REVOKE_TOOL_NAME, ChatRunner
 from conciergent.chart import CREATE_CHART_TOOL_NAME, ChartCapability, ChartPublisher
 from conciergent.chat_context import DirectChatContext, GroupChatContext, UnattendedChatContext
 from conciergent.i18n.lang import Lang
-from conciergent.reply import CardSequence
 from conciergent.reply_format import CardReplyFormat, CardShape
 from conciergent.runtime import SkippedReply, TurnResult
 from conciergent.store.credential import CredentialStore
@@ -655,8 +654,8 @@ async def test_a_shaped_turn_offers_only_its_card_and_retries_one_that_breaks_th
         chat_context=_unattended(reply_format=reply_format),
     )
 
-    assert isinstance(result.output, CardSequence)
-    assert [card.header for card in result.output.cards] == ['Taipei · Daily summary']
+    assert isinstance(result.output, Card)
+    assert result.output.header == 'Taipei · Daily summary'
     # The first header ran past 40 characters, so the agent was asked again.
     assert len(offered) == 2
     assert offered[0] == (['reply_card'], False)

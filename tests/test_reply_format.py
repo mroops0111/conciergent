@@ -3,7 +3,7 @@ import typing
 import pydantic
 import pytest
 
-from conciergent.reply import Card, CardSequence, Fact, Section
+from conciergent.reply import Card, Fact, Section
 from conciergent.reply_format import CardReplyFormat, CardShape, FreeReplyFormat
 from tests.conftest import card_shape
 
@@ -12,11 +12,11 @@ def _format(**overrides: typing.Any) -> CardReplyFormat:
     return CardReplyFormat(CardShape.model_validate(card_shape(**overrides)))
 
 
-def _fill(reply_format: CardReplyFormat, output: dict[str, typing.Any]) -> CardSequence:
+def _fill(reply_format: CardReplyFormat, output: dict[str, typing.Any]) -> Card:
     """Validate ``output`` as the agent's tool call would be, then turn it into the reply."""
     (tool_output,) = reply_format.outputs
     reply = reply_format.to_reply(tool_output.output.model_validate(output))
-    assert isinstance(reply, CardSequence)
+    assert isinstance(reply, Card)
     return reply
 
 
@@ -33,22 +33,17 @@ def test_free_format_offers_text_a_card_and_a_carousel():
 
 
 def test_a_shaped_card_fills_its_templates_in_the_declared_order():
-    reply = _fill(_format(), {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '3'}}})
+    card = _fill(_format(), {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '3'}}})
 
-    assert reply.cards == [
-        Card(
-            header='Taipei · Daily summary',
-            sections=[
-                Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Refunds', value='3')])
-            ],
-        )
-    ]
+    assert card == Card(
+        header='Taipei · Daily summary',
+        sections=[Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Refunds', value='3')])],
+    )
 
 
 def test_an_omitted_optional_value_drops_its_row_and_an_omitted_section_is_left_out():
-    reply = _fill(_format(), {'store': 'Taipei', 'totals': {'facts': {'value_1': '42'}}})
+    card = _fill(_format(), {'store': 'Taipei', 'totals': {'facts': {'value_1': '42'}}})
 
-    (card,) = reply.cards
     assert [section.title for section in card.sections] == ['Totals']
     assert card.sections[0].facts == [Fact(label='Orders', value='42')]
 
@@ -83,7 +78,7 @@ def test_a_repeated_section_adds_one_section_per_item_with_its_own_title():
     ]
     reply_format = _format(header='Overdue tasks', placeholders={}, sections=sections)
 
-    reply = _fill(
+    card = _fill(
         reply_format,
         {
             'tasks': [
@@ -93,22 +88,10 @@ def test_a_repeated_section_adds_one_section_per_item_with_its_own_title():
         },
     )
 
-    (card,) = reply.cards
     assert card.sections == [
         Section(title='Renew lease', facts=[Fact(label='Due', value='10/26')]),
         Section(title='File taxes', text='Waiting on the accountant.'),
     ]
-
-
-def test_a_repeated_card_sends_one_card_per_item():
-    reply_format = _format(repeated=True)
-    card = {'totals': {'facts': {'value_1': '42'}}}
-
-    reply = _fill(reply_format, {'cards': [{'store': 'Taipei', **card}, {'store': 'Tainan', **card}]})
-
-    assert [card.header for card in reply.cards] == ['Taipei · Daily summary', 'Tainan · Daily summary']
-    assert reply_format.outputs[0].name == 'reply_cards'
-    assert 'at most 5 cards' in reply_format.instructions
 
 
 def test_the_output_schema_carries_the_declared_descriptions():
@@ -143,6 +126,8 @@ def test_the_output_schema_carries_the_declared_descriptions():
         ({'sections': [{'name': 'a', 'content': 'text', 'labels': ['Orders']}]}, 'need facts in its content'),
         ({'sections': [{'name': 'a', 'content': 'facts', 'labels': ['Orders', 'Orders']}]}, 'each named once'),
         ({'sections': [{'name': 'a', 'content': 'text', 'colour': 'red'}]}, 'Extra inputs are not permitted'),
+        # A shape describes one card, and repetition lives in a section.
+        ({'repeated': True}, 'Extra inputs are not permitted'),
         ({'sections': [{'name': 'a', 'title': 'A'}]}, 'needs `content`, or `labels`'),
         # A placeholder's description is spelled out, so guidance never looks like displayed text.
         ({'placeholders': {'store': "The store's name."}}, 'valid dictionary or instance of PlaceholderShape'),
@@ -173,7 +158,7 @@ def test_a_placeholder_pattern_sends_a_value_in_another_format_back_to_the_agent
 
     with pytest.raises(pydantic.ValidationError, match='should match pattern'):
         tool_output.output.model_validate({**card, 'date': 'October 29'})
-    assert _fill(reply_format, {**card, 'date': '10/29'}).cards[0].subtitle == '10/29'
+    assert _fill(reply_format, {**card, 'date': '10/29'}).subtitle == '10/29'
 
 
 def test_a_label_carries_its_own_guidance_and_pattern():
@@ -190,5 +175,5 @@ def test_a_label_carries_its_own_guidance_and_pattern():
         tool_output.output.model_validate(
             {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': 'noon'}}}
         )
-    reply = _fill(reply_format, {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '21:40'}}})
-    assert reply.cards[0].sections[0].facts[1] == Fact(label='Last order', value='21:40')
+    card = _fill(reply_format, {'store': 'Taipei', 'totals': {'facts': {'value_1': '42', 'value_2': '21:40'}}})
+    assert card.sections[0].facts[1] == Fact(label='Last order', value='21:40')

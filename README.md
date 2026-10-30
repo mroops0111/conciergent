@@ -314,7 +314,6 @@ pushes:
 ```yaml
 reply:
   card:
-    repeated: true                    # one card per store, at most 5
     header: '{store} · Daily summary'
     placeholders:
       store: {description: The store's name.}
@@ -391,7 +390,7 @@ spec:
 - **Authorization**: the turn holds no one's authorization, so every tool must work without a user's token, the same [requirement](#requirement) as group chats. A per-user gateway spec fails the config, which `push` reports with exit 2. Another MCP server that needs a user's token is found when the turn starts, which fails the push with exit 1 and pushes `failure_message`.
 - **Destructive Tools**: nobody can confirm one, so they are left out of the turn unless `allow_destructive` is on.
 - **Failures**: a turn that fails, including one whose tools are unreachable, is logged, and pushes `failure_message` when set.
-- **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Each card of a repeated card is its own message. Use `allow_skip` for prompts that often have nothing to say.
+- **Push Quota**: every reply is a LINE push message, and a push to a group counts once per member against the monthly message quota. Use `allow_skip` for prompts that often have nothing to say.
 
 ### Charts
 

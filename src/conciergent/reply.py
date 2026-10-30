@@ -243,14 +243,8 @@ class Carousel(pydantic.BaseModel):
     ]
 
 
-class CardSequence(pydantic.BaseModel):
-    """Several cards sent one after another, each as its own message, such as one per store in a daily summary."""
-
-    cards: typing.Annotated[list[Card], pydantic.Field(min_length=1, max_length=5)]
-
-
 # The terminal output of a turn.
-Reply = str | Card | Carousel | CardSequence
+Reply = str | Card | Carousel
 
 
 class ReplySurface(abc.ABC):

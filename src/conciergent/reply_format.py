@@ -9,7 +9,6 @@ from pydantic_ai import ToolOutput
 from conciergent.reply import (
     BulletList,
     Card,
-    CardSequence,
     Carousel,
     Fact,
     FactLabel,
@@ -31,14 +30,14 @@ _FREE_INSTRUCTIONS = (
     'Put a URL in a card link button instead of writing it inline, and offer next steps as suggestions.'
 )
 _CARD_TOOL_NAME = 'reply_card'
-_CARDS_TOOL_NAME = 'reply_cards'
 _SHAPED_INSTRUCTIONS = (
-    'End the turn by calling {tool} once{count}. '
+    'End the turn by calling {tool} once. '
     'Fill only its fields, since the layout, the fixed titles, and the order are set for you. '
     'Leave out an optional section or value when there is nothing for it, and write nothing outside the card.'
 )
-# A shaped card is sent one message per card, and LINE takes at most 5 messages in one push.
-_MAX_CARDS = 5
+_SHAPED_DESCRIPTION = (
+    'Send the reply as one card. Fill only the fields, since the layout and every fixed text are set for you.'
+)
 # The content a section may hold, in the order a card renders them.
 ContentKind = typing.Literal['text', 'bullets', 'facts']
 
@@ -276,8 +275,6 @@ class CardShape(_Shape):
     footnote: str | None = None
     placeholders: dict[FieldName, PlaceholderShape] = pydantic.Field(default_factory=dict)
     sections: typing.Annotated[list[SectionShape], pydantic.Field(min_length=1, max_length=6)]
-    # Send one card per item the agent finds, such as one per store.
-    repeated: bool = False
 
     @pydantic.model_validator(mode='after')
     def _check(self) -> typing.Self:
@@ -375,39 +372,25 @@ class FreeReplyFormat(ReplyFormat):
 
 
 class CardReplyFormat(ReplyFormat):
-    """The agent fills the fields of a declared card shape, and the cards are assembled in its fixed order.
+    """The agent fills the fields of a declared card shape, and the card is assembled in its fixed order.
 
     The shape's model is the turn's only reply output, so the turn cannot end in plain text or another layout.
     """
 
     def __init__(self, shape: CardShape) -> None:
         self._shape = shape
-        card_model = shape.output_model()
-        if shape.repeated:
-            cards = pydantic.Field(
-                min_length=1, max_length=_MAX_CARDS, description=f'One card per item, at most {_MAX_CARDS}.'
-            )
-            self._output = pydantic.create_model('ShapedCards', cards=(list[card_model], cards))
-            self._tool_name = _CARDS_TOOL_NAME
-            self._description = f'Send the reply as one card per item, at most {_MAX_CARDS}, each its own message.'
-        else:
-            self._output = card_model
-            self._tool_name = _CARD_TOOL_NAME
-            self._description = 'Send the reply as one card.'
-        self._description += ' Fill only the fields, since the layout and every fixed text are set for you.'
+        self._output = shape.output_model()
 
     @property
     @typing.override
     def outputs(self) -> list[typing.Any]:
-        return [ToolOutput(self._output, name=self._tool_name, description=self._description)]
+        return [ToolOutput(self._output, name=_CARD_TOOL_NAME, description=_SHAPED_DESCRIPTION)]
 
     @property
     @typing.override
     def instructions(self) -> str:
-        count = f', with one card per item and at most {_MAX_CARDS} cards' if self._shape.repeated else ''
-        return _SHAPED_INSTRUCTIONS.format(tool=self._tool_name, count=count)
+        return _SHAPED_INSTRUCTIONS.format(tool=_CARD_TOOL_NAME)
 
     @typing.override
     def to_reply(self, output: typing.Any) -> Reply:
-        cards = dict(output)['cards'] if self._shape.repeated else [output]
-        return CardSequence(cards=[self._shape.assemble(card) for card in cards])
+        return self._shape.assemble(output)
