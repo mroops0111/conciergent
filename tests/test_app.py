@@ -1,19 +1,14 @@
 import asyncio
 import builtins
-import contextlib
 import json
 import logging
 import pathlib
-import socket
-import threading
-import time
 import typing
 
 import fastapi
 import fastapi.testclient
 import pydantic_ai
 import pytest
-import uvicorn
 import yaml
 from mcp.shared.auth import AuthorizationCodeResult
 from pydantic_ai.mcp import MCPToolset
@@ -30,7 +25,7 @@ from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
-from tests.conftest import CHART_BASE_URL, StubRunner, chart_renderer
+from tests.conftest import CHART_BASE_URL, StubRunner, chart_renderer, free_port, serving
 from tests.push.conftest import RecordingPushSurface, push_settings
 
 
@@ -172,8 +167,8 @@ def test_a_bearer_spec_works_when_the_public_url_is_unreachable(store_config, me
 
     spec = tmp_path / 'pets.json'
     spec.write_text(json.dumps(upstream.openapi()))
-    with _serving(upstream, _free_port()) as upstream_url:
-        port = _free_port()
+    with serving(upstream, free_port()) as upstream_url:
+        port = free_port()
         config = _app_config(
             store_config,
             surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
@@ -193,7 +188,7 @@ def test_a_bearer_spec_works_when_the_public_url_is_unreachable(store_config, me
             server={'host': '127.0.0.1', 'port': port, 'url': 'https://unreachable.invalid'},
         )
         app = App.from_app_config(config)
-        with _serving(app.build_asgi(), port):
+        with serving(app.build_asgi(), port):
             (server,) = app._runner.mcp_servers
             agent = pydantic_ai.Agent(TestModel(), toolsets=[MCPToolset(server)])
 
@@ -201,30 +196,6 @@ def test_a_bearer_spec_works_when_the_public_url_is_unreachable(store_config, me
 
     assert 'Rex' in result.output
     assert authorizations == ['Bearer upstream-token']
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(('127.0.0.1', 0))
-        return probe.getsockname()[1]
-
-
-@contextlib.contextmanager
-def _serving(asgi: fastapi.FastAPI, port: int) -> typing.Iterator[str]:
-    """Serve ``asgi`` on ``port`` in a background thread until the block exits, yielding its URL."""
-    server = uvicorn.Server(uvicorn.Config(asgi, host='127.0.0.1', port=port, log_config=None))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    try:
-        deadline = time.monotonic() + 10
-        while not server.started:
-            if time.monotonic() > deadline or not thread.is_alive():
-                raise RuntimeError(f'the test server on port {port} did not start')
-            time.sleep(0.05)
-        yield f'http://127.0.0.1:{port}'
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
 
 
 def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):

@@ -1,11 +1,21 @@
+import contextlib
 import pathlib
+import socket
 import tempfile
+import threading
+import time
 import typing
 
+import fastapi
 import pytest
 import redis.asyncio
+import uvicorn
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
@@ -38,6 +48,24 @@ def messages_url() -> typing.Iterator[str]:
 def credentials_url() -> typing.Iterator[str]:
     with PostgresContainer('postgres:16-alpine', driver='asyncpg') as container:
         yield container.get_connection_url()
+
+
+_SPAN_EXPORTER = InMemorySpanExporter()
+
+
+@pytest.fixture
+def spans() -> typing.Iterator[InMemorySpanExporter]:
+    """The spans finished during the test, from a tracer provider shared by the whole session.
+
+    OpenTelemetry takes one global tracer provider per process, so it is set once and only cleared between tests.
+    """
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
+        trace.set_tracer_provider(provider)
+    _SPAN_EXPORTER.clear()
+    yield _SPAN_EXPORTER
+    _SPAN_EXPORTER.clear()
 
 
 @pytest.fixture
@@ -248,3 +276,28 @@ class StubRunner:
         output = self.output if self.output is not None else f'echo {user_input}'
         new_history = self.new_history if self.new_history is not None else [{'seen': user_input}]
         return TurnResult(output=output, history=new_history, invalidate_history=self.invalidate_history)
+
+
+def free_port() -> int:
+    """A TCP port on loopback that nothing listens on right now."""
+    with socket.socket() as probe:
+        probe.bind(('127.0.0.1', 0))
+        return probe.getsockname()[1]
+
+
+@contextlib.contextmanager
+def serving(asgi: fastapi.FastAPI, port: int) -> typing.Iterator[str]:
+    """Serve ``asgi`` on ``port`` in a background thread until the block exits, yielding its URL."""
+    server = uvicorn.Server(uvicorn.Config(asgi, host='127.0.0.1', port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started:
+            if time.monotonic() > deadline or not thread.is_alive():
+                raise RuntimeError(f'the test server on port {port} did not start')
+            time.sleep(0.05)
+        yield f'http://127.0.0.1:{port}'
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

@@ -15,6 +15,7 @@ from conciergent.reply import Card, ReplySurface
 from conciergent.reply_format import CardReplyFormat
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface
+from conciergent.telemetry import tracer
 from conciergent.turn import run_turn
 
 
@@ -45,6 +46,13 @@ class PushExecutor:
 
     async def run(self, push: PushSettings, started_at: datetime.datetime) -> PushOutcome:
         """Run ``push`` as started at ``started_at``, sending the failure message when it fails before replying."""
+        attributes = {'conciergent.push.name': push.name, 'conciergent.push.surface': push.target.surface.value}
+        with tracer.start_as_current_span('push', attributes=attributes) as span:
+            outcome = await self._run(push, started_at)
+            span.set_attribute('conciergent.push.outcome', outcome.value)
+            return outcome
+
+    async def _run(self, push: PushSettings, started_at: datetime.datetime) -> PushOutcome:
         surface = self._surfaces[push.target.surface]
         delivery: _DeliveryRecorder | None = None
         try:

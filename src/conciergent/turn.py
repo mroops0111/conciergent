@@ -1,5 +1,8 @@
+import enum
 import logging
 import typing
+
+from opentelemetry import trace
 
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
@@ -8,9 +11,22 @@ from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Carousel, ReplySurface
 from conciergent.runtime import OAuthBridge, PendingApproval, SkippedReply
 from conciergent.store.message import MessageStore
+from conciergent.telemetry import tracer
 
 
 logger = logging.getLogger(__name__)
+
+
+class _TurnOutcome(enum.StrEnum):
+    """How a turn ended, recorded on its span."""
+
+    declined = 'declined'
+    dropped = 'dropped'
+    approval_requested = 'approval_requested'
+    skipped = 'skipped'
+    carousel = 'carousel'
+    card = 'card'
+    text = 'text'
 
 
 async def run_turn(
@@ -33,10 +49,45 @@ async def run_turn(
     with the conversation that scopes history and pending approvals.
     This is side-effect only, the surface sends and the appended history turn.
     """
+    with tracer.start_as_current_span(
+        'turn',
+        attributes={
+            'conciergent.conversation': chat_context.conversation,
+            'conciergent.chat': type(chat_context).__name__,
+        },
+    ) as span:
+        outcome = await _run_turn(
+            user_input,
+            principal=principal,
+            chat_context=chat_context,
+            runner=runner,
+            surface=surface,
+            message_store=message_store,
+            bridge=bridge,
+            compactor=compactor,
+            approval_ttl_seconds=approval_ttl_seconds,
+            history_ttl_seconds=history_ttl_seconds,
+        )
+        span.set_attribute('conciergent.turn.outcome', outcome.value)
+
+
+async def _run_turn(
+    user_input: str,
+    *,
+    principal: str,
+    chat_context: ChatContext,
+    runner: ChatRunner,
+    surface: ReplySurface,
+    message_store: MessageStore,
+    bridge: OAuthBridge | None,
+    compactor: HistorySummarizer | None,
+    approval_ttl_seconds: int,
+    history_ttl_seconds: int,
+) -> _TurnOutcome:
     if not await chat_context.can_run(runner):
         # The app cannot serve this chat right now, and the kind of chat decides how that ends.
         await chat_context.decline(surface)
-        return
+        return _TurnOutcome.declined
     conversation = chat_context.conversation
     history = await message_store.load_history(conversation)
     if compactor is not None and history:
@@ -46,10 +97,12 @@ async def run_turn(
             history = compacted
     owner = chat_context.approval_owner(principal)
     pending_approval = await message_store.take_approval(conversation, owner=owner)
+    if pending_approval is not None:
+        trace.get_current_span().add_event('approval resumed')
     if pending_approval is None and chat_context.drops_unowned_decision(user_input):
         # Not every surface can tell one member privately, so the tap is dropped quietly on all of them.
         await surface.acknowledge_silently()
-        return
+        return _TurnOutcome.dropped
 
     await surface.show_processing()
     result = await runner.run(
@@ -71,17 +124,20 @@ async def run_turn(
             # or orphan the tool-call turn from its later result.
             await message_store.park_approval(conversation, state, ttl_seconds=approval_ttl_seconds, owner=owner)
             await surface.send_card(card, destructive=True)
-            return
+            return _TurnOutcome.approval_requested
         case SkippedReply(reason=reason):
             # Nothing reached the chat, so nothing joins the history the members see.
             logger.info('Turn in %s ended without a reply: %s', conversation, reason)
-            return
+            return _TurnOutcome.skipped
         case Carousel(options=options, fallback=fallback):
             await surface.send_carousel([*options, fallback])
+            outcome = _TurnOutcome.carousel
         case Card() as card:
             await surface.send_card(card)
+            outcome = _TurnOutcome.card
         case str() as text:
             await surface.send_text(text)
+            outcome = _TurnOutcome.text
         case unhandled:
             typing.assert_never(unhandled)
 
@@ -90,3 +146,4 @@ async def run_turn(
         await message_store.clear_history(conversation)
     else:
         await message_store.append_history(conversation, result.history, ttl_seconds=history_ttl_seconds)
+    return outcome

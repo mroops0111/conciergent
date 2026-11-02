@@ -210,7 +210,9 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `conversation.history_ttl_seconds` | `604800` | History retention (one week). |
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
 | `pushes` | `[]` | Prompts `conciergent push` runs, sending each reply into a chat. See [Pushes](#pushes). |
-| `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`. |
+| `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`, and a JSON line logged during a turn carries its `trace_id` and `span_id`. |
+| `telemetry.enabled` | `false` | Trace each turn with OpenTelemetry. See [Tracing](#tracing). |
+| `telemetry.capture_content` | `false` | Also record prompts, replies, and tool arguments and results in the spans. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
 </details>
@@ -441,7 +443,31 @@ capability:
 - **Hosting**: charts are served from `<server.url>/charts/`, which must be public HTTPS, since LINE fetches each image from the device and keeps no copy. A chart stays reachable for `capability.chart.ttl_seconds`, 90 days by default.
 - **Fonts**: the Docker image ships Noto Sans CJK. Elsewhere, set `capability.chart.font` to a font that covers your users' scripts, since a missing font draws no text at all.
 
-## The Reply Model
+### Tracing
+
+Each turn can be traced with [OpenTelemetry](https://opentelemetry.io/), so one trace shows the turn, the agent's model and tool calls, an OAuth handoff or approval, and the API behind the embedded gateway.
+
+```sh
+uv add "conciergent[otel]"
+```
+
+```yaml
+telemetry:
+  enabled: true
+```
+
+Spans export over OTLP, configured by the standard environment variables, so any OTLP backend works. For example, Langfuse:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of public-key:secret-key>"
+```
+
+- **Spans**: a `turn` span for each message or push holds the agent, model, and tool spans from Pydantic AI and the MCP SDK. `push`, `oauth handoff`, and `compact history` spans cover the rest of the turn.
+- **Downstream**: each MCP call carries the trace in its `_meta`, and the embedded gateway forwards it to the upstream API as a `traceparent` header.
+- **Content**: prompts, replies, and tool arguments and results stay out of the spans unless `telemetry.capture_content` is on.
+- **Host Applications**: an app that already set an OpenTelemetry tracer provider keeps it, and conciergent's spans join it.
+
 
 The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
 

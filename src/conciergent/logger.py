@@ -7,6 +7,7 @@ import typing
 
 import anyio
 from mcp.client import streamable_http
+from opentelemetry import trace
 
 
 # The filter matches the mcp SDK's own logger, whose name is this module's __name__, so it is derived not a literal.
@@ -39,7 +40,10 @@ def iso_time(record: logging.LogRecord) -> str:
 
 
 class JsonFormatter(logging.Formatter):
-    """Emit one JSON object per log line, with the traceback and stack when the record carries them."""
+    """Emit one JSON object per log line, with the traceback and stack when the record carries them.
+
+    A line logged inside a span also carries its trace and span ids.
+    """
 
     @typing.override
     def format(self, record: logging.LogRecord) -> str:
@@ -49,6 +53,11 @@ class JsonFormatter(logging.Formatter):
             'logger': record.name,
             'message': record.getMessage(),
         }
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            # The same ids a trace backend shows, so a log line leads to its trace and a trace to its log lines.
+            payload['trace_id'] = trace.format_trace_id(span_context.trace_id)
+            payload['span_id'] = trace.format_span_id(span_context.span_id)
         if record.exc_info:
             payload['exception'] = self.formatException(record.exc_info)
         if record.stack_info:

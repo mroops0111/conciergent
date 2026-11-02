@@ -430,6 +430,16 @@ class LoggerSettings(pydantic.BaseModel):
     file: str | None = None
 
 
+class TelemetrySettings(pydantic.BaseModel):
+    """Whether each turn is traced with OpenTelemetry, applied once at startup by ``conciergent.telemetry.setup``.
+
+    Where the spans go is set by the standard ``OTEL_EXPORTER_OTLP_*`` environment variables, so no secret sits here.
+    """
+
+    enabled: bool = False
+    capture_content: bool = False
+
+
 class AppConfig(pydantic.BaseModel):
     """The whole conciergent configuration, one agent plus surfaces plus a server."""
 
@@ -441,6 +451,7 @@ class AppConfig(pydantic.BaseModel):
     capability: CapabilitySettings
     conversation: ConversationSettings
     logger: LoggerSettings
+    telemetry: TelemetrySettings
     pushes: list[PushSettings] = pydantic.Field(default_factory=list)
     # A directory of ``{lang}.yml`` files whose keys override the shipped UI text, for rebranding or new languages.
     locales_dir: str | None = None

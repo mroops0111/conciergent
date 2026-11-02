@@ -9,6 +9,7 @@ from mcp.shared.auth import AuthorizationCodeResult
 from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Reply
 from conciergent.store.message import MessageStore
+from conciergent.telemetry import tracer
 
 
 class OAuthHandoffExpiredError(Exception):
@@ -84,8 +85,10 @@ class StatefulOAuthBridge(OAuthBridge):
         states = query.get('state')
         if not states:
             raise ValueError('the authorization URL carries no state parameter')
-        await self._render_authorization_ui(authorize_url)
-        result = await self._message_store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
+        with tracer.start_as_current_span('oauth handoff') as span:
+            await self._render_authorization_ui(authorize_url)
+            result = await self._message_store.await_oauth_code(states[0], timeout_seconds=self._wait_timeout_seconds)
+            span.set_attribute('conciergent.oauth.completed', result is not None)
         if result is None:
             raise OAuthHandoffExpiredError
         return result
