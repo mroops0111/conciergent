@@ -8,7 +8,7 @@ from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import DeferredToolRequests
-from pydantic_ai.toolsets import AbstractToolset
+from pydantic_ai.toolsets import AbstractToolset, WrapperToolset
 
 from conciergent import OAuthBridge
 from conciergent.agent.mcp.client import _OAuthBridgeAdapter, build_toolset, needs_approval
@@ -62,6 +62,15 @@ async def test_build_toolset_without_oauth_returns_a_toolset():
     toolset = await build_toolset(_SERVER, principal=_PRINCIPAL)
 
     assert isinstance(toolset, AbstractToolset)
+
+
+async def test_build_toolset_without_oauth_bounds_the_connect_by_the_read_timeout():
+    toolset = await build_toolset(_SERVER, principal=_PRINCIPAL, read_timeout_seconds=42)
+
+    assert isinstance(toolset, WrapperToolset)
+    assert isinstance(toolset.wrapped, MCPToolset)
+    # A server slow to wake from idle still gets the whole read timeout to finish the initialize handshake.
+    assert toolset.wrapped.client._init_timeout == 42
 
 
 async def test_build_toolset_with_oauth_constructs(credential_store: CredentialStore):

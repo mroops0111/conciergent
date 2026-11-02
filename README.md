@@ -183,7 +183,7 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
 | `agent.input_token_limit` | `null` | Overrides the context window used for history compaction. Unset auto-detects it per model. |
-| `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
+| `agent.mcp_read_timeout_seconds` | `300` | Per-call MCP read timeout, which also bounds the connect of a turn without a user's token. Must exceed `conversation.oauth_wait_timeout_seconds`, since a missing token runs OAuth inside the connect. |
 | `agent.mcp_probe_timeout_seconds` | `10` | Group chats only. How long the no-credential probe of an MCP server waits. |
 | `agent.mcp_probe_retry_seconds` | `60` | Group chats only. When an unreachable MCP server is probed again. |
 | `agent.client_name` | `conciergent` | Name shown on the MCP OAuth screen. |
