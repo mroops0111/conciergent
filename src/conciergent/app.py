@@ -21,11 +21,13 @@ from conciergent.config import (
     LoggerSettings,
     PushSettings,
     build_app_config,
-    yaml_layer,
 )
+from conciergent.config_layer import yaml_layer
+from conciergent.control import ControlServer
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
-from conciergent.push import PushExecutor, PushOutcome, UnknownPushError
+from conciergent.push import PushExecutor
+from conciergent.push_outcome import PushOutcome, UnknownPushError
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface, Surface, SurfaceContext
@@ -44,6 +46,7 @@ class App:
         host: str = '127.0.0.1',
         port: int = 8000,
         base_url: str = '',
+        control_socket: str = '',
         message_store: MessageStore,
         credential_store: CredentialStore,
         surfaces: collections.abc.Sequence[Surface] = (),
@@ -60,6 +63,7 @@ class App:
         self.host = host
         self.port = port
         self.base_url = base_url or f'http://{host}:{port}'
+        self._control_socket = control_socket
         self._message_store = message_store
         self._credential_store = credential_store
         self._runner = runner
@@ -131,6 +135,7 @@ class App:
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
+            control_socket=config.server.control_socket,
             approval_ttl_seconds=config.conversation.approval_ttl_seconds,
             history_ttl_seconds=config.conversation.history_ttl_seconds,
             oauth_wait_timeout_seconds=config.conversation.oauth_wait_timeout_seconds,
@@ -167,6 +172,9 @@ class App:
                     # which the gateway enters in its own app factory only.
                     for handle in gateway._servers:
                         await stack.enter_async_context(handle.mcp.session_manager.run())
+                if self._control_socket:
+                    # Opened after the gateway, since a push handed over here may call its tools.
+                    await stack.enter_async_context(ControlServer(self._control_socket, self._push_by_name))
                 # A connection surface (Discord's gateway) holds its socket for the app's lifetime.
                 # A webhook surface's run_connection returns at once.
                 # Every task is cancelled cleanly at shutdown.
@@ -221,12 +229,20 @@ class App:
         It serves nothing, so it runs beside a serving app, such as from cron or a Kubernetes CronJob.
         Tools from the embedded gateway are still dialed at ``server.internal_url``, so that app must be up.
         """
+        push = self._find_push(name)
+        self._configure_process()
+        return asyncio.run(self._push(push))
+
+    def _find_push(self, name: str) -> PushSettings:
         push = self._pushes.get(name)
         if push is None:
             known = ', '.join(self._pushes) or 'none'
             raise UnknownPushError(f'no push named {name!r}, the configured ones are: {known}')
-        self._configure_process()
-        return asyncio.run(self._push(push))
+        return push
+
+    async def _push_by_name(self, name: str) -> PushOutcome:
+        # The control socket's entry point, which runs the push on the serving app's own event loop.
+        return await self._push(self._find_push(name))
 
     async def _push(self, push: PushSettings) -> PushOutcome:
         # The stores are not checked up front, so an outage fails inside the turn, where the failure message goes out.

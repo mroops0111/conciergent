@@ -1,16 +1,13 @@
 import abc
 import logging
-import os
-import pathlib
-import re
 import typing
 import zoneinfo
 
 import pydantic
-import yaml
 
 from conciergent.capability import AppCapability
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
+from conciergent.config_layer import deep_merge
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
@@ -32,6 +29,7 @@ class ServerSettings(pydantic.BaseModel):
     port: int
     url: str = ''
     internal_url: str = ''
+    control_socket: str = ''
 
     @pydantic.model_validator(mode='after')
     def _default_url(self) -> typing.Self:
@@ -502,43 +500,9 @@ class AppConfig(pydantic.BaseModel):
         return self
 
 
-def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:
-    """Load one YAML config layer, resolving ``${ENV_VAR}`` and ``${ENV_VAR:-default}`` references."""
-    raw = yaml.safe_load(pathlib.Path(path).expanduser().read_text()) or {}
-    return _resolve_env(raw)
-
-
 def build_app_config(*layers: dict[str, typing.Any]) -> AppConfig:
     """Deep-merge the given layers over the shipped defaults, later layers win, then validate the result."""
     merged = defaults_layer()
     for layer in layers:
-        merged = _deep_merge(merged, layer)
+        merged = deep_merge(merged, layer)
     return AppConfig.model_validate(merged)
-
-
-_ENV_PATTERN = re.compile(r'\$\{(\w+)(?::-(.*))?\}')
-
-
-def _resolve_env(value: typing.Any) -> typing.Any:
-    if isinstance(value, dict):
-        return {key: _resolve_env(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_resolve_env(item) for item in value]
-    if isinstance(value, str):
-        match = _ENV_PATTERN.fullmatch(value)
-        if match:
-            env_value = os.environ.get(match.group(1))
-            if env_value is not None:
-                return env_value
-            return match.group(2) if match.group(2) is not None else ''
-    return value
-
-
-def _deep_merge(base: dict[str, typing.Any], override: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged

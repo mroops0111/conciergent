@@ -3,6 +3,7 @@ import builtins
 import contextlib
 import json
 import logging
+import pathlib
 import socket
 import threading
 import time
@@ -22,8 +23,9 @@ from conciergent import App, AppConfig, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
+from conciergent.control import request_push
 from conciergent.i18n.lang import Lang
-from conciergent.push import PushOutcome, UnknownPushError
+from conciergent.push_outcome import PushOutcome, UnknownPushError
 from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
@@ -372,6 +374,19 @@ def test_push_runs_the_named_push_once_and_pushes_the_reply(stores):
 
     assert app.push('daily-digest') is PushOutcome.delivered
     assert surface.targets == ['C1'] and surface.texts() == ['ok']
+
+
+def test_a_push_handed_over_the_control_socket_runs_in_the_serving_app(stores, control_socket):
+    surface = RecordingPushSurface()
+    app = _silent_app(stores, surfaces=[surface], pushes=[push_settings()], control_socket=control_socket)
+
+    # Entering the client runs the lifespan, which opens the socket next to the HTTP routes.
+    with _client(app):
+        outcome = request_push(control_socket, 'daily-digest')
+
+    assert outcome is PushOutcome.delivered
+    assert surface.targets == ['C1'] and surface.texts() == ['ok']
+    assert not pathlib.Path(control_socket).exists()
 
 
 def test_push_names_the_configured_pushes_when_the_name_is_unknown(stores):
