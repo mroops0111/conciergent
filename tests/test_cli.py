@@ -11,7 +11,7 @@ import yaml
 from conciergent.app import App
 from conciergent.cli import main
 from conciergent.control import ControlServer
-from conciergent.push_outcome import PushOutcome, UnknownPushError
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
 @pytest.fixture

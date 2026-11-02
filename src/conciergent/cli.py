@@ -5,7 +5,7 @@ import click
 
 from conciergent.config_layer import yaml_layer
 from conciergent.control import ControlConnectionLostError, ControlUnavailableError, request_push
-from conciergent.push_outcome import PushOutcome, UnknownPushError
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
 # The app is imported only where a command builds it, so a push handed to a serving app loads no agent code.

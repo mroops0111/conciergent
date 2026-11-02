@@ -10,7 +10,7 @@ from conciergent.config import PushSettings
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
-from conciergent.push_outcome import PushOutcome
+from conciergent.push.outcome import PushOutcome
 from conciergent.reply import Card, ReplySurface
 from conciergent.reply_format import CardReplyFormat
 from conciergent.store.message import MessageStore

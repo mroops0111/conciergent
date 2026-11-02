@@ -25,7 +25,7 @@ from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, De
 from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
 from conciergent.control import request_push
 from conciergent.i18n.lang import Lang
-from conciergent.push_outcome import PushOutcome, UnknownPushError
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore

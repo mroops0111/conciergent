@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from conciergent.control import ControlConnectionLostError, ControlServer, ControlUnavailableError, request_push
-from conciergent.push_outcome import PushOutcome, UnknownPushError
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
 class _RecordingPushes:

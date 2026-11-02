@@ -10,7 +10,7 @@ import stat
 import types
 import typing
 
-from conciergent.push_outcome import PushOutcome, UnknownPushError
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
 logger = logging.getLogger(__name__)
