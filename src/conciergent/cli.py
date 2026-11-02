@@ -4,7 +4,7 @@ import pathlib
 import click
 
 from conciergent.config_layer import yaml_layer
-from conciergent.control import ControlConnectionLostError, ControlUnavailableError, request_push
+from conciergent.control import ControlClient, ControlConnectionLostError, ControlUnavailableError
 from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
@@ -65,7 +65,7 @@ def _push_through_control_socket(push_name: str, config_path: str) -> PushOutcom
     if not control_socket:
         return None
     try:
-        return request_push(control_socket, push_name)
+        return ControlClient(control_socket).request_push(push_name)
     except ControlUnavailableError as error:
         click.echo(f'{error}, so the push runs in this process.', err=True)
         return None

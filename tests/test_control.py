@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from conciergent.control import ControlConnectionLostError, ControlServer, ControlUnavailableError, request_push
+from conciergent.control import ControlClient, ControlConnectionLostError, ControlServer, ControlUnavailableError
 from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
@@ -28,7 +28,7 @@ async def test_a_handed_push_runs_in_the_server_and_reports_its_outcome(control_
     pushes = _RecordingPushes(PushOutcome.skipped)
 
     async with ControlServer(control_socket, pushes.run):
-        outcome = await asyncio.to_thread(request_push, control_socket, 'daily-digest')
+        outcome = await asyncio.to_thread(ControlClient(control_socket).request_push, 'daily-digest')
 
     assert outcome is PushOutcome.skipped
     assert pushes.names == ['daily-digest']
@@ -37,7 +37,7 @@ async def test_a_handed_push_runs_in_the_server_and_reports_its_outcome(control_
 async def test_an_unknown_push_is_reported_back_by_name(control_socket: str):
     async with ControlServer(control_socket, _RecordingPushes().run):
         with pytest.raises(UnknownPushError, match="no push named 'weekly'"):
-            await asyncio.to_thread(request_push, control_socket, 'weekly')
+            await asyncio.to_thread(ControlClient(control_socket).request_push, 'weekly')
 
 
 async def test_a_push_that_dies_in_the_server_leaves_the_outcome_unknown(control_socket: str):
@@ -46,7 +46,7 @@ async def test_a_push_that_dies_in_the_server_leaves_the_outcome_unknown(control
 
     async with ControlServer(control_socket, broken):
         with pytest.raises(ControlConnectionLostError):
-            await asyncio.to_thread(request_push, control_socket, 'daily-digest')
+            await asyncio.to_thread(ControlClient(control_socket).request_push, 'daily-digest')
 
 
 async def test_the_socket_is_private_to_the_app_user_and_removed_at_shutdown(control_socket: str):
@@ -60,7 +60,7 @@ async def test_the_socket_is_private_to_the_app_user_and_removed_at_shutdown(con
 
 def test_a_missing_socket_means_no_app_took_the_push(control_socket: str):
     with pytest.raises(ControlUnavailableError):
-        request_push(control_socket, 'daily-digest')
+        ControlClient(control_socket).request_push('daily-digest')
 
 
 async def test_a_socket_left_by_a_dead_app_is_unavailable_then_replaced(control_socket: str):
@@ -70,9 +70,9 @@ async def test_a_socket_left_by_a_dead_app_is_unavailable_then_replaced(control_
     stale.close()
 
     with pytest.raises(ControlUnavailableError):
-        request_push(control_socket, 'daily-digest')
+        ControlClient(control_socket).request_push('daily-digest')
     async with ControlServer(control_socket, _RecordingPushes().run):
-        outcome = await asyncio.to_thread(request_push, control_socket, 'daily-digest')
+        outcome = await asyncio.to_thread(ControlClient(control_socket).request_push, 'daily-digest')
 
     assert outcome is PushOutcome.delivered
 

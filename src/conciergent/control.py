@@ -29,30 +29,38 @@ class ControlConnectionLostError(ConnectionError):
     """The serving app took the push, but the connection ended before it said how the push ended."""
 
 
-def request_push(path: str, name: str) -> PushOutcome:
-    """Hand the push called ``name`` to the app serving at the control socket ``path``, and wait for its outcome.
+class ControlClient:
+    """Hand requests to the app serving at a control socket, the push command's side of ``ControlServer``.
 
     It imports nothing from the agent, so the push command starts fast when an app is serving.
     """
-    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    with connection:
-        try:
-            connection.connect(path)
-            connection.sendall(json.dumps({'push': name}).encode() + b'\n')
-        except OSError as error:
-            # The app cannot have read a whole request, so it never started the push.
-            raise ControlUnavailableError(f'nothing answers at the control socket {path}') from error
-        try:
-            with connection.makefile('rb') as reader:
-                line = reader.readline()
-        except OSError as error:
-            raise ControlConnectionLostError(f'the app at {path} stopped answering during push {name}') from error
-    if not line:
-        raise ControlConnectionLostError(f'the app at {path} closed the connection during push {name}')
-    response = json.loads(line)
-    if response.get('error') == _UNKNOWN_PUSH:
-        raise UnknownPushError(response['message'])
-    return PushOutcome(response['outcome'])
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+
+    def request_push(self, name: str) -> PushOutcome:
+        """Hand the push called ``name`` to the serving app, and wait for its outcome."""
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        with connection:
+            try:
+                connection.connect(self._path)
+                connection.sendall(json.dumps({'push': name}).encode() + b'\n')
+            except OSError as error:
+                # The app cannot have read a whole request, so it never started the push.
+                raise ControlUnavailableError(f'nothing answers at the control socket {self._path}') from error
+            try:
+                with connection.makefile('rb') as reader:
+                    line = reader.readline()
+            except OSError as error:
+                raise ControlConnectionLostError(
+                    f'the app at {self._path} stopped answering during push {name}'
+                ) from error
+        if not line:
+            raise ControlConnectionLostError(f'the app at {self._path} closed the connection during push {name}')
+        response = json.loads(line)
+        if response.get('error') == _UNKNOWN_PUSH:
+            raise UnknownPushError(response['message'])
+        return PushOutcome(response['outcome'])
 
 
 class ControlServer:
