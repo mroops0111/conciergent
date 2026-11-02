@@ -31,13 +31,3 @@ def _resolve_env(value: typing.Any) -> typing.Any:
                 return env_value
             return match.group(2) if match.group(2) is not None else ''
     return value
-
-
-def deep_merge(base: dict[str, typing.Any], override: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged

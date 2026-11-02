@@ -10,7 +10,6 @@ from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, De
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
-from conciergent.manifest import deep_merge
 from conciergent.reply_format import CardShape
 from conciergent.store.chart import ChartStore
 from conciergent.surfaces.base import PushSurface, Surface
@@ -504,5 +503,15 @@ def build_app_config(*layers: dict[str, typing.Any]) -> AppConfig:
     """Deep-merge the given layers over the shipped defaults, later layers win, then validate the result."""
     merged = defaults_layer()
     for layer in layers:
-        merged = deep_merge(merged, layer)
+        merged = _deep_merge(merged, layer)
     return AppConfig.model_validate(merged)
+
+
+def _deep_merge(base: dict[str, typing.Any], override: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
