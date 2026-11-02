@@ -77,7 +77,9 @@ async def build_toolset(
             # leaving the bridge's own wait as the only limit.
             toolset = MCPToolset(server, auth=auth, read_timeout=read_timeout_seconds, init_timeout=0)
         else:
-            toolset = MCPToolset(server, read_timeout=read_timeout_seconds)
+            # The connect shares the read timeout, since pydantic-ai's 5 second default is too short.
+            # A server waking from idle, such as one paged out to swap, can take longer to answer the handshake.
+            toolset = MCPToolset(server, read_timeout=read_timeout_seconds, init_timeout=read_timeout_seconds)
     else:
         toolset = MCPToolset(server)
     return destructive_tool_policy.apply(toolset, approval_predicate)
