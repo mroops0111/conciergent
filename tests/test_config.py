@@ -6,9 +6,9 @@ import pytest
 import yaml
 
 from conciergent.config import GatewaySpec, ServerSettings, build_app_config
-from conciergent.config_layer import yaml_layer
 from conciergent.defaults import DEFAULTS
 from conciergent.group_chat import GroupChatPolicy
+from conciergent.manifest import yaml_layer
 from tests.conftest import card_shape
 
 

@@ -6,7 +6,7 @@ import typing
 import yaml
 
 
-# Loading and merging layers needs no config models, so the push command can read its socket path without them.
+# Reading a manifest needs no config models, so the push command can find its control socket without them.
 
 
 def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:

@@ -3,8 +3,8 @@ import pathlib
 
 import click
 
-from conciergent.config_layer import yaml_layer
 from conciergent.control import ControlClient, ControlConnectionLostError, ControlUnavailableError
+from conciergent.manifest import yaml_layer
 from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 

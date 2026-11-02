@@ -22,10 +22,10 @@ from conciergent.config import (
     PushSettings,
     build_app_config,
 )
-from conciergent.config_layer import yaml_layer
 from conciergent.control import ControlServer
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang, parse_accept_language
+from conciergent.manifest import yaml_layer
 from conciergent.push.executor import PushExecutor
 from conciergent.push.outcome import PushOutcome, UnknownPushError
 from conciergent.store.credential import CredentialStore

@@ -7,10 +7,10 @@ import pydantic
 
 from conciergent.capability import AppCapability
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
-from conciergent.config_layer import deep_merge
 from conciergent.defaults import defaults_layer
 from conciergent.group_chat import GroupChatPolicy, ReplyTrigger
 from conciergent.identity import ChatSurface
+from conciergent.manifest import deep_merge
 from conciergent.reply_format import CardShape
 from conciergent.store.chart import ChartStore
 from conciergent.surfaces.base import PushSurface, Surface
