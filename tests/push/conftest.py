@@ -8,7 +8,7 @@ import fastapi
 
 from conciergent.config import PushSettings
 from conciergent.identity import ChatSurface
-from conciergent.push import PushExecutor
+from conciergent.push.executor import PushExecutor
 from conciergent.store.message import MessageStore
 from conciergent.surfaces.base import PushSurface, PushTarget, SurfaceContext
 from tests.conftest import RecordingSurface, StubRunner

@@ -7,6 +7,7 @@ server:
   port: 8000
   # url: https://your-public-url # the URL external services reach, derived from host and port unless set for a proxy
   # internal_url: http://127.0.0.1:8000 # where the agent reaches the embedded gateway, derived from host and port
+  # control_socket: /tmp/conciergent/control.sock # a Unix socket `conciergent push` hands pushes to, off when unset
 
 agent:
   model: openai:gpt-6-luna # or any `google:` or `anthropic:` model

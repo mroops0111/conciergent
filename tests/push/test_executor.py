@@ -6,7 +6,7 @@ import pytest
 
 from conciergent.agent.mcp.tool_policy import HideDestructiveToolPolicy, RunDestructiveToolPolicy
 from conciergent.chat_context import UnattendedChatContext
-from conciergent.push import PushOutcome
+from conciergent.push.outcome import PushOutcome
 from conciergent.reply_format import CardReplyFormat, FreeReplyFormat
 from conciergent.runtime import SkippedReply
 from conciergent.store.message import MessageStore

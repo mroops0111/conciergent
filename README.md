@@ -179,6 +179,7 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `server.port` | `8000` | Bind port. |
 | `server.url` | *(from host/port)* | Public URL external services reach. Set this behind a tunnel or proxy. |
 | `server.internal_url` | *(loopback from host/port)* | Where the agent reaches the embedded gateway, so `/{name}/mcp` needs no public route. A per-user `oauth2` spec is still reached at `server.url`. Set this when `push` runs outside the app's host or container. |
+| `server.control_socket` | `''` | Unix socket path where the serving app takes pushes from `conciergent push`. Unset, each push runs in its own process. |
 | `agent.model` | `openai:gpt-6-luna` | A `provider:model` string for one of the three providers above. |
 | `agent.system_prompt` | *(generic assistant)* | Your assistant's instructions. |
 | `agent.mcp_servers` | `[]` | MCP server URLs the agent connects to. |
@@ -364,13 +365,14 @@ reply:
 conciergent push vaccine-reminder --config manifest.yml
 ```
 
-The command runs the push once and exits, serving nothing, so it can run beside the app, even inside its container. It reads the same config and env as the app. Tools from the embedded gateway are dialed at `server.internal_url`, so the app must be up and reachable there.
+The command runs the push once and exits, reading the same config and env as the app. With `server.control_socket` set and the app serving, the push runs inside the app, and the command starts in well under a second. Otherwise the push runs in the command's own process, which dials the embedded gateway at `server.internal_url`, so the app must be up.
 
 | Exit | Meaning | Retry |
 |---|---|---|
 | `0` | The reply was pushed, or the agent called `skip_reply`. A later step such as saving history may still have failed, which is logged. | No |
 | `1` | The push failed before any reply was pushed, and `failure_message` was pushed when set. | Safe, though a retry that fails again pushes `failure_message` again |
 | `2` | The config or the push name is invalid. | No |
+| `3` | The app took the push over the control socket but stopped answering, so a reply may be out. | Check the app's logs first |
 
 <details>
 <summary><b>Scheduling Examples</b></summary>

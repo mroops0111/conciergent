@@ -1,3 +1,5 @@
+import pathlib
+import tempfile
 import typing
 
 import pytest
@@ -36,6 +38,13 @@ def messages_url() -> typing.Iterator[str]:
 def credentials_url() -> typing.Iterator[str]:
     with PostgresContainer('postgres:16-alpine', driver='asyncpg') as container:
         yield container.get_connection_url()
+
+
+@pytest.fixture
+def control_socket() -> typing.Iterator[str]:
+    """A path for a control socket, kept short since macOS caps a Unix socket path near 104 bytes."""
+    with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+        yield str(pathlib.Path(directory) / 'control.sock')
 
 
 @pytest.fixture

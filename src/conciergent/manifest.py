@@ -1,0 +1,33 @@
+import os
+import pathlib
+import re
+import typing
+
+import yaml
+
+
+# Reading a manifest needs no config models, so the push command can find its control socket without them.
+
+
+def yaml_layer(path: str | pathlib.Path) -> dict[str, typing.Any]:
+    """Load one YAML config layer, resolving ``${ENV_VAR}`` and ``${ENV_VAR:-default}`` references."""
+    raw = yaml.safe_load(pathlib.Path(path).expanduser().read_text()) or {}
+    return _resolve_env(raw)
+
+
+_ENV_PATTERN = re.compile(r'\$\{(\w+)(?::-(.*))?\}')
+
+
+def _resolve_env(value: typing.Any) -> typing.Any:
+    if isinstance(value, dict):
+        return {key: _resolve_env(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_env(item) for item in value]
+    if isinstance(value, str):
+        match = _ENV_PATTERN.fullmatch(value)
+        if match:
+            env_value = os.environ.get(match.group(1))
+            if env_value is not None:
+                return env_value
+            return match.group(2) if match.group(2) is not None else ''
+    return value

@@ -1,6 +1,5 @@
 import collections.abc
 import datetime
-import enum
 import logging
 import typing
 
@@ -11,6 +10,7 @@ from conciergent.config import PushSettings
 from conciergent.defaults import DEFAULTS
 from conciergent.i18n.lang import Lang
 from conciergent.identity import ChatSurface
+from conciergent.push.outcome import PushOutcome
 from conciergent.reply import Card, ReplySurface
 from conciergent.reply_format import CardReplyFormat
 from conciergent.store.message import MessageStore
@@ -19,19 +19,6 @@ from conciergent.turn import run_turn
 
 
 logger = logging.getLogger(__name__)
-
-
-class UnknownPushError(LookupError):
-    """No configured push has the name a run asked for."""
-
-
-class PushOutcome(enum.StrEnum):
-    """How a push ended, judged by whether anything reached the chat, since that decides if a retry is safe."""
-
-    delivered = 'delivered'
-    skipped = 'skipped'
-    # Nothing but the failure message reached the chat, so running the push again cannot repeat a reply.
-    failed = 'failed'
 
 
 class PushExecutor:

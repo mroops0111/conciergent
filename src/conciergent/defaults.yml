@@ -6,6 +6,7 @@ server:
   port: 8000
   url: ''
   internal_url: ''
+  control_socket: ''
 
 agent:
   model: openai:gpt-6-luna

@@ -1,11 +1,17 @@
+import asyncio
+import contextlib
 import pathlib
+import threading
+import typing
 
 import click.testing
 import pytest
+import yaml
 
 from conciergent.app import App
 from conciergent.cli import main
-from conciergent.push import PushOutcome, UnknownPushError
+from conciergent.control import ControlServer
+from conciergent.push.outcome import PushOutcome, UnknownPushError
 
 
 @pytest.fixture
@@ -113,3 +119,103 @@ def test_fire_leaves_a_runtime_value_error_as_a_failure_not_a_usage_error(
 
     assert result.exit_code == 1
     assert 'Usage' not in result.output
+
+
+@contextlib.contextmanager
+def _serving_control(path: str, run_push: typing.Any) -> typing.Iterator[None]:
+    """Serve a control socket on its own event loop thread, standing in for a serving app."""
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    server = ControlServer(path, run_push)
+    asyncio.run_coroutine_threadsafe(server.__aenter__(), loop).result(timeout=5)
+    try:
+        yield
+    finally:
+        asyncio.run_coroutine_threadsafe(server.__aexit__(None, None, None), loop).result(timeout=5)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+        loop.close()
+
+
+def _config_with_control_socket(tmp_path: pathlib.Path, control_socket: str) -> pathlib.Path:
+    config = tmp_path / 'manifest.yml'
+    config.write_text(yaml.safe_dump({'server': {'control_socket': control_socket}}))
+    return config
+
+
+def _no_app_in_this_process(path: str) -> App:
+    raise AssertionError('the push should have run in the serving app')
+
+
+@pytest.mark.parametrize(
+    ('outcome', 'exit_code'),
+    [(PushOutcome.delivered, 0), (PushOutcome.skipped, 0), (PushOutcome.failed, 1)],
+)
+def test_push_hands_over_to_a_serving_app_with_the_same_exit_codes(
+    runner: click.testing.CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    control_socket: str,
+    outcome: PushOutcome,
+    exit_code: int,
+):
+    monkeypatch.setattr(App, 'from_config', _no_app_in_this_process)
+    pushed: list[str] = []
+
+    async def run_push(name: str) -> PushOutcome:
+        pushed.append(name)
+        return outcome
+
+    config = _config_with_control_socket(tmp_path, control_socket)
+    with _serving_control(control_socket, run_push):
+        result = runner.invoke(main, ['push', 'daily-digest', '--config', str(config)])
+
+    assert result.exit_code == exit_code
+    assert pushed == ['daily-digest']
+
+
+def test_push_reports_an_unknown_push_from_the_serving_app_as_a_usage_error(
+    runner: click.testing.CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, control_socket: str
+):
+    monkeypatch.setattr(App, 'from_config', _no_app_in_this_process)
+
+    async def run_push(name: str) -> PushOutcome:
+        raise UnknownPushError(f'no push named {name!r}, the configured ones are: daily-digest')
+
+    config = _config_with_control_socket(tmp_path, control_socket)
+    with _serving_control(control_socket, run_push):
+        result = runner.invoke(main, ['push', 'weekly', '--config', str(config)])
+
+    assert result.exit_code == 2
+    assert "no push named 'weekly'" in result.output
+
+
+def test_push_exits_3_when_the_serving_app_stops_answering(
+    runner: click.testing.CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, control_socket: str
+):
+    monkeypatch.setattr(App, 'from_config', _no_app_in_this_process)
+
+    async def run_push(name: str) -> PushOutcome:
+        raise RuntimeError('the app went down mid-push')
+
+    config = _config_with_control_socket(tmp_path, control_socket)
+    with _serving_control(control_socket, run_push):
+        result = runner.invoke(main, ['push', 'daily-digest', '--config', str(config)])
+
+    assert result.exit_code == 3
+    assert 'before running the push again' in result.output
+
+
+def test_push_runs_in_process_when_no_app_serves_the_control_socket(
+    runner: click.testing.CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, control_socket: str
+):
+    app = _StubApp(PushOutcome.delivered)
+    monkeypatch.setattr(App, 'from_config', lambda path: app)
+    config = _config_with_control_socket(tmp_path, control_socket)
+
+    result = runner.invoke(main, ['push', 'daily-digest', '--config', str(config)])
+
+    assert result.exit_code == 0
+    assert app.pushed == ['daily-digest']
+    assert 'runs in this process' in result.output
