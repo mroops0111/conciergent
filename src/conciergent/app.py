@@ -284,7 +284,7 @@ def _build_gateway(settings: GatewaySettings, base_url: str) -> typing.Any:
         import openapi_mcp_gateway
         from openapi_mcp_gateway.settings import StoreConfig
     except ImportError as error:
-        raise RuntimeError('the embedded gateway needs the extra: uv add conciergent[gateway]') from error
+        raise RuntimeError('the embedded gateway needs the extra: uv add "conciergent[gateway]"') from error
     # base_url sets the gateway's public OAuth redirect and discovery URLs, not its localhost default.
     # The Redis store persists the gateway's OAuth client registrations across restarts,
     # so a client id saved by the agent is not later rejected as unknown once the gateway forgets it.

@@ -465,9 +465,10 @@ OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of public-key:secret-key
 
 - **Spans**: a `turn` span for each message or push holds the agent, model, and tool spans from Pydantic AI and the MCP SDK. `push`, `oauth handoff`, and `compact history` spans cover the rest of the turn.
 - **Downstream**: each MCP call carries the trace in its `_meta`, and the embedded gateway forwards it to the upstream API as a `traceparent` header.
-- **Content**: prompts, replies, and tool arguments and results stay out of the spans unless `telemetry.capture_content` is on.
+- **Content**: prompts, replies, and tool arguments and results stay out of the spans unless `telemetry.capture_content` is on. The `turn` span still names its conversation, which holds the chat platform's user or group id.
 - **Host Applications**: an app that already set an OpenTelemetry tracer provider keeps it, and conciergent's spans join it.
 
+## The Reply Model
 
 The agent never speaks Slack, LINE, or Discord. It emits one of three shapes, and each surface renders it natively.
 

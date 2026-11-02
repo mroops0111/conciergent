@@ -6,33 +6,33 @@ import subprocess
 import sys
 import typing
 
-import fastapi
+import fastmcp
 import pydantic_ai
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.models.test import TestModel
 
-from conciergent import App, PendingApproval, run_turn
+from conciergent import PendingApproval, telemetry
 from conciergent.chat_context import DirectChatContext
-from conciergent.config import build_app_config
 from conciergent.logger import JsonFormatter
-from conciergent.push.executor import PushExecutor
 from conciergent.push.outcome import PushOutcome
 from conciergent.runtime import OAuthHandoffExpiredError, StatefulOAuthBridge
 from conciergent.store.message import MessageStore
-from tests.conftest import RecordingSurface, StubRunner, free_port, make_card, serving
-from tests.push.conftest import STARTED_AT, RecordingPushSurface, push_settings
+from tests.conftest import (
+    PetsApi,
+    StubRunner,
+    app_config,
+    ask_through_gateway,
+    drive_turn,
+    make_card,
+    serving_gateway,
+)
+from tests.push.conftest import STARTED_AT, executor, push_settings
 
 
 _PRINCIPAL = 'line:U1'
 _CONVERSATION = 'line:user:U1'
-
-
-@pytest.fixture
-def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
-    return {'messages_url': messages_url, 'credentials_url': credentials_url}
 
 
 def _span(spans: InMemorySpanExporter, name: str) -> typing.Any:
@@ -41,13 +41,8 @@ def _span(spans: InMemorySpanExporter, name: str) -> typing.Any:
 
 
 async def _turn(output: typing.Any, message_store: MessageStore) -> None:
-    await run_turn(
-        'hi',
-        principal=_PRINCIPAL,
-        chat_context=DirectChatContext(conversation=_CONVERSATION),
-        runner=StubRunner(output).as_runner(),
-        surface=RecordingSurface(),
-        message_store=message_store,
+    await drive_turn(
+        'hi', StubRunner(output), message_store, chat_context=DirectChatContext(conversation=_CONVERSATION)
     )
 
 
@@ -56,7 +51,7 @@ async def test_a_turn_is_one_span_naming_its_chat_and_how_it_ended(spans, messag
 
     turn = _span(spans, 'turn')
     assert turn.attributes['conciergent.conversation'] == _CONVERSATION
-    assert turn.attributes['conciergent.chat'] == 'DirectChatContext'
+    assert turn.attributes['conciergent.chat'] == 'direct'
     assert turn.attributes['conciergent.turn.outcome'] == 'text'
 
 
@@ -96,12 +91,9 @@ async def test_an_oauth_handoff_is_a_span_saying_whether_the_user_finished(spans
 
 
 async def test_a_push_span_holds_its_turn_and_records_the_outcome(spans, message_store):
-    surface = RecordingPushSurface()
-    executor = PushExecutor(
-        surfaces={surface.name: surface}, runner=StubRunner('ok').as_runner(), message_store=message_store
-    )
+    push_executor = executor(message_store, runner=StubRunner('ok'))
 
-    assert await executor.run(push_settings(), STARTED_AT) is PushOutcome.delivered
+    assert await push_executor.run(push_settings(), STARTED_AT) is PushOutcome.delivered
 
     push = _span(spans, 'push')
     assert push.attributes['conciergent.push.name'] == 'daily-digest'
@@ -124,48 +116,47 @@ def test_a_json_log_line_carries_the_ids_of_the_span_it_is_logged_in(spans):
     assert line['span_id'] == trace.format_span_id(span.get_span_context().span_id)
 
 
-def test_a_bearer_spec_call_carries_the_turn_trace_to_the_upstream_api(spans, store_config, messages_url, tmp_path):
-    upstream = fastapi.FastAPI()
-    traceparents: list[str | None] = []
+def test_a_spec_call_carries_the_turn_trace_to_the_upstream_api(spans, store_config, messages_url, tmp_path):
+    pets = PetsApi()
 
-    @upstream.get('/pets', operation_id='listPets')
-    def list_pets(traceparent: str | None = fastapi.Header(default=None)) -> list[dict[str, str]]:
-        traceparents.append(traceparent)
-        return [{'name': 'Rex'}]
-
-    spec = tmp_path / 'pets.json'
-    spec.write_text(json.dumps(upstream.openapi()))
-    with serving(upstream, free_port()) as upstream_url:
-        port = free_port()
-        config = build_app_config(
-            {
-                'agent': {'model': 'test', 'system_prompt': 'x'},
-                'store': store_config,
-                'surface': {'slack': {'enabled': True, 'signing_secret': 'sek'}},
-                'gateway': {
-                    'enabled': True,
-                    'redis_url': messages_url,
-                    'specs': [{'name': 'pets', 'spec': str(spec), 'base_url': upstream_url}],
-                },
-                'server': {'host': '127.0.0.1', 'port': port},
-            }
-        )
-        app = App.from_app_config(config)
-        with serving(app.build_asgi(), port):
-            (server,) = app._runner.mcp_servers
-            agent = pydantic_ai.Agent(TestModel(), toolsets=[MCPToolset(server)])
-            with trace.get_tracer('test').start_as_current_span('turn') as span:
-                agent.run_sync('list the pets')
+    with (
+        serving_gateway(pets, spec_dir=tmp_path, store=store_config, redis_url=messages_url) as app,
+        trace.get_tracer('test').start_as_current_span('turn') as span,
+    ):
+        ask_through_gateway(app)
 
     trace_id = trace.format_trace_id(span.get_span_context().trace_id)
-    assert traceparents and all(value is not None and value.split('-')[1] == trace_id for value in traceparents)
+    traceparents = [headers.get('traceparent', '') for headers in pets.request_headers]
+    assert traceparents
+    assert all(traceparent.split('-')[1] == trace_id for traceparent in traceparents)
+
+
+@pytest.fixture
+def traced_agents(spans: InMemorySpanExporter) -> typing.Iterator[None]:
+    """Undo the process-wide instrumentation ``telemetry.setup`` turns on, so later tests run uninstrumented."""
+    fastmcp_mode = fastmcp.settings.telemetry_mode
+    yield
+    pydantic_ai.Agent.instrument_all(False)
+    fastmcp.settings.telemetry_mode = fastmcp_mode
+
+
+@pytest.mark.parametrize('capture_content', [False, True])
+async def test_setup_keeps_the_conversation_out_of_spans_unless_content_capture_is_on(
+    spans, traced_agents, capture_content
+):
+    # The shared test provider is already set, so setup takes it as the host's.
+    telemetry.setup(capture_content=capture_content)
+
+    await pydantic_ai.Agent(TestModel()).run('a private question')
+
+    recorded = ' '.join(str(value) for span in spans.get_finished_spans() for value in (span.attributes or {}).values())
+    assert ('a private question' in recorded) is capture_content
 
 
 _SETUP_PROBE = """
 import json
 import fastmcp
 from opentelemetry import trace
-from pydantic_ai import Agent
 from conciergent import telemetry
 {before}
 telemetry.setup(capture_content=False)
@@ -174,7 +165,6 @@ print(json.dumps({{
     'provider': type(provider).__name__,
     'service': str(getattr(provider, 'resource', None) and provider.resource.attributes.get('service.name')),
     'host_kept': {host_kept},
-    'include_content': Agent._instrument_default.include_content,
     'fastmcp_mode': fastmcp.settings.telemetry_mode,
 }}))
 """
@@ -190,12 +180,11 @@ def _setup_in_a_fresh_process(
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
-def test_setup_exports_over_otlp_as_conciergent_and_keeps_content_out():
+def test_setup_exports_over_otlp_as_conciergent_and_lets_the_mcp_sdk_own_mcp_spans():
     result = _setup_in_a_fresh_process()
 
     assert result['provider'] == 'TracerProvider'
     assert result['service'] == 'conciergent'
-    assert result['include_content'] is False
     assert result['fastmcp_mode'] == 'propagation_only'
 
 
@@ -212,7 +201,7 @@ def test_setup_leaves_a_tracer_provider_the_host_already_set():
 
 
 def test_telemetry_is_off_unless_enabled(store_config):
-    config = build_app_config({'agent': {'model': 'test', 'system_prompt': 'x'}, 'store': store_config})
+    config = app_config(store_config)
 
     assert config.telemetry.enabled is False
     assert config.telemetry.capture_content is False

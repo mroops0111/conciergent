@@ -15,7 +15,7 @@ class ChartRenderer:
         try:
             import vl_convert
         except ImportError as error:
-            raise RuntimeError('charts need the extra: uv add conciergent[charts]') from error
+            raise RuntimeError('charts need the extra: uv add "conciergent[charts]"') from error
         if font_directory is not None:
             # A font Vega-Lite cannot find draws no text at all, so a container image without the font registers it.
             vl_convert.register_font_directory(font_directory)

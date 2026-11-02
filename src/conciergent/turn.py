@@ -53,7 +53,7 @@ async def run_turn(
         'turn',
         attributes={
             'conciergent.conversation': chat_context.conversation,
-            'conciergent.chat': type(chat_context).__name__,
+            'conciergent.chat': chat_context.kind,
         },
     ) as span:
         outcome = await _run_turn(

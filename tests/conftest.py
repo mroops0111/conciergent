@@ -1,4 +1,5 @@
 import contextlib
+import json
 import pathlib
 import socket
 import tempfile
@@ -7,6 +8,7 @@ import time
 import typing
 
 import fastapi
+import pydantic_ai
 import pytest
 import redis.asyncio
 import uvicorn
@@ -16,13 +18,17 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from pydantic_ai.mcp import MCPToolset
+from pydantic_ai.models.test import TestModel
 from sqlalchemy.ext.asyncio import create_async_engine
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
+from conciergent import App, AppConfig, run_turn
 from conciergent.agent.runner import ChatRunner
 from conciergent.chart import ChartPublisher, ChartRenderer, ChartStyle, DefaultChartStyle
-from conciergent.chat_context import ChatContext, GroupChatContext
+from conciergent.chat_context import ChatContext, DirectChatContext, GroupChatContext
+from conciergent.config import build_app_config
 from conciergent.defaults import defaults_layer
 from conciergent.i18n.lang import Lang
 from conciergent.reply import Card, Fact, Link, ReplySurface, Section, Suggestion
@@ -73,6 +79,12 @@ def control_socket() -> typing.Iterator[str]:
     """A path for a control socket, kept short since macOS caps a Unix socket path near 104 bytes."""
     with tempfile.TemporaryDirectory(dir='/tmp') as directory:
         yield str(pathlib.Path(directory) / 'control.sock')
+
+
+@pytest.fixture
+def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
+    """The store section of a config, pointing at the session's Redis and Postgres containers."""
+    return {'messages_url': messages_url, 'credentials_url': credentials_url}
 
 
 @pytest.fixture
@@ -301,3 +313,79 @@ def serving(asgi: fastapi.FastAPI, port: int) -> typing.Iterator[str]:
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+
+
+def app_config(store: dict[str, str], **sections: typing.Any) -> AppConfig:
+    """A validated config with a placeholder agent, the given store, and ``sections`` merged over the defaults."""
+    agent = {'model': 'test', 'system_prompt': 'x', **sections.pop('agent', {})}
+    return build_app_config({'agent': agent, 'store': store, **sections})
+
+
+async def drive_turn(
+    user_input: str,
+    runner: StubRunner,
+    message_store: MessageStore,
+    *,
+    principal: str = 'slack:T:U',
+    chat_context: ChatContext | None = None,
+) -> RecordingSurface:
+    """Run one turn through ``runner``, in a direct chat with ``principal`` unless ``chat_context`` names another."""
+    surface = RecordingSurface()
+    await run_turn(
+        user_input,
+        principal=principal,
+        chat_context=chat_context or DirectChatContext(conversation=principal),
+        runner=runner.as_runner(),
+        surface=surface,
+        message_store=message_store,
+    )
+    return surface
+
+
+class PetsApi:
+    """A stub upstream API with one listPets operation, recording the headers of each request it receives."""
+
+    def __init__(self) -> None:
+        self.request_headers: list[dict[str, str]] = []
+        self.app = fastapi.FastAPI()
+
+        @self.app.get('/pets', operation_id='listPets')
+        def list_pets(request: fastapi.Request) -> list[dict[str, str]]:
+            self.request_headers.append(dict(request.headers))
+            return [{'name': 'Rex'}]
+
+
+@contextlib.contextmanager
+def serving_gateway(
+    pets: PetsApi,
+    *,
+    spec_dir: pathlib.Path,
+    store: dict[str, str],
+    redis_url: str,
+    spec_auth: dict[str, typing.Any] | None = None,
+    server: dict[str, typing.Any] | None = None,
+) -> typing.Iterator[App]:
+    """Serve ``pets`` and an app that embeds it as a gateway spec, yielding the app while both are up."""
+    spec = spec_dir / 'pets.json'
+    spec.write_text(json.dumps(pets.app.openapi()))
+    with serving(pets.app, free_port()) as upstream_url:
+        port = free_port()
+        spec_config: dict[str, typing.Any] = {'name': 'pets', 'spec': str(spec), 'base_url': upstream_url}
+        if spec_auth is not None:
+            spec_config['auth'] = spec_auth
+        config = app_config(
+            store,
+            surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
+            gateway={'enabled': True, 'redis_url': redis_url, 'specs': [spec_config]},
+            server={'host': '127.0.0.1', 'port': port, **(server or {})},
+        )
+        app = App.from_app_config(config)
+        with serving(app.build_asgi(), port):
+            yield app
+
+
+def ask_through_gateway(app: App) -> str:
+    """Have a test agent call every tool of ``app``'s one embedded spec, returning the agent's output."""
+    (server,) = app._runner.mcp_servers
+    agent = pydantic_ai.Agent(TestModel(), toolsets=[MCPToolset(server)])
+    return agent.run_sync('list the pets').output
