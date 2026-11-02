@@ -52,6 +52,11 @@ def __getattr__(name: str) -> typing.Any:
     return value
 
 
+def __dir__() -> list[str]:
+    # The lazy names are not in the module's namespace until first use, so list them for dir() and completion.
+    return sorted({*globals(), *__all__})
+
+
 __all__ = [
     'App',
     'AppConfig',
