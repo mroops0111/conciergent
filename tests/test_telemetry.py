@@ -261,6 +261,24 @@ def test_setup_exports_logs_without_traces():
     assert result['logger_provider'] == 'LoggerProvider'
 
 
+def test_without_the_otel_extra_tracing_is_a_no_op_and_setup_names_the_extra():
+    # A None entry makes importing the SDK fail, as when the otel extra is not installed.
+    probe = """
+import sys
+sys.modules['opentelemetry.sdk'] = None
+from conciergent.telemetry import setup, tracer
+with tracer.start_as_current_span('turn'):
+    pass
+try:
+    setup()
+except RuntimeError as error:
+    print(error)
+"""
+    result = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True, check=True)
+
+    assert 'uv add "conciergent[otel]"' in result.stdout
+
+
 def test_setup_keeps_a_service_name_the_environment_sets():
     result = _setup_in_a_fresh_process(OTEL_SERVICE_NAME='bot')
 
