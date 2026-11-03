@@ -19,7 +19,6 @@ def setup(*, traces: bool = False, logs: bool = False, capture_content: bool = F
     Prompts, completions, and tool arguments and results stay out of the spans unless ``capture_content`` is set.
     With ``logs``, log lines go out too, each tied to the span it was logged in, if any.
     A host that already set a tracer or logger provider keeps it, along with wherever it exports.
-    Call it after logging is configured, since the log export joins the root logger's handlers.
     """
     if traces:
         _export_traces(capture_content=capture_content)

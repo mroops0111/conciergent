@@ -17,7 +17,7 @@ from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter, SimpleLogR
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic_ai.models.test import TestModel
 
-from conciergent import PendingApproval, telemetry
+from conciergent import PendingApproval, logger, telemetry
 from conciergent.chat_context import DirectChatContext
 from conciergent.logger import JsonFormatter
 from conciergent.push.outcome import PushOutcome
@@ -167,10 +167,12 @@ def exported_logs(traced_agents: None) -> typing.Iterator[InMemoryLogRecordExpor
         provider.add_log_record_processor(SimpleLogRecordProcessor(_LOG_EXPORTER))
         _logs.set_logger_provider(provider)
     root = logging.getLogger()
-    handlers = root.handlers[:]
+    handlers, level, lasting = root.handlers[:], root.level, logger._LASTING_HANDLERS[:]
     _LOG_EXPORTER.clear()
     yield _LOG_EXPORTER
     root.handlers[:] = handlers
+    root.setLevel(level)
+    logger._LASTING_HANDLERS[:] = lasting
     _LOG_EXPORTER.clear()
 
 
@@ -206,6 +208,15 @@ def test_setup_keeps_its_own_and_request_url_lines_out_of_the_log_export(spans, 
 
     assert _exported_bodies(exported_logs) == ['Turn done', 'Connection pool is full']
     assert sum(isinstance(handler, LoggingHandler) for handler in logging.getLogger().handlers) == 1
+
+
+def test_the_log_export_outlives_a_later_logging_setup(spans, exported_logs):
+    telemetry.setup(logs=True)
+    logger.setup(level='INFO')
+
+    logging.getLogger('conciergent.turn').warning('Turn done')
+
+    assert _exported_bodies(exported_logs) == ['Turn done']
 
 
 def test_setup_leaves_logs_unexported_unless_asked(spans, exported_logs):

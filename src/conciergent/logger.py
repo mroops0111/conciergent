@@ -33,6 +33,9 @@ LEVEL_COLORS = {
 LOGGER_COLOR = '\033[34m'
 RESET = '\033[0m'
 
+# Root handlers another module attached on purpose, such as the OTLP log export, which a later setup keeps.
+_LASTING_HANDLERS: list[logging.Handler] = []
+
 
 def iso_time(record: logging.LogRecord) -> str:
     """Format ``record.created`` as ISO-8601 with millisecond precision."""
@@ -107,10 +110,16 @@ def stderr_supports_color() -> bool:
     return sys.stderr.isatty()
 
 
+def attach_lasting_handler(handler: logging.Handler) -> None:
+    """Add ``handler`` to the root logger, where it stays through any later ``setup``."""
+    _LASTING_HANDLERS.append(handler)
+    logging.getLogger().addHandler(handler)
+
+
 def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) -> None:
     """Attach one JSON or text handler to the root logger for the whole process.
 
-    Clears existing root handlers on each call, so it is safe to call once at startup.
+    Clears existing root handlers on each call, other than lasting ones, so it is safe to call again.
     The managed loggers are ``conciergent``, the embedded gateway, ``uvicorn`` and ``mcp``.
     Their own handlers are stripped, so their records flow through this configuration instead of a duplicate format.
     stderr uses color only when it is a TTY and ``NO_COLOR`` is unset.
@@ -129,7 +138,7 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level.upper())
-    for handler in handlers:
+    for handler in [*handlers, *_LASTING_HANDLERS]:
         root.addHandler(handler)
 
     for name in list(logging.Logger.manager.loggerDict):

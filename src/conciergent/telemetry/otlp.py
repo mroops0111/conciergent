@@ -13,6 +13,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from conciergent import logger
+
 
 _SERVICE_NAME = 'conciergent'
 # Loggers whose lines name a request URL, which can carry a token or an OAuth code.
@@ -55,7 +57,7 @@ def export_logs() -> None:
     if not any(isinstance(handler, LoggingHandler) for handler in root.handlers):
         handler = LoggingHandler()
         handler.addFilter(_ExportedRecordsFilter())
-        root.addHandler(handler)
+        logger.attach_lasting_handler(handler)
 
 
 def _resource() -> Resource:
