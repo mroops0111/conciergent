@@ -211,8 +211,9 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `conversation.oauth_wait_timeout_seconds` | `240` | How long an in-chat OAuth handoff blocks. |
 | `pushes` | `[]` | Prompts `conciergent push` runs, sending each reply into a chat. See [Pushes](#pushes). |
 | `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`, and a JSON line carries `trace_id` and `span_id` while tracing. |
-| `telemetry.enabled` | `false` | Trace each turn with OpenTelemetry. See [Tracing](#tracing). |
-| `telemetry.capture_content` | `false` | Also record prompts, replies, and tool arguments and results in the spans. |
+| `telemetry.traces` | `false` | Trace each turn with OpenTelemetry. See [Telemetry](#telemetry). |
+| `telemetry.logs` | `false` | Send log lines over OTLP, each tied to its span. |
+| `telemetry.capture_content` | `false` | Also record prompts, replies, and tool arguments and results in the spans. Needs `traces`. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
 </details>
@@ -443,16 +444,16 @@ capability:
 - **Hosting**: charts are served from `<server.url>/charts/`, which must be public HTTPS, since LINE fetches each image from the device and keeps no copy. A chart stays reachable for `capability.chart.ttl_seconds`, 90 days by default.
 - **Fonts**: the Docker image ships Noto Sans CJK. Elsewhere, set `capability.chart.font` to a font that covers your users' scripts, since a missing font draws no text at all.
 
-### Tracing
+### Telemetry
 
-Install `conciergent[otel]` and set `telemetry.enabled: true` to trace each turn with OpenTelemetry. Spans export over OTLP, configured by the standard `OTEL_EXPORTER_OTLP_*` variables, so any backend works, such as Langfuse:
+Install `conciergent[otel]` and set `telemetry.traces: true` to trace each turn with OpenTelemetry. Spans export over OTLP, configured by the standard `OTEL_EXPORTER_OTLP_*` variables, so any backend works, such as Langfuse:
 
 ```sh
 OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of public-key:secret-key>"
 ```
 
-One trace runs from the turn through the agent's model and tool calls to the API behind the embedded gateway. Prompts, replies, and tool data stay out unless `telemetry.capture_content` is on, though the `turn` span names its conversation, which holds the platform's user or group id. An app that already set a tracer provider keeps it.
+One trace runs from the turn through the agent's model and tool calls to the API behind the embedded gateway, and `telemetry.logs: true` adds the lines logged inside it, for a backend that takes OTLP logs such as Logfire. Request URLs always stay out, and prompts, replies, and tool data do unless `telemetry.capture_content` is on, though the `turn` span names its conversation, which holds the platform's user or group id. An app that already set a tracer or logger provider keeps it.
 
 ## The Reply Model
 

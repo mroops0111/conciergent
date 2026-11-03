@@ -97,8 +97,9 @@ gateway:
 #   format: text # text or json (one JSON object per line)
 #   file: null # also write logs to a path (e.g. ./conciergent.log), in addition to stderr
 
-# telemetry: # OpenTelemetry traces, needs conciergent[otel], exported to OTEL_EXPORTER_OTLP_ENDPOINT
-#   enabled: false
+# telemetry: # OpenTelemetry, needs conciergent[otel], exported to OTEL_EXPORTER_OTLP_ENDPOINT
+#   traces: false # each turn as a trace
+#   logs: false # log lines, to a backend that takes logs such as Logfire
 #   capture_content: false # also record prompts, replies, and tool arguments and results in the spans
 
 # UI text (buttons, prompts, greetings) lives in a locale catalog rather than here, so it can be translated,

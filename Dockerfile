@@ -1,7 +1,7 @@
 # Build conciergent with uv, then run it on a slim Python base.
 # Includes the [gateway] extra so an OpenAPI spec can be embedded as MCP tools,
 # the [charts] extra so the agent can answer with a chart,
-# and the [otel] extra so telemetry.enabled exports traces with no code.
+# and the [otel] extra so telemetry exports traces and logs with no code.
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS build
 

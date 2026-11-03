@@ -431,13 +431,23 @@ class LoggerSettings(pydantic.BaseModel):
 
 
 class TelemetrySettings(pydantic.BaseModel):
-    """Whether each turn is traced with OpenTelemetry, applied once at startup by ``conciergent.telemetry.setup``.
+    """Which OpenTelemetry signals go out, one switch each, applied once at startup by ``conciergent.telemetry.setup``.
 
-    Where the spans go is set by the standard ``OTEL_EXPORTER_OTLP_*`` environment variables, so no secret sits here.
+    The standard ``OTEL_EXPORTER_OTLP_*`` environment variables say where spans and logs go, so no secret sits here.
     """
 
-    enabled: bool = False
+    # A misspelled or renamed switch fails loudly, rather than leaving a signal off without a word.
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    traces: bool = False
+    logs: bool = False
     capture_content: bool = False
+
+    @pydantic.model_validator(mode='after')
+    def _content_needs_traces(self) -> typing.Self:
+        if self.capture_content and not self.traces:
+            raise ValueError('telemetry.capture_content records into spans, so it needs telemetry.traces')
+        return self
 
 
 class AppConfig(pydantic.BaseModel):
