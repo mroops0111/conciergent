@@ -436,6 +436,9 @@ class TelemetrySettings(pydantic.BaseModel):
     The standard ``OTEL_EXPORTER_OTLP_*`` environment variables say where spans and logs go, so no secret sits here.
     """
 
+    # A misspelled or renamed switch fails loudly, rather than leaving a signal off without a word.
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     traces: bool = False
     logs: bool = False
     capture_content: bool = False

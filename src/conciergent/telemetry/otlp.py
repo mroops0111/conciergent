@@ -3,6 +3,7 @@ import logging
 import typing
 
 from opentelemetry import _logs, trace
+from opentelemetry._logs._internal import ProxyLoggerProvider
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
@@ -14,21 +15,23 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
 _SERVICE_NAME = 'conciergent'
-_HTTP_CLIENT_LOGGERS = ('httpx', 'httpcore')
+# Loggers whose lines name a request URL, which can carry a token or an OAuth code.
+# They cover the HTTP clients, the OTLP exporter's own client among them, and the server's access log.
+_URL_LOGGERS = ('httpx', 'httpcore', 'urllib3', 'requests', 'uvicorn.access')
 
 
 class _ExportedRecordsFilter(logging.Filter):
     """Keep two kinds of log line out of the export, while stderr and the log file still show them.
 
     OpenTelemetry's own lines, such as a failed export, would feed the export they report on.
-    An HTTP client's request lines name each URL, which can carry a token, so only its warnings and errors go out.
+    A request line names its URL, so only the warnings and errors of the loggers that write them go out.
     """
 
     @typing.override
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name.startswith('opentelemetry'):
             return False
-        return not (record.name.startswith(_HTTP_CLIENT_LOGGERS) and record.levelno < logging.WARNING)
+        return not (record.name.startswith(_URL_LOGGERS) and record.levelno < logging.WARNING)
 
 
 def install_tracer_provider() -> None:
@@ -42,7 +45,8 @@ def install_tracer_provider() -> None:
 
 def export_logs() -> None:
     """Send the root logger's lines over OTLP, through a logger provider the host set or one installed here."""
-    if not isinstance(_logs.get_logger_provider(), LoggerProvider):
+    # The API offers no public check for an unset provider, so this matches the tracer side's ProxyTracerProvider test.
+    if isinstance(_logs.get_logger_provider(), ProxyLoggerProvider):
         provider = LoggerProvider(resource=_resource())
         provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
         _logs.set_logger_provider(provider)

@@ -1,5 +1,4 @@
 import logging
-import types
 
 import fastmcp
 from opentelemetry import trace
@@ -13,7 +12,7 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer('conciergent')
 
 
-def setup(*, traces: bool = True, logs: bool = False, capture_content: bool = False) -> None:
+def setup(*, traces: bool = False, logs: bool = False, capture_content: bool = False) -> None:
     """Send the chosen OpenTelemetry signals for the whole process, configured by ``OTEL_EXPORTER_OTLP_*``.
 
     With ``traces``, each turn becomes a trace with the agent's spans inside it.
@@ -40,7 +39,8 @@ def _export_traces(*, capture_content: bool) -> None:
     fastmcp.settings.telemetry_mode = 'propagation_only'
 
 
-def _otlp() -> types.ModuleType:
+# The return type is left to inference, which keeps the module's own type, so calls into it stay checked.
+def _otlp():
     # The SDK and the exporters come with the otel extra, so they load only when an export needs them.
     try:
         from conciergent.telemetry import otlp

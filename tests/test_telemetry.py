@@ -151,7 +151,7 @@ async def test_setup_keeps_the_conversation_out_of_spans_unless_content_capture_
     spans, traced_agents, capture_content
 ):
     # The shared test provider is already set, so setup takes it as the host's.
-    telemetry.setup(capture_content=capture_content)
+    telemetry.setup(traces=True, capture_content=capture_content)
 
     await pydantic_ai.Agent(TestModel()).run('a private question')
 
@@ -191,8 +191,8 @@ def test_setup_exports_each_log_line_with_the_span_it_was_logged_in(spans, expor
     assert exported_span.span_id == span.get_span_context().span_id
 
 
-def test_setup_keeps_its_own_and_http_request_lines_out_of_the_log_export(spans, exported_logs, caplog):
-    caplog.set_level(logging.INFO)
+def test_setup_keeps_its_own_and_request_url_lines_out_of_the_log_export(spans, exported_logs, caplog):
+    caplog.set_level(logging.DEBUG)
     telemetry.setup(logs=True)
     telemetry.setup(logs=True)
     exported_logs.clear()
@@ -200,6 +200,8 @@ def test_setup_keeps_its_own_and_http_request_lines_out_of_the_log_export(spans,
     logging.getLogger('conciergent.turn').info('Turn done')
     logging.getLogger('opentelemetry.exporter').warning('Export failed')
     logging.getLogger('httpx').info('HTTP Request: GET https://example.com/?token=secret')
+    logging.getLogger('urllib3.connectionpool').debug('"POST /v1/logs HTTP/1.1" 200')
+    logging.getLogger('uvicorn.access').info('"GET /oauth/mcp/callback?code=secret HTTP/1.1" 200')
     logging.getLogger('httpx').warning('Connection pool is full')
 
     assert _exported_bodies(exported_logs) == ['Turn done', 'Connection pool is full']
@@ -235,7 +237,7 @@ print(json.dumps({{
 
 
 def _setup_in_a_fresh_process(
-    *, arguments: str = 'logs=True', before: str = '', host_kept: str = 'None', **environment: str
+    *, arguments: str = 'traces=True, logs=True', before: str = '', host_kept: str = 'None', **environment: str
 ) -> dict[str, typing.Any]:
     # One tracer provider per process, so each setup runs in its own interpreter.
     probe = _SETUP_PROBE.format(arguments=arguments, before=before, host_kept=host_kept)
@@ -270,7 +272,7 @@ from conciergent.telemetry import setup, tracer
 with tracer.start_as_current_span('turn'):
     pass
 try:
-    setup()
+    setup(traces=True)
 except RuntimeError as error:
     print(error)
 """
@@ -300,6 +302,11 @@ def test_telemetry_is_off_unless_enabled(store_config):
     assert config.telemetry.traces is False
     assert config.telemetry.logs is False
     assert config.telemetry.capture_content is False
+
+
+def test_the_old_telemetry_switch_is_a_config_error_rather_than_tracing_silently_off(store_config):
+    with pytest.raises(pydantic.ValidationError, match='enabled'):
+        app_config(store_config, telemetry={'enabled': True})
 
 
 def test_capturing_content_without_traces_is_a_config_error(store_config):

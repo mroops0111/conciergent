@@ -270,7 +270,7 @@ class App:
                 file=self._logger_settings.file,
             )
         settings = self._telemetry_settings
-        if settings is not None and (settings.traces or settings.logs):
+        if settings is not None:
             telemetry.setup(traces=settings.traces, logs=settings.logs, capture_content=settings.capture_content)
 
 
