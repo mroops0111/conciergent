@@ -453,9 +453,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
 OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of public-key:secret-key>"
 ```
 
-One trace runs from the turn through the agent's model and tool calls to the API behind the embedded gateway. Prompts, replies, and tool data stay out unless `telemetry.capture_content` is on, though the `turn` span names its conversation, which holds the platform's user or group id. An app that already set a tracer provider keeps it.
-
-Set `telemetry.logs: true` to send log lines the same way, to a backend that takes OTLP logs such as Logfire, so each trace shows the lines logged inside it. Request lines from HTTP clients and the access log stay out, since a URL can carry a token or an OAuth code.
+One trace runs from the turn through the agent's model and tool calls to the API behind the embedded gateway, and `telemetry.logs: true` adds the lines logged inside it, for a backend that takes OTLP logs such as Logfire. Request URLs always stay out, and prompts, replies, and tool data do unless `telemetry.capture_content` is on, though the `turn` span names its conversation, which holds the platform's user or group id. An app that already set a tracer or logger provider keeps it.
 
 ## The Reply Model
 
