@@ -38,157 +38,11 @@ from conciergent.store.credential import Base, CredentialStore
 from conciergent.store.message import MessageStore
 
 
-# One container serves the whole session.
-# Each test is isolated by a flush in Redis or a fresh schema in Postgres.
-
-
-@pytest.fixture(scope='session')
-def messages_url() -> typing.Iterator[str]:
-    with RedisContainer('redis:7') as container:
-        host = container.get_container_host_ip()
-        port = container.get_exposed_port(6379)
-        yield f'redis://{host}:{port}/0'
-
-
-@pytest.fixture(scope='session')
-def credentials_url() -> typing.Iterator[str]:
-    with PostgresContainer('postgres:16-alpine', driver='asyncpg') as container:
-        yield container.get_connection_url()
-
-
-_SPAN_EXPORTER = InMemorySpanExporter()
-
-
-@pytest.fixture
-def spans() -> typing.Iterator[InMemorySpanExporter]:
-    """The spans finished during the test, from a tracer provider shared by the whole session.
-
-    OpenTelemetry takes one global tracer provider per process, so it is set once and only cleared between tests.
-    """
-    if not isinstance(trace.get_tracer_provider(), TracerProvider):
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
-        trace.set_tracer_provider(provider)
-    _SPAN_EXPORTER.clear()
-    yield _SPAN_EXPORTER
-    _SPAN_EXPORTER.clear()
-
-
-@pytest.fixture
-def control_socket() -> typing.Iterator[str]:
-    """A path for a control socket, kept short since macOS caps a Unix socket path near 104 bytes."""
-    with tempfile.TemporaryDirectory(dir='/tmp') as directory:
-        yield str(pathlib.Path(directory) / 'control.sock')
-
-
-@pytest.fixture
-def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
-    """The store section of a config, pointing at the session's Redis and Postgres containers."""
-    return {'messages_url': messages_url, 'credentials_url': credentials_url}
-
-
-@pytest.fixture
-async def message_store(messages_url: str) -> typing.AsyncIterator[MessageStore]:
-    client = redis.asyncio.Redis.from_url(messages_url)
-    await client.flushdb()
-    try:
-        yield MessageStore(client)
-    finally:
-        await client.aclose()
-
-
-@pytest.fixture
-async def credential_store(credentials_url: str) -> typing.AsyncIterator[CredentialStore]:
-    engine = create_async_engine(credentials_url)
-    # A fresh schema per test keeps credential rows from leaking between tests.
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
-    try:
-        yield CredentialStore(engine)
-    finally:
-        await engine.dispose()
-
-
 # The public URL the chart fixtures serve charts from.
 CHART_BASE_URL = 'https://bot.example.com'
 CHART_FONT = defaults_layer()['capability']['chart']['font']
-
-
-def chart_spec(**overrides: typing.Any) -> dict[str, typing.Any]:
-    """A small Vega-Lite bar chart with inline rows, which ``overrides`` replace key by key."""
-    return {
-        'data': {'values': [{'day': 'Mon', 'count': 3}, {'day': 'Tue', 'count': 5}]},
-        'mark': 'bar',
-        'encoding': {
-            'x': {'field': 'day', 'type': 'nominal'},
-            'y': {'field': 'count', 'type': 'quantitative'},
-        },
-        **overrides,
-    }
-
-
-def chart_renderer(*, style: ChartStyle | None = None, max_rows: int = 100) -> ChartRenderer:
-    return ChartRenderer(style or DefaultChartStyle(font=CHART_FONT), max_rows=max_rows)
-
-
-@pytest.fixture
-async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
-    client = redis.asyncio.Redis.from_url(messages_url)
-    await client.flushdb()
-    try:
-        yield ChartStore(client, ttl_seconds=60)
-    finally:
-        await client.aclose()
-
-
-@pytest.fixture
-def chart_publisher(chart_store: ChartStore) -> ChartPublisher:
-    return ChartPublisher(chart_renderer(), chart_store, base_url=CHART_BASE_URL)
-
-
-def make_card(**overrides: typing.Any) -> Card:
-    """A card with one line of text, which ``overrides`` replace field by field."""
-    fields: dict[str, typing.Any] = {'header': 'Tasks', 'sections': [Section(text='Body')], **overrides}
-    return Card(**fields)
-
-
-def tasks_card() -> Card:
-    """A card with text, bullets, two links, a suggestion, and a footnote, for checking where each part lands."""
-    return make_card(
-        sections=[Section(text='You have two tasks.', bullets=['Review NDA', 'Sign lease'])],
-        links=[Link(label='Open', url='https://example.com/tasks'), Link(label='Docs', url='https://example.com/docs')],
-        suggestions=[Suggestion(label='More', prompt='List more tasks')],
-        footnote='Active only',
-    )
-
-
-def digest_card() -> Card:
-    """A report card with a subtitle, a titled section of facts, and a titled section of bullets."""
-    return make_card(
-        header='Daily digest',
-        subtitle='Yesterday',
-        sections=[
-            Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Revenue', value='$12,300')]),
-            Section(title='Anomalies', bullets=['#A1023 is negative']),
-        ],
-    )
-
-
-def card_shape(**overrides: typing.Any) -> dict[str, typing.Any]:
-    """A card shape as a manifest declares it, which ``overrides`` replace key by key.
-
-    It has a templated header, a facts section with a required and an optional label, and an optional bullets section.
-    """
-    return {
-        'header': 'Daily summary for {store}',
-        'placeholders': {'store': {'description': "The store's name."}},
-        'sections': [
-            {'name': 'totals', 'title': 'Totals', 'labels': ['Orders', {'label': 'Refunds', 'required': False}]},
-            {'name': 'anomalies', 'title': 'Anomalies', 'content': 'bullets', 'required': False},
-        ],
-        **overrides,
-    }
+# Collects the spans of every test, behind the one tracer provider the spans fixture sets for the session.
+_SPAN_EXPORTER = InMemorySpanExporter()
 
 
 class RecordingSurface(ReplySurface):
@@ -216,18 +70,6 @@ class RecordingSurface(ReplySurface):
 
     async def acknowledge_silently(self) -> None:
         self.calls.append(('acknowledged', None))
-
-
-def destructive_server(calls: list[int]) -> MCPServer:
-    """An in-process MCP server whose one tool is marked destructive, so calling it parks an approval first."""
-    server = MCPServer('test')
-
-    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
-    def delete_it(x: int) -> str:
-        calls.append(x)
-        return 'deleted'
-
-    return server
 
 
 class StubRunner:
@@ -290,6 +132,176 @@ class StubRunner:
         return TurnResult(output=output, history=new_history, invalidate_history=self.invalidate_history)
 
 
+class PetsApi:
+    """A stub upstream API with one listPets operation, recording the headers of each request it receives."""
+
+    def __init__(self) -> None:
+        self.request_headers: list[dict[str, str]] = []
+        self.app = fastapi.FastAPI()
+
+        @self.app.get('/pets', operation_id='listPets')
+        def list_pets(request: fastapi.Request) -> list[dict[str, str]]:
+            self.request_headers.append(dict(request.headers))
+            return [{'name': 'Rex'}]
+
+
+# One container serves the whole session.
+# Each test is isolated by a flush in Redis or a fresh schema in Postgres.
+
+
+@pytest.fixture(scope='session')
+def messages_url() -> typing.Iterator[str]:
+    with RedisContainer('redis:7') as container:
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(6379)
+        yield f'redis://{host}:{port}/0'
+
+
+@pytest.fixture(scope='session')
+def credentials_url() -> typing.Iterator[str]:
+    with PostgresContainer('postgres:16-alpine', driver='asyncpg') as container:
+        yield container.get_connection_url()
+
+
+@pytest.fixture
+def spans() -> typing.Iterator[InMemorySpanExporter]:
+    """The spans finished during the test, from a tracer provider shared by the whole session.
+
+    OpenTelemetry takes one global tracer provider per process, so it is set once and only cleared between tests.
+    """
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
+        trace.set_tracer_provider(provider)
+    _SPAN_EXPORTER.clear()
+    yield _SPAN_EXPORTER
+    _SPAN_EXPORTER.clear()
+
+
+@pytest.fixture
+def control_socket() -> typing.Iterator[str]:
+    """A path for a control socket, kept short since macOS caps a Unix socket path near 104 bytes."""
+    with tempfile.TemporaryDirectory(dir='/tmp') as directory:
+        yield str(pathlib.Path(directory) / 'control.sock')
+
+
+@pytest.fixture
+def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
+    """The store section of a config, pointing at the session's Redis and Postgres containers."""
+    return {'messages_url': messages_url, 'credentials_url': credentials_url}
+
+
+@pytest.fixture
+async def message_store(messages_url: str) -> typing.AsyncIterator[MessageStore]:
+    client = redis.asyncio.Redis.from_url(messages_url)
+    await client.flushdb()
+    try:
+        yield MessageStore(client)
+    finally:
+        await client.aclose()
+
+
+@pytest.fixture
+async def credential_store(credentials_url: str) -> typing.AsyncIterator[CredentialStore]:
+    engine = create_async_engine(credentials_url)
+    # A fresh schema per test keeps credential rows from leaking between tests.
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+    try:
+        yield CredentialStore(engine)
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def chart_store(messages_url: str) -> typing.AsyncIterator[ChartStore]:
+    client = redis.asyncio.Redis.from_url(messages_url)
+    await client.flushdb()
+    try:
+        yield ChartStore(client, ttl_seconds=60)
+    finally:
+        await client.aclose()
+
+
+@pytest.fixture
+def chart_publisher(chart_store: ChartStore) -> ChartPublisher:
+    return ChartPublisher(chart_renderer(), chart_store, base_url=CHART_BASE_URL)
+
+
+def chart_spec(**overrides: typing.Any) -> dict[str, typing.Any]:
+    """A small Vega-Lite bar chart with inline rows, which ``overrides`` replace key by key."""
+    return {
+        'data': {'values': [{'day': 'Mon', 'count': 3}, {'day': 'Tue', 'count': 5}]},
+        'mark': 'bar',
+        'encoding': {
+            'x': {'field': 'day', 'type': 'nominal'},
+            'y': {'field': 'count', 'type': 'quantitative'},
+        },
+        **overrides,
+    }
+
+
+def chart_renderer(*, style: ChartStyle | None = None, max_rows: int = 100) -> ChartRenderer:
+    return ChartRenderer(style or DefaultChartStyle(font=CHART_FONT), max_rows=max_rows)
+
+
+def make_card(**overrides: typing.Any) -> Card:
+    """A card with one line of text, which ``overrides`` replace field by field."""
+    fields: dict[str, typing.Any] = {'header': 'Tasks', 'sections': [Section(text='Body')], **overrides}
+    return Card(**fields)
+
+
+def tasks_card() -> Card:
+    """A card with text, bullets, two links, a suggestion, and a footnote, for checking where each part lands."""
+    return make_card(
+        sections=[Section(text='You have two tasks.', bullets=['Review NDA', 'Sign lease'])],
+        links=[Link(label='Open', url='https://example.com/tasks'), Link(label='Docs', url='https://example.com/docs')],
+        suggestions=[Suggestion(label='More', prompt='List more tasks')],
+        footnote='Active only',
+    )
+
+
+def digest_card() -> Card:
+    """A report card with a subtitle, a titled section of facts, and a titled section of bullets."""
+    return make_card(
+        header='Daily digest',
+        subtitle='Yesterday',
+        sections=[
+            Section(title='Totals', facts=[Fact(label='Orders', value='42'), Fact(label='Revenue', value='$12,300')]),
+            Section(title='Anomalies', bullets=['#A1023 is negative']),
+        ],
+    )
+
+
+def card_shape(**overrides: typing.Any) -> dict[str, typing.Any]:
+    """A card shape as a manifest declares it, which ``overrides`` replace key by key.
+
+    It has a templated header, a facts section with a required and an optional label, and an optional bullets section.
+    """
+    return {
+        'header': 'Daily summary for {store}',
+        'placeholders': {'store': {'description': "The store's name."}},
+        'sections': [
+            {'name': 'totals', 'title': 'Totals', 'labels': ['Orders', {'label': 'Refunds', 'required': False}]},
+            {'name': 'anomalies', 'title': 'Anomalies', 'content': 'bullets', 'required': False},
+        ],
+        **overrides,
+    }
+
+
+def destructive_server(calls: list[int]) -> MCPServer:
+    """An in-process MCP server whose one tool is marked destructive, so calling it parks an approval first."""
+    server = MCPServer('test')
+
+    @server.tool(annotations=ToolAnnotations(destructive_hint=True))
+    def delete_it(x: int) -> str:
+        calls.append(x)
+        return 'deleted'
+
+    return server
+
+
 def free_port() -> int:
     """A TCP port on loopback that nothing listens on right now."""
     with socket.socket() as probe:
@@ -340,19 +352,6 @@ async def drive_turn(
         message_store=message_store,
     )
     return surface
-
-
-class PetsApi:
-    """A stub upstream API with one listPets operation, recording the headers of each request it receives."""
-
-    def __init__(self) -> None:
-        self.request_headers: list[dict[str, str]] = []
-        self.app = fastapi.FastAPI()
-
-        @self.app.get('/pets', operation_id='listPets')
-        def list_pets(request: fastapi.Request) -> list[dict[str, str]]:
-            self.request_headers.append(dict(request.headers))
-            return [{'name': 'Rex'}]
 
 
 @contextlib.contextmanager

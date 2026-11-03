@@ -14,9 +14,6 @@ tracer = trace.get_tracer('conciergent')
 
 _SERVICE_NAME = 'conciergent'
 
-# The provider setup installed, so a second setup in the same process tells it apart from a host application's.
-_installed_provider: trace.TracerProvider | None = None
-
 
 def setup(*, capture_content: bool = False) -> None:
     """Turn on tracing for the whole process, so each turn becomes a trace with the agent's spans inside it.
@@ -25,11 +22,10 @@ def setup(*, capture_content: bool = False) -> None:
     Otherwise spans export over OTLP, configured by the standard ``OTEL_EXPORTER_OTLP_*`` environment variables.
     Prompts, completions, and tool arguments and results stay out of the spans unless ``capture_content`` is set.
     """
-    provider = trace.get_tracer_provider()
-    if isinstance(provider, trace.ProxyTracerProvider):
-        _export_over_otlp()
-    elif provider is not _installed_provider:
-        logger.info('Tracing through the tracer provider the host application set')
+    if isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        _install_otlp_tracer_provider()
+    else:
+        logger.info('Tracing through the tracer provider already set')
     # Every agent, including the history summarizer's, emits its run, model, and tool spans.
     Agent.instrument_all(InstrumentationSettings(include_content=capture_content))
     # The mcp SDK already spans each MCP request and carries the trace in its _meta.
@@ -37,8 +33,8 @@ def setup(*, capture_content: bool = False) -> None:
     fastmcp.settings.telemetry_mode = 'propagation_only'
 
 
-def _export_over_otlp() -> None:
-    global _installed_provider
+def _install_otlp_tracer_provider() -> None:
+    # The SDK and the exporter come with the otel extra, so they are imported only once tracing is on.
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.resources import Resource
@@ -53,6 +49,5 @@ def _export_over_otlp() -> None:
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(provider)
-    _installed_provider = provider
     # A push exits right after its turn, so the batch still queued must be flushed on the way out.
     atexit.register(provider.shutdown)
