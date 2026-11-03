@@ -7,6 +7,7 @@ import sys
 import typing
 
 import fastmcp
+import pydantic
 import pydantic_ai
 import pytest
 from opentelemetry import _logs, trace
@@ -178,7 +179,7 @@ def _exported_bodies(exported_logs: InMemoryLogRecordExporter) -> list[str]:
 
 
 def test_setup_exports_each_log_line_with_the_span_it_was_logged_in(spans, exported_logs):
-    telemetry.setup(export_logs=True)
+    telemetry.setup(logs=True)
 
     with trace.get_tracer('test').start_as_current_span('turn') as span:
         logging.getLogger('conciergent.turn').warning('Turn done')
@@ -192,8 +193,8 @@ def test_setup_exports_each_log_line_with_the_span_it_was_logged_in(spans, expor
 
 def test_setup_keeps_its_own_and_http_request_lines_out_of_the_log_export(spans, exported_logs, caplog):
     caplog.set_level(logging.INFO)
-    telemetry.setup(export_logs=True)
-    telemetry.setup(export_logs=True)
+    telemetry.setup(logs=True)
+    telemetry.setup(logs=True)
     exported_logs.clear()
 
     logging.getLogger('conciergent.turn').info('Turn done')
@@ -219,7 +220,7 @@ import fastmcp
 from opentelemetry import _logs, trace
 from conciergent import telemetry
 {before}
-telemetry.setup(capture_content=False, export_logs=True)
+telemetry.setup({arguments})
 provider = trace.get_tracer_provider()
 logger_provider = _logs.get_logger_provider()
 print(json.dumps({{
@@ -234,10 +235,10 @@ print(json.dumps({{
 
 
 def _setup_in_a_fresh_process(
-    *, before: str = '', host_kept: str = 'None', **environment: str
+    *, arguments: str = 'logs=True', before: str = '', host_kept: str = 'None', **environment: str
 ) -> dict[str, typing.Any]:
     # One tracer provider per process, so each setup runs in its own interpreter.
-    probe = _SETUP_PROBE.format(before=before, host_kept=host_kept)
+    probe = _SETUP_PROBE.format(arguments=arguments, before=before, host_kept=host_kept)
     env = {key: value for key, value in os.environ.items() if not key.startswith('OTEL_')} | environment
     result = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True, check=True, env=env)
     return json.loads(result.stdout.strip().splitlines()[-1])
@@ -251,6 +252,13 @@ def test_setup_exports_spans_and_logs_over_otlp_as_conciergent_and_lets_the_mcp_
     assert result['logger_provider'] == 'LoggerProvider'
     assert result['log_service'] == 'conciergent'
     assert result['fastmcp_mode'] == 'propagation_only'
+
+
+def test_setup_exports_logs_without_traces():
+    result = _setup_in_a_fresh_process(arguments='traces=False, logs=True')
+
+    assert result['provider'] == 'ProxyTracerProvider'
+    assert result['logger_provider'] == 'LoggerProvider'
 
 
 def test_setup_keeps_a_service_name_the_environment_sets():
@@ -271,6 +279,11 @@ def test_setup_leaves_a_tracer_provider_the_host_already_set():
 def test_telemetry_is_off_unless_enabled(store_config):
     config = app_config(store_config)
 
-    assert config.telemetry.enabled is False
+    assert config.telemetry.traces is False
+    assert config.telemetry.logs is False
     assert config.telemetry.capture_content is False
-    assert config.telemetry.export_logs is False
+
+
+def test_capturing_content_without_traces_is_a_config_error(store_config):
+    with pytest.raises(pydantic.ValidationError, match=r'needs telemetry\.traces'):
+        app_config(store_config, telemetry={'capture_content': True})

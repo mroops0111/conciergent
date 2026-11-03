@@ -103,11 +103,11 @@ logger:
   format: text
   file: null
 
-# OpenTelemetry tracing of each turn, which needs the extra conciergent[otel].
-# The OTEL_EXPORTER_OTLP_* environment variables say where the spans go.
+# OpenTelemetry signals, which need the extra conciergent[otel].
+# The OTEL_EXPORTER_OTLP_* environment variables say where they go.
 telemetry:
-  enabled: false
+  traces: false
+  logs: false
   capture_content: false
-  export_logs: false
 
 locales_dir: null

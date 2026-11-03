@@ -269,11 +269,9 @@ class App:
                 format=self._logger_settings.format,
                 file=self._logger_settings.file,
             )
-        if self._telemetry_settings is not None and self._telemetry_settings.enabled:
-            telemetry.setup(
-                capture_content=self._telemetry_settings.capture_content,
-                export_logs=self._telemetry_settings.export_logs,
-            )
+        settings = self._telemetry_settings
+        if settings is not None and (settings.traces or settings.logs):
+            telemetry.setup(traces=settings.traces, logs=settings.logs, capture_content=settings.capture_content)
 
 
 def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:

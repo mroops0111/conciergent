@@ -36,21 +36,26 @@ class _ExportedRecordsFilter(logging.Filter):
         return not (record.name.startswith(_HTTP_CLIENT_LOGGERS) and record.levelno < logging.WARNING)
 
 
-def setup(*, capture_content: bool = False, export_logs: bool = False) -> None:
-    """Turn on tracing for the whole process, so each turn becomes a trace with the agent's spans inside it.
+def setup(*, traces: bool = True, logs: bool = False, capture_content: bool = False) -> None:
+    """Send the chosen OpenTelemetry signals for the whole process, configured by ``OTEL_EXPORTER_OTLP_*``.
 
-    A host that already set a tracer provider keeps it, along with wherever it exports.
-    Otherwise spans export over OTLP, configured by the standard ``OTEL_EXPORTER_OTLP_*`` environment variables.
+    With ``traces``, each turn becomes a trace with the agent's spans inside it.
     Prompts, completions, and tool arguments and results stay out of the spans unless ``capture_content`` is set.
-    With ``export_logs``, log lines go out the same way, each tied to the span it was logged in.
+    With ``logs``, log lines go out too, each tied to the span it was logged in, if any.
+    A host that already set a tracer or logger provider keeps it, along with wherever it exports.
     Call it after logging is configured, since the log export joins the root logger's handlers.
     """
+    if traces:
+        _export_traces(capture_content=capture_content)
+    if logs:
+        _export_logs()
+
+
+def _export_traces(*, capture_content: bool) -> None:
     if isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
         _install_otlp_tracer_provider()
     else:
         logger.info('Tracing through the tracer provider already set')
-    if export_logs:
-        _export_logs()
     # Every agent, including the history summarizer's, emits its run, model, and tool spans.
     Agent.instrument_all(InstrumentationSettings(include_content=capture_content))
     # The mcp SDK already spans each MCP request and carries the trace in its _meta.
