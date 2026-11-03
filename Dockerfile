@@ -1,6 +1,7 @@
 # Build conciergent with uv, then run it on a slim Python base.
 # Includes the [gateway] extra so an OpenAPI spec can be embedded as MCP tools,
-# and the [charts] extra so the agent can answer with a chart.
+# the [charts] extra so the agent can answer with a chart,
+# and the [otel] extra so telemetry.enabled exports traces with no code.
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS build
 
@@ -13,12 +14,12 @@ WORKDIR /app
 # Install dependencies first, from the lockfile only, so this layer caches across code changes.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --extra gateway --extra charts
+    uv sync --frozen --no-install-project --extra gateway --extra charts --extra otel
 
 # Then install the project itself.
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-editable --extra gateway --extra charts
+    uv sync --frozen --no-editable --extra gateway --extra charts --extra otel
 
 
 FROM python:3.13-slim-bookworm

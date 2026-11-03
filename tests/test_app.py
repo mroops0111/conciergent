@@ -1,28 +1,19 @@
 import asyncio
 import builtins
-import contextlib
-import json
 import logging
 import pathlib
-import socket
-import threading
-import time
 import typing
 
 import fastapi
 import fastapi.testclient
-import pydantic_ai
 import pytest
-import uvicorn
 import yaml
 from mcp.shared.auth import AuthorizationCodeResult
-from pydantic_ai.mcp import MCPToolset
-from pydantic_ai.models.test import TestModel
 
-from conciergent import App, AppConfig, i18n
+from conciergent import App, i18n
 from conciergent.agent.runner import ChatRunner
 from conciergent.chart import ChartCapability, ChartPublisher, ChartRenderer, DefaultChartStyle
-from conciergent.config import GatewaySettings, GatewaySpec, build_app_config
+from conciergent.config import GatewaySettings, GatewaySpec
 from conciergent.control import ControlClient
 from conciergent.i18n.lang import Lang
 from conciergent.push.outcome import PushOutcome, UnknownPushError
@@ -30,7 +21,15 @@ from conciergent.store.chart import ChartStore
 from conciergent.store.credential import CredentialStore
 from conciergent.store.message import MessageStore
 from conciergent.surfaces import Surface, SurfaceContext
-from tests.conftest import CHART_BASE_URL, StubRunner, chart_renderer
+from tests.conftest import (
+    CHART_BASE_URL,
+    PetsApi,
+    StubRunner,
+    app_config,
+    ask_through_gateway,
+    chart_renderer,
+    serving_gateway,
+)
 from tests.push.conftest import RecordingPushSurface, push_settings
 
 
@@ -43,18 +42,8 @@ def stores(messages_url: str, credentials_url: str) -> dict[str, typing.Any]:
     }
 
 
-@pytest.fixture
-def store_config(messages_url: str, credentials_url: str) -> dict[str, str]:
-    return {'messages_url': messages_url, 'credentials_url': credentials_url}
-
-
 def _silent_app(stores: dict[str, typing.Any], **overrides: typing.Any) -> App:
     return App(runner=StubRunner('ok').as_runner(), **stores, **overrides)
-
-
-def _app_config(store_config: dict[str, str], **sections: typing.Any) -> AppConfig:
-    agent = {'model': 'test', 'system_prompt': 'x', **sections.pop('agent', {})}
-    return build_app_config({'agent': agent, 'store': store_config, **sections})
 
 
 def _client(app: App) -> fastapi.testclient.TestClient:
@@ -93,7 +82,7 @@ def test_mcp_oauth_callback_rejects_missing_params(stores):
 
 
 def test_from_app_config_mounts_configured_surfaces(store_config):
-    config = _app_config(
+    config = app_config(
         store_config,
         surface={
             'slack': {'enabled': True, 'signing_secret': 'sek', 'client_id': 'cid', 'client_secret': 'cs'},
@@ -119,7 +108,7 @@ def test_surfaces_absent_when_not_configured(stores):
 
 def test_gateway_urls_join_the_agent_mcp_servers(store_config):
     mcp_server = 'https://example.com/mcp'
-    config = _app_config(
+    config = app_config(
         store_config,
         agent={'mcp_servers': [mcp_server]},
         surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
@@ -141,7 +130,7 @@ def test_gateway_urls_join_the_agent_mcp_servers(store_config):
 
 
 def test_a_per_user_oauth_spec_is_reached_at_the_public_url(store_config):
-    config = _app_config(
+    config = app_config(
         store_config,
         surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
         gateway={
@@ -162,69 +151,20 @@ def test_a_per_user_oauth_spec_is_reached_at_the_public_url(store_config):
 
 
 def test_a_bearer_spec_works_when_the_public_url_is_unreachable(store_config, messages_url, tmp_path):
-    upstream = fastapi.FastAPI()
-    authorizations: list[str | None] = []
+    pets = PetsApi()
+    # A tunnel that routes only the chat webhook, so the public URL never reaches /pets/mcp.
+    with serving_gateway(
+        pets,
+        spec_dir=tmp_path,
+        store=store_config,
+        redis_url=messages_url,
+        spec_auth={'type': 'bearer', 'token': 'upstream-token'},
+        server={'url': 'https://unreachable.invalid'},
+    ) as app:
+        output = ask_through_gateway(app)
 
-    @upstream.get('/pets', operation_id='listPets')
-    def list_pets(authorization: str | None = fastapi.Header(default=None)) -> list[dict[str, str]]:
-        authorizations.append(authorization)
-        return [{'name': 'Rex'}]
-
-    spec = tmp_path / 'pets.json'
-    spec.write_text(json.dumps(upstream.openapi()))
-    with _serving(upstream, _free_port()) as upstream_url:
-        port = _free_port()
-        config = _app_config(
-            store_config,
-            surface={'slack': {'enabled': True, 'signing_secret': 'sek'}},
-            gateway={
-                'enabled': True,
-                'redis_url': messages_url,
-                'specs': [
-                    {
-                        'name': 'pets',
-                        'spec': str(spec),
-                        'base_url': upstream_url,
-                        'auth': {'type': 'bearer', 'token': 'upstream-token'},
-                    }
-                ],
-            },
-            # A tunnel that routes only the chat webhook, so the public URL never reaches /pets/mcp.
-            server={'host': '127.0.0.1', 'port': port, 'url': 'https://unreachable.invalid'},
-        )
-        app = App.from_app_config(config)
-        with _serving(app.build_asgi(), port):
-            (server,) = app._runner.mcp_servers
-            agent = pydantic_ai.Agent(TestModel(), toolsets=[MCPToolset(server)])
-
-            result = agent.run_sync('list the pets')
-
-    assert 'Rex' in result.output
-    assert authorizations == ['Bearer upstream-token']
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(('127.0.0.1', 0))
-        return probe.getsockname()[1]
-
-
-@contextlib.contextmanager
-def _serving(asgi: fastapi.FastAPI, port: int) -> typing.Iterator[str]:
-    """Serve ``asgi`` on ``port`` in a background thread until the block exits, yielding its URL."""
-    server = uvicorn.Server(uvicorn.Config(asgi, host='127.0.0.1', port=port, log_config=None))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    try:
-        deadline = time.monotonic() + 10
-        while not server.started:
-            if time.monotonic() > deadline or not thread.is_alive():
-                raise RuntimeError(f'the test server on port {port} did not start')
-            time.sleep(0.05)
-        yield f'http://127.0.0.1:{port}'
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
+    assert 'Rex' in output
+    assert [headers['authorization'] for headers in pets.request_headers] == ['Bearer upstream-token']
 
 
 def test_missing_gateway_extra_raises_a_helpful_error(monkeypatch, stores):
@@ -278,7 +218,7 @@ def test_without_charts_the_route_is_absent(stores):
 
 
 def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
-    config = _app_config(
+    config = app_config(
         store_config,
         surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
         capability={'chart': {'enabled': True, 'ttl_seconds': 3600}},
@@ -294,7 +234,7 @@ def test_enabled_charts_give_the_agent_its_chart_tool(store_config):
 
 
 def test_charts_on_a_url_platforms_cannot_fetch_log_a_warning(store_config, caplog):
-    config = _app_config(
+    config = app_config(
         store_config,
         surface={'line': {'enabled': True, 'channel_secret': 's', 'channel_access_token': 't'}},
         capability={'chart': {'enabled': True}},
@@ -308,7 +248,7 @@ def test_charts_on_a_url_platforms_cannot_fetch_log_a_warning(store_config, capl
 
 
 def test_charts_are_off_by_default(store_config):
-    config = _app_config(store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}})
+    config = app_config(store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}})
 
     app = App.from_app_config(config)
 
@@ -353,7 +293,7 @@ def test_locales_dir_override_rebrands_shipped_text(tmp_path, store_config):
     (tmp_path / 'zh-TW.yml').write_text(
         yaml.safe_dump({'approval': {'header': override_header}}, allow_unicode=True), encoding='utf-8'
     )
-    config = _app_config(
+    config = app_config(
         store_config, surface={'slack': {'enabled': True, 'signing_secret': 'sek'}}, locales_dir=str(tmp_path)
     )
 

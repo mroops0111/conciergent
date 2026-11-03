@@ -57,6 +57,11 @@ class ChatContext(abc.ABC):
     # The history scope, such as one user's direct chat, one Slack thread, or one group chat.
     conversation: str
 
+    @property
+    @abc.abstractmethod
+    def kind(self) -> str:
+        """A stable name for this kind of chat, which traces record."""
+
     @abc.abstractmethod
     async def can_run(self, runner: 'ChatRunner') -> bool:
         """Whether the app can serve this chat right now."""
@@ -115,6 +120,11 @@ class ChatContext(abc.ABC):
 class DirectChatContext(ChatContext):
     """A direct chat, where one user owns the history, the approvals, and the credentials."""
 
+    @property
+    @typing.override
+    def kind(self) -> str:
+        return 'direct'
+
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
         return True
@@ -157,6 +167,11 @@ class GroupChatContext(ChatContext):
 
     # The name of the member who sent this message.
     speaker: str
+
+    @property
+    @typing.override
+    def kind(self) -> str:
+        return 'group'
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:
@@ -210,6 +225,11 @@ class UnattendedChatContext(ChatContext):
     runs_destructive_tools: bool = False
     # Stands in for the base class property of the same name, so a push can declare its card's shape.
     reply_format: ReplyFormat = FREE_REPLY_FORMAT
+
+    @property
+    @typing.override
+    def kind(self) -> str:
+        return 'unattended'
 
     @typing.override
     async def can_run(self, runner: 'ChatRunner') -> bool:

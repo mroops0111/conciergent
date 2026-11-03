@@ -97,6 +97,10 @@ gateway:
 #   format: text # text or json (one JSON object per line)
 #   file: null # also write logs to a path (e.g. ./conciergent.log), in addition to stderr
 
+# telemetry: # OpenTelemetry traces, needs conciergent[otel], exported to OTEL_EXPORTER_OTLP_ENDPOINT
+#   enabled: false
+#   capture_content: false # also record prompts, replies, and tool arguments and results in the spans
+
 # UI text (buttons, prompts, greetings) lives in a locale catalog rather than here, so it can be translated,
 # and conciergent picks the language from each user's Slack/LINE profile.
 # To rebrand text or add a language, point at a directory of {lang}.yml files whose keys override the shipped catalog.

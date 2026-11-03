@@ -17,6 +17,8 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 
+from conciergent.telemetry import tracer
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,11 @@ class HistorySummarizer:
             return None
         transcript = _render_transcript(to_compact)
         target_chars = max(int(len(transcript) * self._target_ratio), _SUMMARY_MIN_TARGET_CHARS)
-        result = await self._agent.run(f'Target length: under {target_chars} characters.\n\nTranscript:\n{transcript}')
+        attributes = {'conciergent.compaction.messages': len(to_compact), 'conciergent.compaction.kept': len(to_keep)}
+        with tracer.start_as_current_span('compact history', attributes=attributes):
+            result = await self._agent.run(
+                f'Target length: under {target_chars} characters.\n\nTranscript:\n{transcript}'
+            )
         summary_pair: list[ModelMessage] = [
             ModelRequest(parts=[UserPromptPart(_COMPACTION_SUMMARY_STUB)]),
             ModelResponse(parts=[TextPart(result.output)]),

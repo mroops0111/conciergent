@@ -11,7 +11,7 @@ import fastapi.responses
 import pydantic_ai
 import uvicorn
 
-from conciergent import i18n, logger
+from conciergent import i18n, logger, telemetry
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.capability import AppCapability
@@ -20,6 +20,7 @@ from conciergent.config import (
     GatewaySettings,
     LoggerSettings,
     PushSettings,
+    TelemetrySettings,
     build_app_config,
 )
 from conciergent.control import ControlServer
@@ -55,6 +56,7 @@ class App:
         pushes: collections.abc.Sequence[PushSettings] = (),
         gateway_settings: GatewaySettings | None = None,
         logger_settings: LoggerSettings | None = None,
+        telemetry_settings: TelemetrySettings | None = None,
         approval_ttl_seconds: int = DEFAULTS.conversation.approval_ttl_seconds,
         history_ttl_seconds: int = DEFAULTS.conversation.history_ttl_seconds,
         oauth_wait_timeout_seconds: float = DEFAULTS.conversation.oauth_wait_timeout_seconds,
@@ -72,6 +74,7 @@ class App:
         self._pushes = {push.name: push for push in pushes}
         self._gateway_settings = gateway_settings
         self._logger_settings = logger_settings
+        self._telemetry_settings = telemetry_settings
         self._approval_ttl_seconds = approval_ttl_seconds
         self._history_ttl_seconds = history_ttl_seconds
         self._oauth_wait_timeout_seconds = oauth_wait_timeout_seconds
@@ -132,6 +135,7 @@ class App:
             pushes=config.pushes,
             gateway_settings=config.gateway,
             logger_settings=config.logger,
+            telemetry_settings=config.telemetry,
             host=config.server.host,
             port=config.server.port,
             base_url=config.server.url,
@@ -265,6 +269,8 @@ class App:
                 format=self._logger_settings.format,
                 file=self._logger_settings.file,
             )
+        if self._telemetry_settings is not None and self._telemetry_settings.enabled:
+            telemetry.setup(capture_content=self._telemetry_settings.capture_content)
 
 
 def _callback_page(lang: Lang | None, key: str, *, status_code: int = 200) -> fastapi.responses.HTMLResponse:
@@ -278,7 +284,7 @@ def _build_gateway(settings: GatewaySettings, base_url: str) -> typing.Any:
         import openapi_mcp_gateway
         from openapi_mcp_gateway.settings import StoreConfig
     except ImportError as error:
-        raise RuntimeError('the embedded gateway needs the extra: uv add conciergent[gateway]') from error
+        raise RuntimeError('the embedded gateway needs the extra: uv add "conciergent[gateway]"') from error
     # base_url sets the gateway's public OAuth redirect and discovery URLs, not its localhost default.
     # The Redis store persists the gateway's OAuth client registrations across restarts,
     # so a client id saved by the agent is not later rejected as unknown once the gateway forgets it.

@@ -1,6 +1,8 @@
 import logging
 import typing
 
+from opentelemetry import trace
+
 from conciergent.agent.compactor import HistorySummarizer
 from conciergent.agent.runner import ChatRunner
 from conciergent.chat_context import ChatContext
@@ -8,11 +10,13 @@ from conciergent.defaults import DEFAULTS
 from conciergent.reply import Card, Carousel, ReplySurface
 from conciergent.runtime import OAuthBridge, PendingApproval, SkippedReply
 from conciergent.store.message import MessageStore
+from conciergent.telemetry import tracer
 
 
 logger = logging.getLogger(__name__)
 
 
+@tracer.start_as_current_span('turn')
 async def run_turn(
     user_input: str,
     *,
@@ -33,9 +37,12 @@ async def run_turn(
     with the conversation that scopes history and pending approvals.
     This is side-effect only, the surface sends and the appended history turn.
     """
+    span = trace.get_current_span()
+    span.set_attributes({'conciergent.conversation': chat_context.conversation, 'conciergent.chat': chat_context.kind})
     if not await chat_context.can_run(runner):
         # The app cannot serve this chat right now, and the kind of chat decides how that ends.
         await chat_context.decline(surface)
+        span.set_attribute('conciergent.turn.outcome', 'declined')
         return
     conversation = chat_context.conversation
     history = await message_store.load_history(conversation)
@@ -46,9 +53,12 @@ async def run_turn(
             history = compacted
     owner = chat_context.approval_owner(principal)
     pending_approval = await message_store.take_approval(conversation, owner=owner)
+    if pending_approval is not None:
+        span.add_event('approval resumed')
     if pending_approval is None and chat_context.drops_unowned_decision(user_input):
         # Not every surface can tell one member privately, so the tap is dropped quietly on all of them.
         await surface.acknowledge_silently()
+        span.set_attribute('conciergent.turn.outcome', 'dropped')
         return
 
     await surface.show_processing()
@@ -71,17 +81,22 @@ async def run_turn(
             # or orphan the tool-call turn from its later result.
             await message_store.park_approval(conversation, state, ttl_seconds=approval_ttl_seconds, owner=owner)
             await surface.send_card(card, destructive=True)
+            span.set_attribute('conciergent.turn.outcome', 'approval_requested')
             return
         case SkippedReply(reason=reason):
             # Nothing reached the chat, so nothing joins the history the members see.
             logger.info('Turn in %s ended without a reply: %s', conversation, reason)
+            span.set_attribute('conciergent.turn.outcome', 'skipped')
             return
         case Carousel(options=options, fallback=fallback):
             await surface.send_carousel([*options, fallback])
+            span.set_attribute('conciergent.turn.outcome', 'carousel')
         case Card() as card:
             await surface.send_card(card)
+            span.set_attribute('conciergent.turn.outcome', 'card')
         case str() as text:
             await surface.send_text(text)
+            span.set_attribute('conciergent.turn.outcome', 'text')
         case unhandled:
             typing.assert_never(unhandled)
 
