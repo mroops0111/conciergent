@@ -9,7 +9,10 @@ import typing
 import fastmcp
 import pydantic_ai
 import pytest
-from opentelemetry import trace
+from opentelemetry import _logs, trace
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter, SimpleLogRecordProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic_ai.models.test import TestModel
 
@@ -33,6 +36,8 @@ from tests.push.conftest import STARTED_AT, executor, push_settings
 
 _PRINCIPAL = 'line:U1'
 _CONVERSATION = 'line:user:U1'
+# Collects the exported log lines, behind the one logger provider the exported_logs fixture sets for the session.
+_LOG_EXPORTER = InMemoryLogRecordExporter()
 
 
 def _span(spans: InMemorySpanExporter, name: str) -> typing.Any:
@@ -153,17 +158,75 @@ async def test_setup_keeps_the_conversation_out_of_spans_unless_content_capture_
     assert ('a private question' in recorded) is capture_content
 
 
+@pytest.fixture
+def exported_logs(traced_agents: None) -> typing.Iterator[InMemoryLogRecordExporter]:
+    """The log lines ``telemetry.setup`` exports during the test, with its root handler removed afterwards."""
+    if not isinstance(_logs.get_logger_provider(), LoggerProvider):
+        provider = LoggerProvider()
+        provider.add_log_record_processor(SimpleLogRecordProcessor(_LOG_EXPORTER))
+        _logs.set_logger_provider(provider)
+    root = logging.getLogger()
+    handlers = root.handlers[:]
+    _LOG_EXPORTER.clear()
+    yield _LOG_EXPORTER
+    root.handlers[:] = handlers
+    _LOG_EXPORTER.clear()
+
+
+def _exported_bodies(exported_logs: InMemoryLogRecordExporter) -> list[str]:
+    return [str(record.log_record.body) for record in exported_logs.get_finished_logs()]
+
+
+def test_setup_exports_each_log_line_with_the_span_it_was_logged_in(spans, exported_logs):
+    telemetry.setup(export_logs=True)
+
+    with trace.get_tracer('test').start_as_current_span('turn') as span:
+        logging.getLogger('conciergent.turn').warning('Turn done')
+
+    (record,) = exported_logs.get_finished_logs()
+    assert record.log_record.body == 'Turn done'
+    exported_span = trace.get_current_span(record.log_record.context).get_span_context()
+    assert exported_span.trace_id == span.get_span_context().trace_id
+    assert exported_span.span_id == span.get_span_context().span_id
+
+
+def test_setup_keeps_its_own_and_http_request_lines_out_of_the_log_export(spans, exported_logs, caplog):
+    caplog.set_level(logging.INFO)
+    telemetry.setup(export_logs=True)
+    telemetry.setup(export_logs=True)
+    exported_logs.clear()
+
+    logging.getLogger('conciergent.turn').info('Turn done')
+    logging.getLogger('opentelemetry.exporter').warning('Export failed')
+    logging.getLogger('httpx').info('HTTP Request: GET https://example.com/?token=secret')
+    logging.getLogger('httpx').warning('Connection pool is full')
+
+    assert _exported_bodies(exported_logs) == ['Turn done', 'Connection pool is full']
+    assert sum(isinstance(handler, LoggingHandler) for handler in logging.getLogger().handlers) == 1
+
+
+def test_setup_leaves_logs_unexported_unless_asked(spans, exported_logs):
+    telemetry.setup()
+
+    logging.getLogger('conciergent.turn').warning('Turn done')
+
+    assert _exported_bodies(exported_logs) == []
+
+
 _SETUP_PROBE = """
 import json
 import fastmcp
-from opentelemetry import trace
+from opentelemetry import _logs, trace
 from conciergent import telemetry
 {before}
-telemetry.setup(capture_content=False)
+telemetry.setup(capture_content=False, export_logs=True)
 provider = trace.get_tracer_provider()
+logger_provider = _logs.get_logger_provider()
 print(json.dumps({{
     'provider': type(provider).__name__,
     'service': str(getattr(provider, 'resource', None) and provider.resource.attributes.get('service.name')),
+    'logger_provider': type(logger_provider).__name__,
+    'log_service': str(logger_provider.resource.attributes.get('service.name')),
     'host_kept': {host_kept},
     'fastmcp_mode': fastmcp.settings.telemetry_mode,
 }}))
@@ -180,16 +243,21 @@ def _setup_in_a_fresh_process(
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
-def test_setup_exports_over_otlp_as_conciergent_and_lets_the_mcp_sdk_own_mcp_spans():
+def test_setup_exports_spans_and_logs_over_otlp_as_conciergent_and_lets_the_mcp_sdk_own_mcp_spans():
     result = _setup_in_a_fresh_process()
 
     assert result['provider'] == 'TracerProvider'
     assert result['service'] == 'conciergent'
+    assert result['logger_provider'] == 'LoggerProvider'
+    assert result['log_service'] == 'conciergent'
     assert result['fastmcp_mode'] == 'propagation_only'
 
 
 def test_setup_keeps_a_service_name_the_environment_sets():
-    assert _setup_in_a_fresh_process(OTEL_SERVICE_NAME='bot')['service'] == 'bot'
+    result = _setup_in_a_fresh_process(OTEL_SERVICE_NAME='bot')
+
+    assert result['service'] == 'bot'
+    assert result['log_service'] == 'bot'
 
 
 def test_setup_leaves_a_tracer_provider_the_host_already_set():
@@ -205,3 +273,4 @@ def test_telemetry_is_off_unless_enabled(store_config):
 
     assert config.telemetry.enabled is False
     assert config.telemetry.capture_content is False
+    assert config.telemetry.export_logs is False

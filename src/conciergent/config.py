@@ -433,11 +433,12 @@ class LoggerSettings(pydantic.BaseModel):
 class TelemetrySettings(pydantic.BaseModel):
     """Whether each turn is traced with OpenTelemetry, applied once at startup by ``conciergent.telemetry.setup``.
 
-    Where the spans go is set by the standard ``OTEL_EXPORTER_OTLP_*`` environment variables, so no secret sits here.
+    The standard ``OTEL_EXPORTER_OTLP_*`` environment variables say where spans and logs go, so no secret sits here.
     """
 
     enabled: bool = False
     capture_content: bool = False
+    export_logs: bool = False
 
 
 class AppConfig(pydantic.BaseModel):

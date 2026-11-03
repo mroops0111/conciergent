@@ -126,12 +126,10 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
         file_handler.setFormatter(JsonFormatter() if is_json else TextFormatter())
         handlers.append(file_handler)
 
-    teardown_filter = _SseTeardownFilter()
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level.upper())
     for handler in handlers:
-        handler.addFilter(teardown_filter)
         root.addHandler(handler)
 
     for name in list(logging.Logger.manager.loggerDict):
@@ -140,3 +138,8 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
             managed.handlers.clear()
             managed.propagate = True
             managed.setLevel(logging.NOTSET)
+
+    # On the SDK's logger rather than a handler, so a handler added later, such as the OTLP log export, skips it too.
+    sse_logger = logging.getLogger(_SSE_LOGGER_NAME)
+    if not any(isinstance(existing, _SseTeardownFilter) for existing in sse_logger.filters):
+        sse_logger.addFilter(_SseTeardownFilter())

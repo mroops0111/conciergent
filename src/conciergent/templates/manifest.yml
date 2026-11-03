@@ -100,6 +100,7 @@ gateway:
 # telemetry: # OpenTelemetry traces, needs conciergent[otel], exported to OTEL_EXPORTER_OTLP_ENDPOINT
 #   enabled: false
 #   capture_content: false # also record prompts, replies, and tool arguments and results in the spans
+#   export_logs: false # also send log lines over OTLP, to a backend that takes logs such as Logfire
 
 # UI text (buttons, prompts, greetings) lives in a locale catalog rather than here, so it can be translated,
 # and conciergent picks the language from each user's Slack/LINE profile.

@@ -213,6 +213,7 @@ The shipped default is `openai:gpt-6-luna`. Any model the provider offers works,
 | `logger.level` · `format` · `file` | `INFO` · `text` · *(none)* | Logging. `format` is `text` or `json`, and a JSON line carries `trace_id` and `span_id` while tracing. |
 | `telemetry.enabled` | `false` | Trace each turn with OpenTelemetry. See [Tracing](#tracing). |
 | `telemetry.capture_content` | `false` | Also record prompts, replies, and tool arguments and results in the spans. |
+| `telemetry.export_logs` | `false` | Also send log lines over OTLP, each tied to its span. |
 | `locales_dir` | `null` | Directory of `{lang}.yml` files overriding shipped UI text. |
 
 </details>
@@ -453,6 +454,8 @@ OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic <base64 of public-key:secret-key
 ```
 
 One trace runs from the turn through the agent's model and tool calls to the API behind the embedded gateway. Prompts, replies, and tool data stay out unless `telemetry.capture_content` is on, though the `turn` span names its conversation, which holds the platform's user or group id. An app that already set a tracer provider keeps it.
+
+Set `telemetry.export_logs: true` to send log lines the same way, to a backend that takes OTLP logs such as Logfire, so each trace shows the lines logged inside it. HTTP request lines stay out, since a URL can carry a token.
 
 ## The Reply Model
 

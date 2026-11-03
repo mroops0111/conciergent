@@ -108,5 +108,6 @@ logger:
 telemetry:
   enabled: false
   capture_content: false
+  export_logs: false
 
 locales_dir: null
