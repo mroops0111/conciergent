@@ -13,12 +13,12 @@ def _record(name: str, exception: BaseException) -> logging.LogRecord:
     return logging.LogRecord(name, logging.ERROR, __file__, 1, 'msg', None, (type(exception), exception, None))
 
 
-def test_sse_teardown_filter_drops_only_the_benign_teardown_record() -> None:
-    sse_filter = logger._SseTeardownFilter()
+def test_mcp_teardown_filter_drops_only_the_benign_teardown_record() -> None:
+    teardown_filter = logger._McpTeardownFilter()
 
-    assert not sse_filter.filter(_record(logger._SSE_LOGGER_NAME, anyio.ClosedResourceError()))
-    assert sse_filter.filter(_record(logger._SSE_LOGGER_NAME, ValueError('a real parse error')))
-    assert sse_filter.filter(_record('conciergent.x', anyio.ClosedResourceError()))
+    assert not teardown_filter.filter(_record(logger._MCP_CLIENT_LOGGER_NAME, anyio.ClosedResourceError()))
+    assert teardown_filter.filter(_record(logger._MCP_CLIENT_LOGGER_NAME, ValueError('a real parse error')))
+    assert teardown_filter.filter(_record('conciergent.x', anyio.ClosedResourceError()))
 
 
 @pytest.fixture

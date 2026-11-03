@@ -12,7 +12,7 @@ from opentelemetry import trace
 
 # The filter matches the mcp SDK's own logger, whose name is this module's __name__, so it is derived not a literal.
 # A hard-coded string would silently go stale if the SDK ever renamed the module.
-_SSE_LOGGER_NAME = streamable_http.__name__
+_MCP_CLIENT_LOGGER_NAME = streamable_http.__name__
 
 
 LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
@@ -89,13 +89,13 @@ class TextFormatter(logging.Formatter):
             record.levelname, record.name = original_level, original_name
 
 
-class _SseTeardownFilter(logging.Filter):
+class _McpTeardownFilter(logging.Filter):
     @typing.override
     def filter(self, record: logging.LogRecord) -> bool:
-        # The streamable HTTP client races its background SSE task against the per-turn session teardown,
+        # The MCP client's background stream reader races the per-turn session teardown,
         # so it logs a closed or broken stream error after the turn already replied.
-        # Drop that one record while keeping any real streamable-client error.
-        if record.name == _SSE_LOGGER_NAME and record.exc_info is not None:
+        # Drop that one record while keeping any real MCP client error.
+        if record.name == _MCP_CLIENT_LOGGER_NAME and record.exc_info is not None:
             return not isinstance(record.exc_info[1], anyio.ClosedResourceError | anyio.BrokenResourceError)
         return True
 
@@ -140,6 +140,6 @@ def setup(level: str = 'INFO', format: str = 'text', file: str | None = None) ->
             managed.setLevel(logging.NOTSET)
 
     # On the SDK's logger rather than a handler, so a handler added later, such as the OTLP log export, skips it too.
-    sse_logger = logging.getLogger(_SSE_LOGGER_NAME)
-    if not any(isinstance(existing, _SseTeardownFilter) for existing in sse_logger.filters):
-        sse_logger.addFilter(_SseTeardownFilter())
+    mcp_client_logger = logging.getLogger(_MCP_CLIENT_LOGGER_NAME)
+    if not any(isinstance(existing, _McpTeardownFilter) for existing in mcp_client_logger.filters):
+        mcp_client_logger.addFilter(_McpTeardownFilter())
